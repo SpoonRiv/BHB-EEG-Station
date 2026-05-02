@@ -1,0 +1,59 @@
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Logs & debug artifacts
+*.log
+logs/
+*.dmp
+
+# Runtime / exported data (avoid committing large outputs)
+*.csv
+*.tsv
+*.edf
+*.fif
+*.mat
+*.npz
+*.npy
+
+# IDE
+.idea/
+.vscode/
+
+# Local reference & project rules (runtime should not depend on these)
+ref/
+.trae/rules/
+
+# Node (if web build tooling is introduced)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local env files
+.env
+.env.*
+

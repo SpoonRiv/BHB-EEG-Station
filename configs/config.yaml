@@ -1,0 +1,66 @@
+# BHB-SSVEP 纯 Web 架构配置（第一阶段：8通道 BLE + 波形显示）
+# 说明：本项目不再依赖 BHBconfig.ini，所有配置统一由本文件提供。
+
+bluetooth:
+  device_names:
+    - "MSM"
+    - "MSM_C16"
+  target_device: "MSM"
+  mac_address: ""  # 可选：直接指定 MAC；为空则按名称扫描
+  scan:
+    max_retries: 10
+    retry_interval_sec: 1.0
+  gatt:
+    # notify 与 write 的特征值（可以使用 handle 或 uuid；默认取旧版脚本的 handle）
+    notify_char_handle: 5
+    write_char_handle: 8
+  commands:
+    init:
+      - [0x03, 0x02]
+    start_stream: [0x02, 0x01]
+    stop_stream: [0x02, 0x02]
+
+eeg:
+  # 预留 8/16 通道版本切换接口：8 或 16
+  mode_channels: 8
+  sampling_rate_hz: 500
+  channel_names:
+    - "P3"
+    - "PO4"
+    - "P7"
+    - "PO8"
+    - "PO7"
+    - "P8"
+    - "PO3"
+    - "P4"
+  ref_channel_name: "Pz"
+  lsl:
+    stream_name: "BHB-EEG"
+    stream_type: "EEG"
+    include_trigger_channel: true
+
+protocol:
+  # 8通道默认协议参数（根据文档 CH8(带tDCS)底层FPGA操作指令及帧格式V1.0.docx 配置，总长 140 bytes）
+  frame:
+    header_len_bytes: 3    # 帧头 2 字节 (0xAA 0xBB) + 帧序号 1 字节
+    bytes_per_sample_per_channel: 3
+    samples_per_frame: 5
+    trigger_len_bytes: 1
+    imu_len_bytes: 12
+    battery_len_bytes: 2
+    tail_len_bytes: 2      # 校验段 1 字节 (SUM) + 帧尾 1 字节 (0xCC)
+
+server:
+  host: "127.0.0.1"
+  port: 8001
+
+streaming:
+  # WebSocket 发送刷新频率，用于节流，防止前端渲染过载卡死
+  update_fps: 100
+  # 每次推送的采样点数；若为 0，则自动按 sampling_rate_hz / update_fps 计算
+  buffer_size: 0
+
+debug:
+  # 上位机调试界面：仅展示调试事件（如收到EEG长度、发送/接收指令等），不展示网络/蓝牙连接信息
+  ui_enabled: true
+  max_events: 500

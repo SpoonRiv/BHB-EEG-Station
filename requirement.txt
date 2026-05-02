@@ -1,0 +1,10 @@
+fastapi[standard]
+uvicorn
+pyyaml
+websockets
+pylsl
+bleak
+pandas
+scipy
+jinja2
+numpy
