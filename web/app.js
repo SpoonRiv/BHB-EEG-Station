@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2026 {Company}. All rights reserved.
+Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 文件功能: 前端控制与渲染逻辑（WebSocket 实时接收 EEG 数据、调用后端 API、使用 ECharts 绘制波形）
 

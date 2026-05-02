@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Copyright (c) 2026 {Company}. All rights reserved.
+Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 文件功能: BLE 采集进程实现（连接设备、接收通知数据、按协议组帧解析并推送到 LSL）
 
 修改日志:
 - 2026-04-30: 1.0.0 创建文件
+- 2026-05-02: 1.1.0 支持连接常驻与命令队列模式切换
+- 2026-05-02: 1.1.1 调整调试输出：仅在EEG启动后提示无数据，减少默认噪声
 
 作者: Spoon
-版本: 1.0.0
+版本: 1.1.1
 """
 
 import asyncio
 import multiprocessing
+import queue
 import time
 from typing import Any, Dict, List, Optional
 
@@ -136,10 +139,13 @@ async def _connect_and_stream(
     config_path: str,
     stop_event: multiprocessing.Event,
     status_queue: multiprocessing.Queue,
+    command_queue: multiprocessing.Queue,
     debug_queue: Optional[multiprocessing.Queue],
+    connect_address: Optional[str],
+    connect_name: Optional[str],
 ) -> None:
     """
-    BLE 连接与数据接收主协程：读取配置，连接 BLE，接收通知并推送到 LSL。
+    BLE 连接与数据接收主协程：读取配置，连接 BLE，接收通知数据，并根据主进程命令队列执行模式切换/启停。
     """
     cfg = load_config(config_path)
 
@@ -165,8 +171,8 @@ async def _connect_and_stream(
         )
     )
 
-    address: Optional[str] = cfg.bluetooth.mac_address.strip() or None
-    resolved_name = cfg.bluetooth.target_device
+    address: Optional[str] = (connect_address or "").strip() or cfg.bluetooth.mac_address.strip() or None
+    resolved_name = (connect_name or "").strip() or cfg.bluetooth.target_device
     if not address:
         target = await find_device_by_name(
             target_name=cfg.bluetooth.target_device,
@@ -189,9 +195,11 @@ async def _connect_and_stream(
     no_data_reported = False
     start_retry_count = 0
     last_start_cmd_ts: float = 0.0
+    current_mode: str = "idle"
+    eeg_streaming_enabled = False
 
     def on_notify(_: int, data: bytearray) -> None:
-        nonlocal frame_counter, notify_counter, last_notify_ts, no_data_reported
+        nonlocal frame_counter, notify_counter, last_notify_ts, no_data_reported, eeg_streaming_enabled
         notify_counter += 1
         last_notify_ts = time.time()
         no_data_reported = False
@@ -207,6 +215,8 @@ async def _connect_and_stream(
                     )
             except Exception:
                 pass
+        if not eeg_streaming_enabled:
+            return
         # 参考旧版已验证逻辑：若收到长度刚好为一帧（140字节）的数据包，则清空缓存，避免错位累积
         if len(data) == spec.frame_len_bytes:
             if debug_queue is not None:
@@ -253,22 +263,13 @@ async def _connect_and_stream(
             async with BleakClient(address) as client:
                 status_queue.put({"type": "connected", "address": address, "name": resolved_name})
                 await client.start_notify(notify_handle, on_notify)
-                if debug_queue is not None:
-                    try:
-                        debug_queue.put(
-                            {
-                                "tag": "NOTIFY",
-                                "message": "已开启EEG通知监听",
-                                "data": {"notify_handle": int(notify_handle)},
-                            }
-                        )
-                    except Exception:
-                        pass
                 notify_counter = 0
                 last_notify_ts = time.time()
                 no_data_reported = False
                 start_retry_count = 0
                 last_start_cmd_ts = 0.0
+                current_mode = "idle"
+                eeg_streaming_enabled = False
 
                 async def _send_cmd(cmd: List[int], action: str) -> None:
                     payload = bytearray(cmd)
@@ -288,28 +289,89 @@ async def _connect_and_stream(
                             pass
 
                 try:
-                    # 参考旧版：先开启 notify，再发送开始采集指令，更容易避免“发送了但没有数据”的情况
                     for one in cfg.bluetooth.commands.init_commands:
                         if one:
                             await _send_cmd(one, action="init")
                             await asyncio.sleep(0.05)
-                    await _send_cmd(cfg.bluetooth.commands.start_stream, action="start_stream")
-                    last_start_cmd_ts = time.time()
                 except Exception as e:
                     if debug_queue is not None:
                         try:
                             debug_queue.put(
                                 {
                                     "tag": "CMD_TX",
-                                    "message": "发送 start_stream 指令失败",
+                                    "message": "发送 init 指令失败",
                                     "data": {"error": str(e), "write_handle": int(write_handle)},
                                 }
                             )
                         except Exception:
                             pass
+
+                status_queue.put({"type": "ready", "address": address, "name": resolved_name})
                 while not stop_event.is_set():
+                    try:
+                        cmd_msg: Dict[str, Any] = command_queue.get_nowait()
+                        msg_type = str(cmd_msg.get("type", ""))
+                        if msg_type == "select_mode":
+                            next_mode = str(cmd_msg.get("mode", "idle"))
+                            current_mode = next_mode
+                            status_queue.put({"type": "mode", "mode": current_mode})
+                        elif msg_type == "start_mode":
+                            mode = str(cmd_msg.get("mode", ""))
+                            if mode == "eeg":
+                                current_mode = "eeg"
+                                eeg_streaming_enabled = False
+                                buf.clear()
+                                notify_counter = 0
+                                last_notify_ts = time.time()
+                                no_data_reported = False
+                                start_retry_count = 0
+                                try:
+                                    await _send_cmd(cfg.bluetooth.commands.stop_eeg, action="pre_stop_eeg")
+                                    await asyncio.sleep(0.05)
+                                except Exception:
+                                    pass
+                                await _send_cmd(cfg.bluetooth.commands.start_eeg, action="start_eeg")
+                                last_start_cmd_ts = time.time()
+                                eeg_streaming_enabled = True
+                                status_queue.put({"type": "mode_started", "mode": "eeg"})
+                            elif mode == "impedance":
+                                current_mode = "impedance"
+                                eeg_streaming_enabled = False
+                                buf.clear()
+                                await _send_cmd(cfg.bluetooth.commands.start_impedance, action="start_impedance")
+                                status_queue.put({"type": "mode_started", "mode": "impedance"})
+                            elif mode == "tdcs":
+                                current_mode = "tdcs"
+                                eeg_streaming_enabled = False
+                                buf.clear()
+                                await _send_cmd(cfg.bluetooth.commands.start_tdcs, action="start_tdcs")
+                                status_queue.put({"type": "mode_started", "mode": "tdcs"})
+                        elif msg_type == "stop_mode":
+                            mode = str(cmd_msg.get("mode", ""))
+                            if mode == "eeg":
+                                eeg_streaming_enabled = False
+                                buf.clear()
+                                await _send_cmd(cfg.bluetooth.commands.stop_eeg, action="stop_eeg")
+                                status_queue.put({"type": "mode_stopped", "mode": "eeg"})
+                            elif mode == "impedance":
+                                eeg_streaming_enabled = False
+                                buf.clear()
+                                await _send_cmd(cfg.bluetooth.commands.stop_impedance, action="stop_impedance")
+                                status_queue.put({"type": "mode_stopped", "mode": "impedance"})
+                            elif mode == "tdcs":
+                                eeg_streaming_enabled = False
+                                buf.clear()
+                                await _send_cmd(cfg.bluetooth.commands.stop_tdcs, action="stop_tdcs")
+                                status_queue.put({"type": "mode_stopped", "mode": "tdcs"})
+                            current_mode = "idle"
+                            status_queue.put({"type": "mode", "mode": current_mode})
+                    except queue.Empty:
+                        pass
+                    except Exception as e:
+                        status_queue.put({"type": "error", "message": str(e)})
+
                     # 若持续未收到任何 notify，则输出一次“无数据”调试事件（便于定位：已发指令但设备未回传）
-                    if debug_queue is not None and not no_data_reported:
+                    if eeg_streaming_enabled and debug_queue is not None and not no_data_reported:
                         if last_notify_ts > 0 and notify_counter == 0 and (time.time() - last_notify_ts) > 3.0:
                             no_data_reported = True
                             try:
@@ -323,18 +385,18 @@ async def _connect_and_stream(
                             except Exception:
                                 pass
 
-                    if debug_queue is not None and notify_counter == 0 and start_retry_count < 2:
+                    if eeg_streaming_enabled and debug_queue is not None and notify_counter == 0 and start_retry_count < 2:
                         if last_start_cmd_ts > 0 and (time.time() - last_start_cmd_ts) > 1.0:
                             start_retry_count += 1
                             last_start_cmd_ts = time.time()
                             try:
-                                await _send_cmd(cfg.bluetooth.commands.start_stream, action=f"start_stream_retry_{int(start_retry_count)}")
+                                await _send_cmd(cfg.bluetooth.commands.start_eeg, action=f"start_eeg_retry_{int(start_retry_count)}")
                             except Exception as e:
                                 try:
                                     debug_queue.put(
                                         {
                                             "tag": "CMD_TX",
-                                            "message": "重发 start_stream 指令失败",
+                                            "message": "重发 start_eeg 指令失败",
                                             "data": {"retry": int(start_retry_count), "error": str(e), "write_handle": int(write_handle)},
                                         }
                                     )
@@ -342,26 +404,21 @@ async def _connect_and_stream(
                                     pass
                     await asyncio.sleep(0.05)
                 await client.stop_notify(notify_handle)
-                if debug_queue is not None:
+                if eeg_streaming_enabled:
                     try:
-                        debug_queue.put({"tag": "NOTIFY", "message": "已关闭EEG通知监听", "data": {}})
-                    except Exception:
-                        pass
-                try:
-                    await _send_cmd(cfg.bluetooth.commands.stop_stream, action="stop_stream")
-                except Exception as e:
-                    if debug_queue is not None:
-                        try:
-                            debug_queue.put(
-                                {
-                                    "tag": "CMD_TX",
-                                    "message": "发送 stop_stream 指令失败",
-                                    "data": {"error": str(e), "write_handle": int(write_handle)},
-                                }
-                            )
-                        except Exception:
-                            pass
-                    pass
+                        await _send_cmd(cfg.bluetooth.commands.stop_eeg, action="stop_eeg")
+                    except Exception as e:
+                        if debug_queue is not None:
+                            try:
+                                debug_queue.put(
+                                    {
+                                        "tag": "CMD_TX",
+                                        "message": "发送 stop_eeg 指令失败",
+                                        "data": {"error": str(e), "write_handle": int(write_handle)},
+                                    }
+                                )
+                            except Exception:
+                                pass
                 break
         except Exception as e:
             status_queue.put({"type": "error", "message": str(e)})
@@ -372,13 +429,16 @@ def run_ble_acquisition_process(
     config_path: str,
     stop_event: multiprocessing.Event,
     status_queue: multiprocessing.Queue,
+    command_queue: multiprocessing.Queue,
     debug_queue: Optional[multiprocessing.Queue] = None,
+    connect_address: Optional[str] = None,
+    connect_name: Optional[str] = None,
 ) -> None:
     """
-    BLE 采集进程入口函数：运行 asyncio 事件循环并执行连接与推流逻辑。
+    BLE 采集进程入口函数：运行 asyncio 事件循环并执行连接与通知处理逻辑。
     """
     try:
-        asyncio.run(_connect_and_stream(config_path, stop_event, status_queue, debug_queue))
+        asyncio.run(_connect_and_stream(config_path, stop_event, status_queue, command_queue, debug_queue, connect_address, connect_name))
     except KeyboardInterrupt:
         pass
     finally:

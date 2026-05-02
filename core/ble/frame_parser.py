@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Copyright (c) 2026 {Company}. All rights reserved.
+Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 文件功能: BLE EEG 帧协议解析（校验帧完整性，解析 EEG/触发/电量/IMU 并输出采样点序列）
 

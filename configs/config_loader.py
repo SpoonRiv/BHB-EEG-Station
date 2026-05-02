@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Copyright (c) 2026 {Company}. All rights reserved.
+Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 文件功能: 加载并校验 configs/config.yaml，生成强类型配置对象（dataclass）
 
 修改日志:
 - 2026-04-30: 1.0.0 创建文件
+- 2026-05-02: 1.1.0 增加设备与模式页面流，拆分脚本入口
+- 2026-05-02: 1.1.1 增加 LSL 解析超时与重试配置，提升波形推流稳定性
 
 作者: Spoon
-版本: 1.0.0
+版本: 1.1.1
 """
 
 import os
@@ -28,8 +30,12 @@ class BluetoothGattConfig:
 @dataclass(frozen=True)
 class BluetoothCommandConfig:
     init_commands: List[List[int]]
-    start_stream: List[int]
-    stop_stream: List[int]
+    start_eeg: List[int]
+    stop_eeg: List[int]
+    start_impedance: List[int]
+    stop_impedance: List[int]
+    start_tdcs: List[int]
+    stop_tdcs: List[int]
 
 
 @dataclass(frozen=True)
@@ -90,6 +96,8 @@ class ServerConfig:
 class StreamingConfig:
     update_fps: int
     buffer_size: int
+    lsl_resolve_timeout_sec: float
+    lsl_resolve_retry_interval_sec: float
 
 
 @dataclass(frozen=True)
@@ -100,6 +108,7 @@ class DebugConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
+    app_ui_version: str
     bluetooth: BluetoothConfig
     eeg: EegConfig
     protocol: ProtocolConfig
@@ -132,6 +141,8 @@ def load_config(config_path: str) -> AppConfig:
     server_raw = raw.get("server", {})
     streaming_raw = raw.get("streaming", {})
     debug_raw = raw.get("debug", {})
+    app_raw = raw.get("app", {}) or {}
+    app_ui_version = str(app_raw.get("ui_version") or app_raw.get("version") or "1.0.0").strip() or "1.0.0"
 
     mode_channels = int(eeg_raw.get("mode_channels", 8))
     channel_names_cfg = list(eeg_raw.get("channel_names", []) or [])
@@ -144,6 +155,13 @@ def load_config(config_path: str) -> AppConfig:
     buffer_size = int(streaming_raw.get("buffer_size", 0))
     if buffer_size <= 0:
         buffer_size = max(1, int(round(sampling_rate_hz / max(1, update_fps))))
+
+    lsl_resolve_timeout_sec = float(streaming_raw.get("lsl_resolve_timeout_sec", 1.0))
+    lsl_resolve_retry_interval_sec = float(streaming_raw.get("lsl_resolve_retry_interval_sec", 0.5))
+    if lsl_resolve_timeout_sec < 0.05:
+        lsl_resolve_timeout_sec = 0.05
+    if lsl_resolve_retry_interval_sec < 0.05:
+        lsl_resolve_retry_interval_sec = 0.05
 
     def _as_u8_list(items: Any) -> List[int]:
         if not isinstance(items, list):
@@ -167,8 +185,12 @@ def load_config(config_path: str) -> AppConfig:
         return out
 
     init_commands_cfg = _as_u8_list_list(cmd_raw.get("init", []))
-    start_stream_cfg = _as_u8_list(cmd_raw.get("start_stream", [0x02, 0x01]))
-    stop_stream_cfg = _as_u8_list(cmd_raw.get("stop_stream", [0x02, 0x02]))
+    start_eeg_cfg = _as_u8_list(cmd_raw.get("start_eeg") or cmd_raw.get("start_stream") or [0x02, 0x01])
+    stop_eeg_cfg = _as_u8_list(cmd_raw.get("stop_eeg") or cmd_raw.get("stop_stream") or [0x02, 0x02])
+    start_impedance_cfg = _as_u8_list(cmd_raw.get("start_impedance", [0x03, 0x01]))
+    stop_impedance_cfg = _as_u8_list(cmd_raw.get("stop_impedance", [0x03, 0x02]))
+    start_tdcs_cfg = _as_u8_list(cmd_raw.get("start_tdcs", [0x07, 0x01]))
+    stop_tdcs_cfg = _as_u8_list(cmd_raw.get("stop_tdcs", [0x07, 0x02]))
 
     bluetooth = BluetoothConfig(
         device_names=device_names_cfg,
@@ -184,8 +206,12 @@ def load_config(config_path: str) -> AppConfig:
         ),
         commands=BluetoothCommandConfig(
             init_commands=init_commands_cfg,
-            start_stream=start_stream_cfg,
-            stop_stream=stop_stream_cfg,
+            start_eeg=start_eeg_cfg,
+            stop_eeg=stop_eeg_cfg,
+            start_impedance=start_impedance_cfg,
+            stop_impedance=stop_impedance_cfg,
+            start_tdcs=start_tdcs_cfg,
+            stop_tdcs=stop_tdcs_cfg,
         ),
     )
 
@@ -221,6 +247,8 @@ def load_config(config_path: str) -> AppConfig:
     streaming = StreamingConfig(
         update_fps=update_fps,
         buffer_size=buffer_size,
+        lsl_resolve_timeout_sec=lsl_resolve_timeout_sec,
+        lsl_resolve_retry_interval_sec=lsl_resolve_retry_interval_sec,
     )
 
     debug = DebugConfig(
@@ -229,6 +257,7 @@ def load_config(config_path: str) -> AppConfig:
     )
 
     return AppConfig(
+        app_ui_version=app_ui_version,
         bluetooth=bluetooth,
         eeg=eeg,
         protocol=protocol,

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Copyright (c) 2026 {Company}. All rights reserved.
+Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 文件功能: LSL 输出写入（创建 StreamOutlet 并将采样点按时间戳推送到 pylsl）
 

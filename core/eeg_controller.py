@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Copyright (c) 2026 {Company}. All rights reserved.
+Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 文件功能: EEG 采集控制编排（启动/停止 BLE 采集进程），并向上层提供统一的设备生命周期管理接口
 
 修改日志:
 - 2026-04-30: 1.0.0 创建文件
+- 2026-05-02: 1.1.0 增加设备与模式页面流，拆分脚本入口
 
 作者: Spoon
-版本: 1.0.0
+版本: 1.1.0
 """
 
 import multiprocessing
 import os
 import logging
 import time
+import queue
 from typing import Any, Dict, Optional
 
 from configs.config_loader import load_config
@@ -35,8 +37,10 @@ class EEGController:
         self.process: Optional[multiprocessing.Process] = None
         self.stop_event: Optional[multiprocessing.Event] = None
         self.status_queue: Optional[multiprocessing.Queue] = None
+        self.command_queue: Optional[multiprocessing.Queue] = None
         self.debug_queue: Optional[multiprocessing.Queue] = None
         self.last_status: Optional[Dict[str, Any]] = None
+        self.current_mode: str = "idle"
         self.config_path = config_path or os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
             "configs",
@@ -62,15 +66,21 @@ class EEGController:
         - last: 最近一次来自采集进程的状态消息（connected/connecting/error/battery/imu/stopped/idle 等）
         - configured_name: 配置中期望匹配的设备名（用于用户核对）
         """
+        self._drain_status_queue()
         configured_name = self.config.bluetooth.target_device
         last = self.last_status or {"type": "idle", "message": "未启动", "name": configured_name}
         if "name" not in last:
             last = {**last, "name": configured_name}
-        return {"running": self.is_running(), "last": last, "configured_name": configured_name}
+        return {
+            "running": self.is_running(),
+            "last": last,
+            "configured_name": configured_name,
+            "mode": self.current_mode,
+        }
 
-    def start_device(self) -> bool:
+    def start_device(self, address: Optional[str] = None, name: Optional[str] = None) -> bool:
         """
-        启动蓝牙采集进程（BLE -> LSL）。
+        启动蓝牙采集进程并建立 BLE 连接（连接常驻，不自动进入具体业务模式）。
 
         Returns:
             bool: 启动是否成功
@@ -82,10 +92,11 @@ class EEGController:
         try:
             self.stop_event = multiprocessing.Event()
             self.status_queue = multiprocessing.Queue()
+            self.command_queue = multiprocessing.Queue()
             self.debug_queue = multiprocessing.Queue()
             self.process = multiprocessing.Process(
                 target=run_ble_acquisition_process,
-                args=(self.config_path, self.stop_event, self.status_queue, self.debug_queue),
+                args=(self.config_path, self.stop_event, self.status_queue, self.command_queue, self.debug_queue, address, name),
             )
             self.process.start()
 
@@ -97,6 +108,7 @@ class EEGController:
 
                 if msg.get("type") == "connected":
                     logging.info("Bluetooth EEG device connected successfully.")
+                    self.current_mode = "idle"
                     return True
                 if msg.get("type") == "error":
                     logging.error(f"EEG device start error: {msg.get('message')}")
@@ -110,6 +122,82 @@ class EEGController:
             logging.error(f"Failed to start EEG device: {e}")
             self.last_status = {"type": "error", "message": str(e)}
             return False
+
+    def select_mode(self, mode: str) -> bool:
+        """
+        选择设备业务模式（仅切换状态，不自动下发 start 指令）。
+
+        Args:
+            mode: 目标模式。当前支持：idle/eeg/impedance/tdcs
+
+        Returns:
+            bool: 命令是否成功投递到采集进程
+        """
+        if not self.command_queue or not self.is_running():
+            return False
+        self.command_queue.put({"type": "select_mode", "mode": str(mode)})
+        self.current_mode = str(mode)
+        return True
+
+    def start_mode(self, mode: str) -> bool:
+        """
+        启动指定模式（向设备下发对应 start 指令）。
+
+        Args:
+            mode: 模式。当前支持：eeg/impedance/tdcs
+
+        Returns:
+            bool: 命令是否成功投递到采集进程
+        """
+        if not self.command_queue or not self.is_running():
+            return False
+        self.command_queue.put({"type": "start_mode", "mode": str(mode)})
+        self.current_mode = str(mode)
+        return True
+
+    def stop_mode(self, mode: str) -> bool:
+        """
+        停止指定模式（向设备下发对应 stop 指令）。
+
+        Args:
+            mode: 模式。当前支持：eeg/impedance/tdcs
+
+        Returns:
+            bool: 命令是否成功投递到采集进程
+        """
+        if not self.command_queue or not self.is_running():
+            return False
+        self.command_queue.put({"type": "stop_mode", "mode": str(mode)})
+        self.current_mode = "idle"
+        return True
+
+    def _drain_status_queue(self) -> None:
+        """
+        尝试无阻塞地清空状态队列，将最新状态缓存到 last_status。
+
+        该函数用于解决“连接后持续更新状态”的需求：主进程不应为状态更新创建额外阻塞循环，
+        而由 get_status() 在被调用时顺手拉取最新状态即可。
+        """
+        if not self.status_queue:
+            return
+        while True:
+            try:
+                msg = self.status_queue.get_nowait()
+                if isinstance(msg, dict):
+                    msg_type = str(msg.get("type", ""))
+                    if msg_type in {"connecting", "connected", "ready", "error", "stopped", "idle"}:
+                        self.last_status = msg
+                    if msg_type == "mode" and "mode" in msg:
+                        self.current_mode = str(msg.get("mode"))
+                    if msg_type in {"mode_started", "mode_stopped"} and "mode" in msg:
+                        if msg_type == "mode_started":
+                            self.current_mode = str(msg.get("mode"))
+                        else:
+                            self.current_mode = "idle"
+            except queue.Empty:
+                break
+            except Exception:
+                break
 
     def stop_device(self) -> bool:
         """
@@ -135,7 +223,9 @@ class EEGController:
             self.process = None
             self.stop_event = None
             self.status_queue = None
+            self.command_queue = None
             self.debug_queue = None
+            self.current_mode = "idle"
             self.last_status = {"type": "stopped", "message": "采集已停止", "name": self.config.bluetooth.target_device}
             return True
         except Exception as e:

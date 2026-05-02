@@ -1,264 +1,190 @@
 <!DOCTYPE html>
 <!--
-Copyright (c) 2026 {Company}. All rights reserved.
+Copyright (c) 2026 BUAA BHB. All rights reserved.
 
-文件功能: Web 前端页面入口（展示 EEG 实时波形与采集控制按钮）
+文件功能: Web 前端页面入口（设备选择 -> 模式选择 -> EEG 波形页面流）
 
 修改日志:
 - 2026-04-30: 1.0.0 创建文件
+- 2026-05-02: 1.1.0 增加设备与模式页面流，拆分脚本入口
 
 作者: Spoon
-版本: 1.0.0
+版本: 1.1.0
 -->
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BHB-EEG Station</title>
-    <!-- 引入 ECharts 库 -->
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
-    <style>
-        :root {
-            --bg-color: #0d1117;
-            --panel-bg: #161b22;
-            --text-color: #c9d1d9;
-            --accent-color: #58a6ff;
-            --success-color: #238636;
-            --danger-color: #da3633;
-            --border-color: #30363d;
-        }
-
-        body {
-            margin: 0;
-            padding: 0;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-            overflow: hidden;
-        }
-
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 1rem 2rem;
-            background-color: var(--panel-bg);
-            border-bottom: 1px solid var(--border-color);
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-        }
-
-        .title {
-            font-size: 1.5rem;
-            font-weight: bold;
-            color: var(--accent-color);
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        .controls {
-            display: flex;
-            gap: 1rem;
-        }
-
-        button {
-            background-color: var(--panel-bg);
-            color: var(--text-color);
-            border: 1px solid var(--border-color);
-            padding: 0.5rem 1.5rem;
-            border-radius: 4px;
-            font-size: 1rem;
-            cursor: pointer;
-            transition: all 0.2s ease-in-out;
-            font-weight: 600;
-        }
-
-        button:hover {
-            background-color: var(--border-color);
-        }
-
-        #btn-start {
-            color: var(--success-color);
-            border-color: var(--success-color);
-        }
-
-        #btn-start:hover {
-            background-color: var(--success-color);
-            color: #ffffff;
-        }
-
-        #btn-stop {
-            color: var(--danger-color);
-            border-color: var(--danger-color);
-        }
-
-        #btn-stop:hover {
-            background-color: var(--danger-color);
-            color: #ffffff;
-        }
-
-        button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            pointer-events: none;
-        }
-
-        .content {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        .debug-panel {
-            background-color: var(--panel-bg);
-            border-bottom: 1px solid var(--border-color);
-            padding: 0.75rem 1rem;
-            height: 260px;
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-
-        .debug-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 0.75rem;
-        }
-
-        .debug-title {
-            font-weight: 700;
-            color: var(--accent-color);
-            font-size: 0.95rem;
-        }
-
-        .debug-controls {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .debug-controls input {
-            background: transparent;
-            border: 1px solid var(--border-color);
-            color: var(--text-color);
-            padding: 0.35rem 0.6rem;
-            border-radius: 4px;
-            width: 220px;
-        }
-
-        .debug-controls button {
-            padding: 0.35rem 0.8rem;
-            font-size: 0.9rem;
-        }
-
-        .debug-log {
-            flex: 1;
-            overflow: auto;
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 0.5rem 0.75rem;
-            white-space: pre;
-            tab-size: 4;
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-            font-size: 14px;
-            line-height: 1.5;
-        }
-
-        main {
-            flex: 1;
-            padding: 1rem;
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-            overflow-y: auto; /* 波形区垂直滚动 */
-        }
-
-        .chart-container {
-            background-color: var(--panel-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            position: relative;
-            overflow: hidden;
-            width: 100%;
-            height: 180px; /* 固定高度，使其成为单列多行 */
-            flex-shrink: 0;
-        }
-
-        .chart-title {
-            position: absolute;
-            top: 0.5rem;
-            left: 1rem;
-            font-size: 0.8rem;
-            color: var(--accent-color);
-            z-index: 10;
-        }
-
-        .echarts-instance {
-            width: 100%;
-            height: 100%;
-        }
-
-        #status-indicator {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.9rem;
-        }
-
-        .status-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background-color: #6e7681;
-            box-shadow: 0 0 5px #6e7681;
-        }
-
-        .status-dot.active {
-            background-color: var(--success-color);
-            box-shadow: 0 0 8px var(--success-color);
-        }
-
-        .status-dot.error {
-            background-color: var(--danger-color);
-            box-shadow: 0 0 8px var(--danger-color);
-        }
-    </style>
+    <link rel="stylesheet" href="styles/app.css" />
 </head>
 <body>
-
-<header>
-    <div class="title">BHB-SSVEP Station</div>
-    <div id="status-indicator">
-        <div class="status-dot" id="status-dot"></div>
-        <span id="status-text">设备未连接</span>
-    </div>
-    <div class="controls">
-        <button id="btn-start">开始采集</button>
-        <button id="btn-stop" disabled>停止采集</button>
-    </div>
-</header>
-
-<div class="content">
-    <div class="debug-panel">
-        <div class="debug-header">
-            <div class="debug-title">输出</div>
-            <div class="debug-controls">
-                <input id="debug-filter" placeholder="过滤关键字" />
-                <button id="debug-clear">清空</button>
-            </div>
+<div class="app">
+    <header class="app-header">
+        <div class="brand">
+            <img class="brand-logo" src="logo.png" alt="BHB Logo" />
+            <div class="brand-title">BHB-EEG Station</div>
+            <div class="brand-sub" id="brand-sub">v1.0.1</div>
         </div>
-        <div class="debug-log" id="debug-log"></div>
-    </div>
+        <div class="header-actions">
+            <div class="badge" id="conn-badge">
+                <div class="badge-dot"></div>
+                <div id="conn-text">未连接</div>
+            </div>
+            <button class="btn" id="theme-toggle" aria-label="切换日夜模式"></button>
+            <button class="btn" id="nav-device">设备</button>
+            <button class="btn" id="nav-mode">模式</button>
+        </div>
+    </header>
 
-    <main id="charts-grid">
-        <!-- 动态生成通道图表 -->
-    </main>
+    <div class="app-body">
+        <section class="page" id="page-device">
+            <div class="page-grid">
+                <div class="card">
+                    <div class="card-header">
+                        <div>
+                            <div class="card-title">选择蓝牙设备</div>
+                            <div class="card-sub">扫描后从下拉列表选择目标设备，再建立连接</div>
+                        </div>
+                        <button class="btn primary" id="btn-scan">扫描</button>
+                    </div>
+                    <div class="card-body">
+                        <div class="stack">
+                            <div class="field">
+                                <div class="label">设备列表</div>
+                                <select id="device-select" disabled>
+                                    <option value="">请先点击“扫描”</option>
+                                </select>
+                            </div>
+                            <div class="row">
+                                <button class="btn primary" id="btn-connect">连接</button>
+                                <button class="btn danger" id="btn-disconnect">断开</button>
+                            </div>
+                            <div class="status-box" id="device-status">状态：未连接</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <div>
+                            <div class="card-title">提示</div>
+                            <div class="card-sub">连接成功后进入模式选择页，再进入对应功能页面</div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="stack">
+                            <div class="card-sub">- 阻抗检测与电刺激页面后续会逐步完善数据展示与控制参数</div>
+                            <div class="card-sub">- EEG 页面包含实时波形与调试输出</div>
+                            <div class="card-sub">- 不同模式切换时建议先停止当前模式，避免设备状态混乱</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="page" id="page-mode">
+            <div class="card" style="width: 100%;">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">模式选择</div>
+                        <div class="card-sub">已连接后可随时切换模式；数据展示页面按模式分别承载</div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="mode-grid">
+                        <button type="button" class="mode-card" id="mode-eeg">
+                            <div class="mode-title">脑电采集</div>
+                            <div class="mode-desc">进入实时波形页面。开始/停止采集指令仅影响推流，不影响连接状态。</div>
+                        </button>
+                        <button type="button" class="mode-card" id="mode-impedance">
+                            <div class="mode-title">阻抗检测</div>
+                            <div class="mode-desc">先完成设备模式切换与指令通路，阻抗数据解析与可视化后续接入。</div>
+                        </button>
+                        <button type="button" class="mode-card" id="mode-tdcs">
+                            <div class="mode-title">电刺激（tDCS）</div>
+                            <div class="mode-desc">后续会增加电流/升降沿等参数配置与安全校验。目前仅保留模式切换入口。</div>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="page" id="page-eeg">
+            <div class="eeg-layout">
+                <div class="card">
+                    <div class="card-header">
+                        <div>
+                            <div class="card-title">调试输出</div>
+                            <div class="card-sub">仅展示结构化调试事件，不展示网络/蓝牙连接信息</div>
+                        </div>
+                        <div class="row">
+                            <input id="debug-filter" placeholder="过滤关键字" style="width: 220px;" />
+                            <button class="btn" id="debug-clear">清空</button>
+                            <button class="btn" id="debug-pause">暂停</button>
+                            <button class="btn primary" id="btn-eeg-start">开始采集</button>
+                            <button class="btn danger" id="btn-eeg-stop">停止采集</button>
+                        </div>
+                    </div>
+                    <div class="card-body" style="height: calc(260px - 54px);">
+                        <div class="debug-log" id="debug-log"></div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <div>
+                            <div class="card-title">EEG 波形</div>
+                            <div class="card-sub" id="eeg-sub">WebSocket 实时推送</div>
+                        </div>
+                    </div>
+                    <div class="card-body" style="height: calc(100% - 54px); padding: 12px;">
+                        <div class="charts-grid" id="charts-grid"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="page" id="page-impedance">
+            <div class="card" style="width: 100%;">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">阻抗检测</div>
+                        <div class="card-sub">页面占位：后续接入阻抗数据解析与可视化</div>
+                    </div>
+                    <div class="row">
+                        <button class="btn primary" id="btn-imp-start">开启阻抗检测</button>
+                        <button class="btn danger" id="btn-imp-stop">停止阻抗检测</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="card-sub">当前版本仅实现：连接后可下发阻抗 start/stop 指令；阻抗数据流展示后续开发。</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="page" id="page-tdcs">
+            <div class="card" style="width: 100%;">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">电刺激（tDCS）</div>
+                        <div class="card-sub">页面占位：后续增加参数、流程与安全校验</div>
+                    </div>
+                    <div class="row">
+                        <button class="btn primary" id="btn-tdcs-start"> tDCS 模式</button>
+                        <button class="btn danger" id="btn-tdcs-stop">停止 tDCS</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="card-sub">当前版本仅实现：连接后可下发 tDCS start/stop 指令；参数与执行过程后续开发。</div>
+                </div>
+            </div>
+        </section>
+    </div>
 </div>
 
-<script src="app.js"></script>
+<div class="toast" id="toast"></div>
+
+<script type="module" src="js/main.js"></script>
 </body>
 </html>

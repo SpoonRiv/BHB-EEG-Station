@@ -1,5 +1,5 @@
-# BHB-SSVEP 纯 Web 架构配置（第一阶段：8通道 BLE + 波形显示）
-# 说明：本项目不再依赖 BHBconfig.ini，所有配置统一由本文件提供。
+app:
+  ui_version: "1.1.0"
 
 bluetooth:
   device_names:
@@ -15,10 +15,13 @@ bluetooth:
     notify_char_handle: 5
     write_char_handle: 8
   commands:
-    init:
-      - [0x03, 0x02]
-    start_stream: [0x02, 0x01]
-    stop_stream: [0x02, 0x02]
+    init: []
+    start_eeg: [0x02, 0x01]
+    stop_eeg: [0x02, 0x02]
+    start_impedance: [0x03, 0x01]
+    stop_impedance: [0x03, 0x02]
+    start_tdcs: [0x07, 0x01]
+    stop_tdcs: [0x07, 0x02]
 
 eeg:
   # 预留 8/16 通道版本切换接口：8 或 16
@@ -56,9 +59,12 @@ server:
 
 streaming:
   # WebSocket 发送刷新频率，用于节流，防止前端渲染过载卡死
-  update_fps: 100
+  update_fps: 20
   # 每次推送的采样点数；若为 0，则自动按 sampling_rate_hz / update_fps 计算
   buffer_size: 0
+  # LSL 解析等待与重试（用于处理“先启动采集、LSL 流稍后才出现”的情况）
+  lsl_resolve_timeout_sec: 1.0
+  lsl_resolve_retry_interval_sec: 0.5
 
 debug:
   # 上位机调试界面：仅展示调试事件（如收到EEG长度、发送/接收指令等），不展示网络/蓝牙连接信息
