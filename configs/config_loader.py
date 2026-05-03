@@ -10,9 +10,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-02: 1.1.0 增加设备与模式页面流，拆分脚本入口
 - 2026-05-02: 1.1.1 增加 LSL 解析超时与重试配置，提升波形推流稳定性
 - 2026-05-03: 1.1.2 增加离线存储与导出配置（offlinedata/滤波默认值）
+- 2026-05-03: 1.1.3 增加信号预处理配置（50Hz 陷波参数）
 
 作者: Spoon
-版本: 1.1.2
+版本: 1.1.3
 """
 
 import os
@@ -108,6 +109,17 @@ class DebugConfig:
 
 
 @dataclass(frozen=True)
+class NotchConfig:
+    freq_hz: float
+    quality_factor: float
+
+
+@dataclass(frozen=True)
+class SignalConfig:
+    notch: NotchConfig
+
+
+@dataclass(frozen=True)
 class OfflineExportConfig:
     physical_unit: str
     uv_per_count: float
@@ -137,6 +149,7 @@ class AppConfig:
     server: ServerConfig
     streaming: StreamingConfig
     debug: DebugConfig
+    signal: SignalConfig
     offline: OfflineConfig
 
 
@@ -164,6 +177,7 @@ def load_config(config_path: str) -> AppConfig:
     server_raw = raw.get("server", {})
     streaming_raw = raw.get("streaming", {})
     debug_raw = raw.get("debug", {})
+    signal_raw = raw.get("signal", {}) or {}
     offline_raw = raw.get("offline", {}) or {}
     app_raw = raw.get("app", {}) or {}
     app_ui_version = str(app_raw.get("ui_version") or app_raw.get("version") or "1.0.0").strip() or "1.0.0"
@@ -280,6 +294,17 @@ def load_config(config_path: str) -> AppConfig:
         max_events=int(debug_raw.get("max_events", 500)),
     )
 
+    notch_raw = signal_raw.get("notch", {}) or {}
+    notch_freq_hz = float(notch_raw.get("freq_hz", 50.0))
+    notch_q = float(notch_raw.get("quality_factor", 30.0))
+    if notch_freq_hz <= 0:
+        notch_freq_hz = 50.0
+    if notch_q <= 0:
+        notch_q = 30.0
+    signal = SignalConfig(
+        notch=NotchConfig(freq_hz=notch_freq_hz, quality_factor=notch_q),
+    )
+
     export_raw = offline_raw.get("export", {}) or {}
     filter_raw = offline_raw.get("filter", {}) or {}
     offline = OfflineConfig(
@@ -304,5 +329,6 @@ def load_config(config_path: str) -> AppConfig:
         server=server,
         streaming=streaming,
         debug=debug,
+        signal=signal,
         offline=offline,
     )

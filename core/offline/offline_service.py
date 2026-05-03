@@ -9,9 +9,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.0 创建文件
 - 2026-05-03: 1.0.1 EDF 导出改为分块写入以降低内存占用并减少失败概率
 - 2026-05-03: 1.0.2 修复 EDF header 字段：pyedflib 需要 sex 键而非 gender
+- 2026-05-03: 1.0.3 增加 50Hz 工频陷波（不可关闭）：导出 raw/filtered 均先陷波再（可选）带通
+- 2026-05-03: 1.0.4 导出链路统一使用“陷波+可选带通”流式处理，确保 raw/filtered 均执行 50Hz 陷波
 
 作者: Spoon
-版本: 1.0.2
+版本: 1.0.4
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
-from scipy.signal import butter, lfilter, lfilter_zi
+from scipy.signal import butter, iirnotch, lfilter, lfilter_zi
 
 
 @dataclass(frozen=True)
@@ -210,6 +212,8 @@ class OfflineService:
         trigger_label: str,
         physical_unit: str,
         uv_per_count: float,
+        notch_freq_hz: float,
+        notch_quality_factor: float,
         filter_order_default: int,
         filter_lowcut_default_hz: float,
         filter_highcut_default_hz: float,
@@ -222,6 +226,8 @@ class OfflineService:
         self._trigger_label = str(trigger_label or "TRIG")
         self._physical_unit = str(physical_unit or "uV")
         self._uv_per_count = float(uv_per_count)
+        self._notch_freq_hz = float(notch_freq_hz)
+        self._notch_quality_factor = float(notch_quality_factor)
         self._filter_order_default = max(1, int(filter_order_default))
         self._filter_lowcut_default_hz = float(filter_lowcut_default_hz)
         self._filter_highcut_default_hz = float(filter_highcut_default_hz)
@@ -610,6 +616,80 @@ class OfflineService:
             return data
         return data * factor
 
+    def _design_notch(self, sampling_rate_hz: int) -> Tuple[np.ndarray, np.ndarray]:
+        fs = float(sampling_rate_hz)
+        f0 = float(self._notch_freq_hz)
+        q = float(self._notch_quality_factor)
+        if not np.isfinite(f0) or f0 <= 0:
+            f0 = 50.0
+        if not np.isfinite(q) or q <= 0:
+            q = 30.0
+        b, a = iirnotch(w0=f0, Q=q, fs=fs)
+        return b, a
+
+    def _iter_notch_bandpass_blocks(
+        self,
+        data: np.ndarray,
+        sampling_rate_hz: int,
+        bandpass: Optional[BandpassConfig],
+        block_size_samples: int,
+    ) -> Iterable[np.ndarray]:
+        n_ch = int(data.shape[1])
+        has_trigger = self._trigger_enabled and n_ch == (len(self._base_channel_names) + 1)
+        n_filter_ch = n_ch - (1 if has_trigger else 0)
+        if n_filter_ch <= 0:
+            for s, e in _iter_blocks(int(data.shape[0]), int(block_size_samples)):
+                yield np.asarray(data[s:e, :], dtype=np.float64)
+            return
+
+        b_n, a_n = self._design_notch(int(sampling_rate_hz))
+        zi_n = lfilter_zi(b_n, a_n).astype(np.float64)
+        states_n = np.tile(zi_n.reshape(1, -1), (n_filter_ch, 1))
+        notch_primed = False
+
+        use_bp = bool(bandpass and bandpass.enabled)
+        b_b = a_b = None
+        states_b = None
+        bp_primed = False
+        if use_bp:
+            b_b, a_b = _butter_bandpass(float(bandpass.lowcut_hz), float(bandpass.highcut_hz), float(sampling_rate_hz), int(bandpass.order))
+            zi_b = lfilter_zi(b_b, a_b).astype(np.float64)
+            states_b = np.tile(zi_b.reshape(1, -1), (n_filter_ch, 1))
+
+        for s, e in _iter_blocks(int(data.shape[0]), int(block_size_samples)):
+            block = np.asarray(data[s:e, :], dtype=np.float64)
+            if block.shape[0] <= 0:
+                continue
+
+            if not notch_primed:
+                for ch in range(n_filter_ch):
+                    states_n[ch] = states_n[ch] * float(block[0, ch])
+                notch_primed = True
+
+            y = np.empty_like(block, dtype=np.float64)
+            for ch in range(n_filter_ch):
+                yn, zf = lfilter(b_n, a_n, block[:, ch], zi=states_n[ch])
+                states_n[ch] = zf
+                y[:, ch] = yn
+            if has_trigger:
+                y[:, -1] = block[:, -1]
+
+            if use_bp and b_b is not None and a_b is not None and states_b is not None:
+                if not bp_primed:
+                    for ch in range(n_filter_ch):
+                        states_b[ch] = states_b[ch] * float(y[0, ch])
+                    bp_primed = True
+                out = np.empty_like(y, dtype=np.float64)
+                for ch in range(n_filter_ch):
+                    yb, zf = lfilter(b_b, a_b, y[:, ch], zi=states_b[ch])
+                    states_b[ch] = zf
+                    out[:, ch] = yb
+                if has_trigger:
+                    out[:, -1] = y[:, -1]
+                yield out
+            else:
+                yield y
+
     def _bandpass_apply_block(
         self,
         block: np.ndarray,
@@ -665,8 +745,12 @@ class OfflineService:
             w = csv.writer(f)
             w.writerow(["sampling_rate_hz", int(sampling_rate_hz)])
             w.writerow(header)
-            for s, e in _iter_blocks(int(data.shape[0]), int(block_size_samples)):
-                block = np.asarray(data[s:e, :], dtype=np.float64)
+            for block in self._iter_notch_bandpass_blocks(
+                data=data,
+                sampling_rate_hz=int(sampling_rate_hz),
+                bandpass=None,
+                block_size_samples=int(block_size_samples),
+            ):
                 for row in block:
                     w.writerow([float(x) for x in row.tolist()])
 
@@ -683,26 +767,17 @@ class OfflineService:
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
         header = [f"{str(ch)}({physical_unit})" for ch in channel_names]
 
-        b, a = _butter_bandpass(bandpass.lowcut_hz, bandpass.highcut_hz, sampling_rate_hz, bandpass.order)
-        n_ch = int(data.shape[1])
-        has_trigger = self._trigger_enabled and n_ch == (len(self._base_channel_names) + 1)
-        n_filter_ch = n_ch - (1 if has_trigger else 0)
-        zi = lfilter_zi(b, a).astype(np.float64)
-        states = np.tile(zi.reshape(1, -1), (n_filter_ch, 1))
-
         with open(out_path, "w", encoding="utf_8_sig", newline="") as f:
             w = csv.writer(f)
             w.writerow(["sampling_rate_hz", int(sampling_rate_hz)])
             w.writerow(header)
-            for s, e in _iter_blocks(int(data.shape[0]), int(block_size_samples)):
-                block = np.asarray(data[s:e, :], dtype=np.float64)
-                if block.shape[0] <= 0:
-                    continue
-                if s == 0:
-                    for ch in range(n_filter_ch):
-                        states[ch] = states[ch] * float(block[0, ch])
-                y = self._bandpass_apply_block(block=block, b=b, a=a, states=states, n_filter_ch=n_filter_ch, has_trigger=has_trigger)
-                for row in y:
+            for block in self._iter_notch_bandpass_blocks(
+                data=data,
+                sampling_rate_hz=int(sampling_rate_hz),
+                bandpass=bandpass,
+                block_size_samples=int(block_size_samples),
+            ):
+                for row in block:
                     w.writerow([float(x) for x in row.tolist()])
 
     def _write_edf(
@@ -724,8 +799,12 @@ class OfflineService:
 
         ch_min = [float("inf")] * n_ch
         ch_max = [float("-inf")] * n_ch
-        for s, e in _iter_blocks(int(data.shape[0]), int(block_size_samples)):
-            block = np.asarray(data[s:e, :], dtype=np.float64)
+        for block in self._iter_notch_bandpass_blocks(
+            data=data,
+            sampling_rate_hz=int(sampling_rate_hz),
+            bandpass=None,
+            block_size_samples=int(block_size_samples),
+        ):
             bmin = np.min(block, axis=0)
             bmax = np.max(block, axis=0)
             for i in range(n_ch):
@@ -766,8 +845,12 @@ class OfflineService:
                     }
                 )
             writer.setSignalHeaders(signal_headers)
-            for s, e in _iter_blocks(int(data.shape[0]), int(block_size_samples)):
-                block = np.asarray(data[s:e, :], dtype=np.float64)
+            for block in self._iter_notch_bandpass_blocks(
+                data=data,
+                sampling_rate_hz=int(sampling_rate_hz),
+                bandpass=None,
+                block_size_samples=int(block_size_samples),
+            ):
                 if block.shape[0] <= 0:
                     continue
                 sigs = [block[:, i].copy() for i in range(n_ch)]
@@ -791,31 +874,19 @@ class OfflineService:
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
         n_ch = int(data.shape[1])
 
-        b, a = _butter_bandpass(bandpass.lowcut_hz, bandpass.highcut_hz, sampling_rate_hz, bandpass.order)
-        has_trigger = self._trigger_enabled and n_ch == (len(self._base_channel_names) + 1)
-        n_filter_ch = n_ch - (1 if has_trigger else 0)
-
-        def _compute_minmax() -> Tuple[List[float], List[float]]:
-            ch_min = [float("inf")] * n_ch
-            ch_max = [float("-inf")] * n_ch
-            zi = lfilter_zi(b, a).astype(np.float64)
-            states = np.tile(zi.reshape(1, -1), (n_filter_ch, 1))
-            for s, e in _iter_blocks(int(data.shape[0]), int(block_size_samples)):
-                block = np.asarray(data[s:e, :], dtype=np.float64)
-                if block.shape[0] <= 0:
-                    continue
-                if s == 0:
-                    for ch in range(n_filter_ch):
-                        states[ch] = states[ch] * float(block[0, ch])
-                y = self._bandpass_apply_block(block=block, b=b, a=a, states=states, n_filter_ch=n_filter_ch, has_trigger=has_trigger)
-                bmin = np.min(y, axis=0)
-                bmax = np.max(y, axis=0)
-                for i in range(n_ch):
-                    ch_min[i] = float(min(ch_min[i], float(bmin[i])))
-                    ch_max[i] = float(max(ch_max[i], float(bmax[i])))
-            return ch_min, ch_max
-
-        ch_min, ch_max = _compute_minmax()
+        ch_min = [float("inf")] * n_ch
+        ch_max = [float("-inf")] * n_ch
+        for block in self._iter_notch_bandpass_blocks(
+            data=data,
+            sampling_rate_hz=int(sampling_rate_hz),
+            bandpass=bandpass,
+            block_size_samples=int(block_size_samples),
+        ):
+            bmin = np.min(block, axis=0)
+            bmax = np.max(block, axis=0)
+            for i in range(n_ch):
+                ch_min[i] = float(min(ch_min[i], float(bmin[i])))
+                ch_max[i] = float(max(ch_max[i], float(bmax[i])))
 
         header = {
             "technician": "",
@@ -851,18 +922,15 @@ class OfflineService:
                     }
                 )
             writer.setSignalHeaders(signal_headers)
-
-            zi = lfilter_zi(b, a).astype(np.float64)
-            states = np.tile(zi.reshape(1, -1), (n_filter_ch, 1))
-            for s, e in _iter_blocks(int(data.shape[0]), int(block_size_samples)):
-                block = np.asarray(data[s:e, :], dtype=np.float64)
+            for block in self._iter_notch_bandpass_blocks(
+                data=data,
+                sampling_rate_hz=int(sampling_rate_hz),
+                bandpass=bandpass,
+                block_size_samples=int(block_size_samples),
+            ):
                 if block.shape[0] <= 0:
                     continue
-                if s == 0:
-                    for ch in range(n_filter_ch):
-                        states[ch] = states[ch] * float(block[0, ch])
-                y = self._bandpass_apply_block(block=block, b=b, a=a, states=states, n_filter_ch=n_filter_ch, has_trigger=has_trigger)
-                sigs = [y[:, i].copy() for i in range(n_ch)]
+                sigs = [block[:, i].copy() for i in range(n_ch)]
                 writer.writeSamples(sigs)
 
     def _write_meta(self, info: OfflineSessionInfo, status: str) -> None:

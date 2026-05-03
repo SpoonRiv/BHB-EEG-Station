@@ -13,9 +13,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.1.3 EEG 停止接口幂等化，避免未推流时无法停止
 - 2026-05-03: 1.1.4 EEG 停止后进入离线存储页，支持导出 CSV/EDF 与可选滤波
 - 2026-05-03: 1.1.5 离线导出接口补充参数校验与错误信息回传，便于定位 HTTP 500
+- 2026-05-03: 1.1.6 增加 50Hz 工频陷波预处理（波形展示与导出均生效）
 
 作者: Spoon
-版本: 1.1.5
+版本: 1.1.6
 """
 
 import asyncio
@@ -36,6 +37,7 @@ from core.lsl_streamer import LSLStreamer
 from core.debug_bus import DebugEventBus
 from core.ble.scanner import scan_devices
 from core.offline.offline_service import BandpassConfig, ExportTarget, OfflineService
+from core.signal.notch_filter import NotchFilter, NotchFilterConfig
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -86,9 +88,21 @@ class AppState:
             trigger_label=self.config.offline.export.trigger_label,
             physical_unit=self.config.offline.export.physical_unit,
             uv_per_count=self.config.offline.export.uv_per_count,
+            notch_freq_hz=self.config.signal.notch.freq_hz,
+            notch_quality_factor=self.config.signal.notch.quality_factor,
             filter_order_default=self.config.offline.filter.order,
             filter_lowcut_default_hz=self.config.offline.filter.lowcut_hz_default,
             filter_highcut_default_hz=self.config.offline.filter.highcut_hz_default,
+        )
+        channel_count = int(self.config.eeg.mode_channels) + (1 if self.config.eeg.lsl.include_trigger_channel else 0)
+        self.notch = NotchFilter(
+            NotchFilterConfig(
+                sampling_rate_hz=int(self.config.eeg.sampling_rate_hz),
+                freq_hz=float(self.config.signal.notch.freq_hz),
+                quality_factor=float(self.config.signal.notch.quality_factor),
+                channel_count=channel_count,
+                has_trigger_channel=bool(self.config.eeg.lsl.include_trigger_channel),
+            )
         )
         self.active_websockets: List[WebSocket] = []
 
@@ -103,10 +117,12 @@ class AppState:
         if not self.active_websockets:
             return
             
-        data_to_send = {
-            "type": "eeg_data",
-            "data": chunk
-        }
+        send_chunk = chunk
+        try:
+            send_chunk = self.notch.apply(chunk)
+        except Exception:
+            send_chunk = chunk
+        data_to_send = {"type": "eeg_data", "data": send_chunk}
         
         disconnected_ws = []
         for ws in self.active_websockets:
@@ -226,12 +242,22 @@ async def get_config():
         "sampling_rate_hz": state.config.eeg.sampling_rate_hz,
         "buffer_size": state.config.streaming.buffer_size,
         "update_fps": state.config.streaming.update_fps,
+        "signal": {
+            "notch": {
+                "freq_hz": float(state.config.signal.notch.freq_hz),
+                "quality_factor": float(state.config.signal.notch.quality_factor),
+            }
+        },
         "offline": {
             "root_dir": state.config.offline.root_dir,
             "physical_unit": state.config.offline.export.physical_unit,
             "uv_per_count": state.config.offline.export.uv_per_count,
             "trigger_label": state.config.offline.export.trigger_label,
             "filter_defaults": state.offline.filter_defaults,
+            "notch": {
+                "freq_hz": float(state.config.signal.notch.freq_hz),
+                "quality_factor": float(state.config.signal.notch.quality_factor),
+            },
         },
     }
 

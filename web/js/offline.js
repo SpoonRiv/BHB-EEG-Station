@@ -5,9 +5,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 修改日志:
 - 2026-05-03: 1.0.0 创建文件
+- 2026-05-03: 1.0.1 页面提示补充 50Hz 工频陷波（不可关闭）
 
 作者: Spoon
-版本: 1.0.0
+版本: 1.0.1
 */
 
 import { getConfig, offlineExport } from './api.js';
@@ -72,6 +73,12 @@ function readNumber(id, fallback) {
 
 function setDefaultsFromConfig(cfg) {
   const offline = cfg && cfg.offline ? cfg.offline : null;
+  const notchEl = document.getElementById('offline-notch-hint');
+  if (notchEl) {
+    const notch = offline && offline.notch ? offline.notch : (cfg && cfg.signal && cfg.signal.notch ? cfg.signal.notch : null);
+    const hz = notch && typeof notch.freq_hz === 'number' ? notch.freq_hz : 50;
+    notchEl.textContent = `系统默认对所有数据执行 ${hz}Hz 工频陷波（不可关闭），带通滤波在此页面可选。`;
+  }
   const fd = offline && offline.filter_defaults ? offline.filter_defaults : null;
   const low = fd && typeof fd.lowcut_hz_default === 'number' ? fd.lowcut_hz_default : 3.0;
   const high = fd && typeof fd.highcut_hz_default === 'number' ? fd.highcut_hz_default : 50.0;

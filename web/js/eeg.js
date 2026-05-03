@@ -15,9 +15,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.8 修复暂停按钮初始化文案并强化开始采集互斥逻辑
 - 2026-05-03: 1.0.9 取消开始/停止弹窗提示并改为按钮锁定；停止按钮按“会话锁”启用
 - 2026-05-03: 1.1.0 停止采集后自动进入离线存储页并携带会话信息
+- 2026-05-03: 1.1.1 页面提示补充 50Hz 工频陷波（不可关闭）
+- 2026-05-03: 1.1.2 合并 EEG 波形提示为一行；去除电量“无更新”提示
 
 作者: Spoon
-版本: 1.1.0
+版本: 1.1.2
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -78,23 +80,16 @@ function renderBatteryBadge(battery, running, streaming) {
     return;
   }
 
-  const nowSec = Date.now() / 1000;
-  const ts = battery && typeof battery.ts === 'number' ? battery.ts : null;
-  const ageSec = (ts && Number.isFinite(ts)) ? Math.max(0, nowSec - ts) : null;
-
   const isPercent = Number.isInteger(v) && v >= 0 && v <= 100;
   if (isPercent) {
-    textEl.textContent = `电量：${v}%${(streaming && ageSec !== null && ageSec > 5) ? '（无更新）' : ''}`;
+    textEl.textContent = `电量：${v}%`;
     if (v >= 50) badge.classList.add('active');
     else if (v >= 20) badge.classList.add('warn');
     else badge.classList.add('error');
     return;
   }
 
-  textEl.textContent = `电量：${v}${(streaming && ageSec !== null && ageSec > 5) ? '（无更新）' : ''}`;
-  if (streaming && ageSec !== null && ageSec > 5) {
-    badge.classList.add('warn');
-  }
+  textEl.textContent = `电量：${v}`;
 }
 
 function renderEegControlButtons(running, streaming) {
@@ -434,6 +429,12 @@ export async function enterEegPage() {
     channelNames = cfg && Array.isArray(cfg.channel_names) ? cfg.channel_names : [];
     const samplingRate = cfg && cfg.sampling_rate_hz ? Number(cfg.sampling_rate_hz) : 250;
     maxPoints = Math.max(50, Math.floor(samplingRate * 2));
+    const notchEl = document.getElementById('eeg-notch-hint');
+    if (notchEl) {
+      const notch = cfg && cfg.signal && cfg.signal.notch ? cfg.signal.notch : null;
+      const hz = notch && typeof notch.freq_hz === 'number' ? notch.freq_hz : 50;
+      notchEl.textContent = ` ｜ 默认开启 ${hz}Hz 工频陷波（不可关闭）`;
+    }
   } catch (_) {}
 
   initCharts();
