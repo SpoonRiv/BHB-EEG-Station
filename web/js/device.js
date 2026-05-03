@@ -5,13 +5,15 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 修改日志:
 - 2026-05-02: 1.0.0 新增设备选择页
+- 2026-05-03: 1.0.1 增加 10-20 通道选择地形图面板初始化
 
 作者: Spoon
-版本: 1.0.0
+版本: 1.0.1
 */
 
 import { bleConnect, bleDevices, bleDisconnect, getStatus } from './api.js';
 import { navigate } from './router.js';
+import { initTopomapPanel } from './topomap.js';
 
 function renderSelect(selectEl, devices) {
   selectEl.innerHTML = '';
@@ -48,6 +50,8 @@ export function initDevicePage() {
   const selectEl = document.getElementById('device-select');
 
   if (!btnScan || !btnConnect || !btnDisconnect || !selectEl) return;
+
+  initTopomapPanel();
 
   setDeviceStatus('', '状态：未连接（请先扫描并选择设备）');
   selectEl.disabled = true;

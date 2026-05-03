@@ -13,10 +13,14 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.6 离线存储页提示条与采集指标样式（区别于文本框）
 - 2026-05-03: 1.0.7 修复成功/失败提示条在日间模式下字色对比度
 - 2026-05-03: 1.0.8 导出成功提示支持换行并增大提示条高度
+- 2026-05-03: 1.0.9 设备页增加 10-20 通道选择地形图样式
+- 2026-05-03: 1.0.10 调整设备页左右列宽，给通道选择区更多空间
 
 作者: Spoon
-版本: 1.0.8
+版本: 1.0.10
 */
+
+@import "./topomap.css";
 
 :root {
   --bg0: #05070c;
@@ -213,7 +217,7 @@ html, body {
 .page-grid {
   width: 100%;
   display: grid;
-  grid-template-columns: 420px 1fr;
+  grid-template-columns: 360px 1fr;
   gap: 14px;
   height: 100%;
 }

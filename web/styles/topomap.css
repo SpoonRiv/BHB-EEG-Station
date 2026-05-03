@@ -1,0 +1,335 @@
+/*
+Copyright (c) 2026 BUAA BHB. All rights reserved.
+
+文件功能: 设备页通道选择地形图样式（10-20电极按钮、选中态与顺序列表）
+
+修改日志:
+- 2026-05-03: 1.0.0 创建文件
+- 2026-05-03: 1.0.1 优化布局：缩小左侧列、放大地形图、右侧面板可滚动并减少拥挤感
+- 2026-05-03: 1.0.2 优化地形图观感：更柔和的头部底图与电极交互（无位移）、日间模式电极文字改黑
+- 2026-05-03: 1.0.3 缩窄地形图区并放宽右侧表单；线条与字号更细；悬浮增加阴影与轻微浮动
+- 2026-05-03: 1.0.4 调整左右列宽为 6:4（地形图:表单）
+- 2026-05-03: 1.0.5 已选通道改为网格并支持拖拽排序，地形图线条更细
+- 2026-05-03: 1.0.6 未选满通道时徽标浅红提示
+- 2026-05-03: 1.0.7 选满通道徽标转为绿色提示，电极圆圈描边更细
+- 2026-05-03: 1.0.8 徽标消息按成功/失败分别着色（绿/红）
+- 2026-05-03: 1.0.9 徽标改为两列网格布局，消息不顶格并支持自动换行对齐
+
+作者: Spoon
+版本: 1.0.9
+*/
+
+.device-right {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: 100%;
+  min-height: 0;
+}
+
+.device-right .card {
+  min-height: 0;
+}
+
+.topomap-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.topomap-card .card-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.topomap-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 6fr) minmax(380px, 4fr);
+  gap: 14px;
+  height: 100%;
+  min-height: 0;
+}
+
+.topomap-canvas {
+  border: 1px solid rgba(120, 170, 210, 0.14);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.10);
+  height: 100%;
+  min-height: 320px;
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 14px;
+  overflow: hidden;
+}
+
+[data-theme="light"] .topomap-canvas {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.topomap-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+#ch-selected-field {
+  flex: 1;
+  min-height: 0;
+}
+
+.topomap-svg {
+  width: 100%;
+  height: 100%;
+}
+
+.topomap-svg svg {
+  width: 100%;
+  height: 100%;
+}
+
+.chip-list {
+  display: grid;
+  grid-template-columns: repeat(var(--ch-selected-cols, 2), minmax(0, 1fr));
+  grid-auto-rows: minmax(44px, auto);
+  gap: 8px;
+  flex: 1;
+  min-height: 160px;
+  max-height: none;
+  overflow: auto;
+  padding-right: 4px;
+  align-content: start;
+}
+
+.chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(120, 170, 210, 0.16);
+  background: rgba(0, 0, 0, 0.10);
+  width: 100%;
+  min-width: 0;
+}
+
+[data-theme="light"] .chip {
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.chip-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.chip-handle {
+  width: 16px;
+  text-align: center;
+  color: rgba(233, 238, 246, 0.65);
+  cursor: grab;
+  user-select: none;
+}
+
+[data-theme="light"] .chip-handle {
+  color: rgba(12, 18, 28, 0.55);
+}
+
+.chip.dragging {
+  opacity: 0.55;
+}
+
+.chip.drop-target {
+  border-color: rgba(49, 215, 255, 0.55);
+  box-shadow: 0 0 0 1px rgba(49, 215, 255, 0.10) inset;
+}
+
+.chip-index {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.82);
+  background: rgba(49, 215, 255, 0.85);
+}
+
+[data-theme="light"] .chip-index {
+  color: rgba(255, 255, 255, 0.94);
+  background: rgba(12, 18, 28, 0.75);
+}
+
+.chip-name {
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chip-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.mini-btn {
+  appearance: none;
+  border: 1px solid rgba(120, 170, 210, 0.16);
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.06);
+  padding: 6px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 800;
+  font-size: 12px;
+  line-height: 12px;
+  transition: transform 120ms ease, border-color 120ms ease;
+}
+
+.mini-btn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(49, 215, 255, 0.38);
+}
+
+.mini-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.mini-btn.danger {
+  border-color: rgba(255, 77, 109, 0.25);
+}
+
+.mini-btn.danger:hover {
+  border-color: rgba(255, 77, 109, 0.55);
+}
+
+.topomap-hint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.topomap-badge {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  row-gap: 4px;
+  align-items: center;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.12);
+  box-shadow: 0 0 0 1px rgba(49, 215, 255, 0.06) inset;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.topomap-badge.warn {
+  border-color: rgba(255, 77, 109, 0.28);
+  background: rgba(255, 77, 109, 0.10);
+  box-shadow: 0 0 0 1px rgba(255, 77, 109, 0.08) inset;
+}
+
+.topomap-badge.ok {
+  border-color: rgba(47, 229, 139, 0.26);
+  background: rgba(47, 229, 139, 0.10);
+  box-shadow: 0 0 0 1px rgba(47, 229, 139, 0.08) inset;
+}
+
+[data-theme="light"] .topomap-badge.warn {
+  border-color: rgba(255, 77, 109, 0.24);
+  background: rgba(255, 77, 109, 0.08);
+  box-shadow: 0 0 0 1px rgba(255, 77, 109, 0.06) inset;
+}
+
+[data-theme="light"] .topomap-badge.ok {
+  border-color: rgba(47, 229, 139, 0.22);
+  background: rgba(47, 229, 139, 0.08);
+  box-shadow: 0 0 0 1px rgba(47, 229, 139, 0.06) inset;
+}
+
+.topomap-badge-msg {
+  color: var(--bad);
+  font-weight: 700;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.topomap-badge-msg.ok {
+  color: var(--good);
+}
+
+.topomap-badge strong {
+  color: var(--text);
+}
+
+.topomap-svg text {
+  user-select: none;
+  pointer-events: none;
+}
+
+.electrode {
+  cursor: pointer;
+  transition: filter 140ms ease, opacity 140ms ease, transform 140ms ease;
+}
+
+.electrode:hover {
+  filter: drop-shadow(0 0 12px rgba(49, 215, 255, 0.30));
+  transform: translateY(-0.6px);
+}
+
+.electrode-circle {
+  stroke: rgba(236, 242, 255, 0.55);
+  stroke-width: 0.80;
+  fill: rgba(12, 18, 28, 0.18);
+}
+
+[data-theme="light"] .electrode-circle {
+  stroke: rgba(12, 18, 28, 0.50);
+  fill: rgba(255, 255, 255, 0.70);
+}
+
+.electrode-text {
+  fill: rgba(236, 242, 255, 0.92);
+}
+
+[data-theme="light"] .electrode-text {
+  fill: rgba(12, 18, 28, 0.88);
+}
+
+.electrode.selected .electrode-circle {
+  stroke: rgba(49, 215, 255, 0.95);
+  fill: rgba(49, 215, 255, 0.22);
+}
+
+.electrode.selected {
+  filter: drop-shadow(0 0 12px rgba(49, 215, 255, 0.34));
+  transform: none;
+}
+
+.electrode.selected:hover {
+  transform: none;
+}
+
+.electrode.disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  filter: none;
+  transform: none;
+}
+
+.electrode.disabled:hover {
+  filter: none;
+  transform: none;
+}

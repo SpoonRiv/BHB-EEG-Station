@@ -18,9 +18,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.1.8 增加离线会话查询接口，供前端展示采集时长与数据尺寸
 - 2026-05-03: 1.1.9 下发 UI 波形显示配置并调整停止采集时的 WS 收尾策略
 - 2026-05-03: 1.2.0 配置命名区分“后端转发频率”和“前端渲染频率”
+- 2026-05-03: 1.2.1 增加 10-20 通道选择与常用组合接口（本机覆盖配置，不写入 config.yaml）
 
 作者: Spoon
-版本: 1.2.0
+版本: 1.2.1
 """
 
 import asyncio
@@ -28,7 +29,7 @@ import os
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,6 +38,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from configs.config_loader import load_config
+from configs.local_overrides import get_local_override_path, load_yaml_file, write_yaml_file_atomic
 from core.eeg_controller import EEGController
 from core.lsl_streamer import LSLStreamer
 from core.debug_bus import DebugEventBus
@@ -67,6 +69,7 @@ class NoCacheStaticFiles(StaticFiles):
 class AppState:
     def __init__(self):
         self.config_path = os.path.join(os.path.dirname(__file__), "configs", "config.yaml")
+        self.local_override_path = get_local_override_path(self.config_path)
         self.config = load_config(self.config_path)
         self.controller = EEGController(config_path=self.config_path)
         self.debug_bus = DebugEventBus(max_events=self.config.debug.max_events)
@@ -114,6 +117,145 @@ class AppState:
             EegWsHubConfig(
                 max_pending_chunks=int(self.config.streaming.ws_queue_max_chunks),
                 send_timeout_sec=float(self.config.streaming.ws_send_timeout_sec),
+            )
+        )
+        self.eeg_ws_hub.set_transform(self._apply_notch_safe)
+
+    def _load_local_raw(self) -> Dict[str, Any]:
+        return load_yaml_file(self.local_override_path)
+
+    def _save_local_raw(self, raw: Dict[str, Any]) -> None:
+        write_yaml_file_atomic(self.local_override_path, raw)
+
+    def get_pending_channel_selection(self) -> Tuple[int, List[str]]:
+        raw = self._load_local_raw()
+        ui = raw.get("ui", {}) if isinstance(raw, dict) else {}
+        sel = ui.get("channel_selection", {}) if isinstance(ui, dict) else {}
+        mode = int(sel.get("mode_channels", 0) or 0) if isinstance(sel, dict) else 0
+        names_raw = sel.get("channel_names", []) if isinstance(sel, dict) else []
+        names: List[str] = []
+        if isinstance(names_raw, list):
+            for x in names_raw:
+                s = str(x or "").strip()
+                if s:
+                    names.append(s)
+        if mode <= 0:
+            mode = int(self.config.eeg.mode_channels)
+        if not names:
+            names = list(self.config.eeg.channel_names)
+        return mode, names
+
+    def set_pending_channel_selection(self, mode_channels: int, channel_names: List[str]) -> None:
+        raw = self._load_local_raw()
+        ui = raw.get("ui", {}) if isinstance(raw.get("ui", {}), dict) else {}
+        ui["channel_selection"] = {
+            "mode_channels": int(mode_channels),
+            "channel_names": list(channel_names),
+        }
+        raw["ui"] = ui
+        self._save_local_raw(raw)
+
+    def get_local_channel_presets(self) -> List[Dict[str, Any]]:
+        raw = self._load_local_raw()
+        ui = raw.get("ui", {}) if isinstance(raw, dict) else {}
+        presets_raw = ui.get("channel_presets_local", []) if isinstance(ui, dict) else []
+        presets: List[Dict[str, Any]] = []
+        if isinstance(presets_raw, list):
+            for item in presets_raw:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name", "") or "").strip()
+                if not name:
+                    continue
+                try:
+                    mode = int(item.get("mode_channels", 0))
+                except Exception:
+                    mode = 0
+                ch_raw = item.get("channel_names", []) or []
+                ch: List[str] = []
+                if isinstance(ch_raw, list):
+                    for x in ch_raw:
+                        s = str(x or "").strip()
+                        if s:
+                            ch.append(s)
+                if mode <= 0 or not ch:
+                    continue
+                presets.append({"name": name, "mode_channels": mode, "channel_names": ch})
+        return presets
+
+    def upsert_local_channel_preset(self, name: str, mode_channels: int, channel_names: List[str]) -> None:
+        raw = self._load_local_raw()
+        ui = raw.get("ui", {}) if isinstance(raw.get("ui", {}), dict) else {}
+        presets_raw = ui.get("channel_presets_local", []) if isinstance(ui.get("channel_presets_local", []), list) else []
+        out: List[Dict[str, Any]] = []
+        normalized_name = str(name or "").strip()
+        for item in presets_raw:
+            if not isinstance(item, dict):
+                continue
+            n = str(item.get("name", "") or "").strip()
+            if not n or n == normalized_name:
+                continue
+            out.append(item)
+        out.append({"name": normalized_name, "mode_channels": int(mode_channels), "channel_names": list(channel_names)})
+        ui["channel_presets_local"] = out
+        raw["ui"] = ui
+        self._save_local_raw(raw)
+
+    def delete_local_channel_preset(self, name: str) -> bool:
+        raw = self._load_local_raw()
+        ui = raw.get("ui", {}) if isinstance(raw.get("ui", {}), dict) else {}
+        presets_raw = ui.get("channel_presets_local", []) if isinstance(ui.get("channel_presets_local", []), list) else []
+        out: List[Dict[str, Any]] = []
+        normalized_name = str(name or "").strip()
+        removed = False
+        for item in presets_raw:
+            if not isinstance(item, dict):
+                continue
+            n = str(item.get("name", "") or "").strip()
+            if n == normalized_name:
+                removed = True
+                continue
+            out.append(item)
+        ui["channel_presets_local"] = out
+        raw["ui"] = ui
+        self._save_local_raw(raw)
+        return removed
+
+    def apply_pending_channel_selection_to_effective_config(self) -> None:
+        mode, names = self.get_pending_channel_selection()
+        raw = self._load_local_raw()
+        eeg = raw.get("eeg", {}) if isinstance(raw.get("eeg", {}), dict) else {}
+        eeg["mode_channels"] = int(mode)
+        eeg["channel_names"] = list(names)
+        raw["eeg"] = eeg
+        self._save_local_raw(raw)
+
+    def reload_config_for_channels(self) -> None:
+        self.config = load_config(self.config_path)
+        self.controller.config = self.config
+        self.offline = OfflineService(
+            project_root_dir=os.path.dirname(__file__),
+            root_dir=self.config.offline.root_dir,
+            sampling_rate_hz=self.config.eeg.sampling_rate_hz,
+            channel_names=self.config.eeg.channel_names,
+            trigger_enabled=self.config.eeg.lsl.include_trigger_channel,
+            trigger_label=self.config.offline.export.trigger_label,
+            physical_unit=self.config.offline.export.physical_unit,
+            uv_per_count=self.config.offline.export.uv_per_count,
+            notch_freq_hz=self.config.signal.notch.freq_hz,
+            notch_quality_factor=self.config.signal.notch.quality_factor,
+            filter_order_default=self.config.offline.filter.order,
+            filter_lowcut_default_hz=self.config.offline.filter.lowcut_hz_default,
+            filter_highcut_default_hz=self.config.offline.filter.highcut_hz_default,
+        )
+        channel_count = int(self.config.eeg.mode_channels) + (1 if self.config.eeg.lsl.include_trigger_channel else 0)
+        self.notch = NotchFilter(
+            NotchFilterConfig(
+                sampling_rate_hz=int(self.config.eeg.sampling_rate_hz),
+                freq_hz=float(self.config.signal.notch.freq_hz),
+                quality_factor=float(self.config.signal.notch.quality_factor),
+                channel_count=channel_count,
+                has_trigger_channel=bool(self.config.eeg.lsl.include_trigger_channel),
             )
         )
         self.eeg_ws_hub.set_transform(self._apply_notch_safe)
@@ -281,6 +423,160 @@ async def get_config():
             },
         },
     }
+
+
+class ChannelSelectionRequest(BaseModel):
+    mode_channels: int
+    channel_names: List[str]
+
+
+class ChannelPresetRequest(BaseModel):
+    name: str
+    mode_channels: int
+    channel_names: List[str]
+
+
+class ChannelPresetDeleteRequest(BaseModel):
+    name: str
+
+
+def _normalize_channel_list(items: List[str]) -> List[str]:
+    out: List[str] = []
+    for x in items or []:
+        s = str(x or "").strip()
+        if not s:
+            continue
+        if s not in out:
+            out.append(s)
+    return out
+
+
+@app.get("/api/eeg/channel/options")
+async def eeg_channel_options():
+    """
+    获取 10-20 通道选择相关元信息（可选电极/预设/当前选择）。
+    """
+    pending_mode, pending_names = state.get_pending_channel_selection()
+    available = list(state.config.eeg.montage_1020_channels or [])
+    if not available:
+        base = list(state.config.eeg.channel_names or [])
+        ref = str(state.config.eeg.ref_channel_name or "").strip()
+        if ref:
+            base.append(ref)
+        available = _normalize_channel_list(base)
+    presets_cfg = [
+        {"scope": "config", "name": p.name, "mode_channels": int(p.mode_channels), "channel_names": list(p.channel_names)}
+        for p in (state.config.eeg.presets or [])
+    ]
+    presets_local = [{"scope": "local", **p} for p in state.get_local_channel_presets()]
+    return {
+        "supported_channel_modes": list(state.config.eeg.supported_channel_modes or []),
+        "available_channels": available,
+        "presets": presets_cfg + presets_local,
+        "effective": {
+            "mode_channels": int(state.config.eeg.mode_channels),
+            "channel_names": list(state.config.eeg.channel_names),
+            "ref_channel_name": str(state.config.eeg.ref_channel_name or ""),
+        },
+        "pending": {
+            "mode_channels": int(pending_mode),
+            "channel_names": list(pending_names),
+        },
+    }
+
+
+@app.get("/api/eeg/channel/selection")
+async def eeg_channel_get_selection():
+    """
+    获取当前“待应用”的通道选择（本机覆盖配置 ui.channel_selection）。
+    """
+    mode, names = state.get_pending_channel_selection()
+    return {"mode_channels": int(mode), "channel_names": list(names)}
+
+
+@app.post("/api/eeg/channel/selection")
+async def eeg_channel_set_selection(req: ChannelSelectionRequest):
+    """
+    保存“待应用”的通道选择（不影响正在运行的采集；仅用于 UI 记忆与后续应用）。
+    """
+    mode = int(req.mode_channels)
+    names = _normalize_channel_list(req.channel_names or [])
+    if mode <= 0:
+        raise HTTPException(status_code=400, detail="mode_channels 必须为正整数")
+    if len(names) > mode:
+        raise HTTPException(status_code=400, detail="channel_names 数量不能超过 mode_channels")
+    available = set(_normalize_channel_list(list(state.config.eeg.montage_1020_channels or [])))
+    if available:
+        for n in names:
+            if n not in available:
+                raise HTTPException(status_code=400, detail=f"非法通道名：{n}")
+    state.set_pending_channel_selection(mode, names)
+    return {"status": "success", "mode_channels": mode, "channel_names": names}
+
+
+@app.post("/api/eeg/channel/apply")
+async def eeg_channel_apply():
+    """
+    将“待应用”的通道选择写入本机覆盖配置 eeg.* 并热重载（不会写入 config.yaml）。
+    """
+    if bool(getattr(state.streamer, "is_streaming", False)):
+        raise HTTPException(status_code=409, detail="EEG 正在推流中，禁止切换通道配置")
+
+    mode, names = state.get_pending_channel_selection()
+    supported = set(int(x) for x in (state.config.eeg.supported_channel_modes or []))
+    if supported and int(mode) not in supported:
+        raise HTTPException(status_code=400, detail=f"当前不支持 {mode} 通道模式")
+    if len(names) != int(mode):
+        raise HTTPException(status_code=400, detail=f"请先选择满 {mode} 个通道，再点击应用")
+
+    if state.controller.is_running() and int(mode) != int(state.config.eeg.mode_channels):
+        raise HTTPException(status_code=409, detail="设备已连接，切换8/16通道需先断开蓝牙再应用")
+
+    state.apply_pending_channel_selection_to_effective_config()
+    state.reload_config_for_channels()
+
+    if int(state.config.eeg.mode_channels) == 16:
+        raise HTTPException(status_code=400, detail="16通道链路尚未开发完成，请保持 8 通道模式")
+
+    return {
+        "status": "success",
+        "effective": {"mode_channels": int(state.config.eeg.mode_channels), "channel_names": list(state.config.eeg.channel_names)},
+    }
+
+
+@app.post("/api/eeg/channel/presets/local")
+async def eeg_channel_preset_upsert(req: ChannelPresetRequest):
+    """
+    新增/更新本机常用通道组合（写入 config.local.yaml 的 ui.channel_presets_local）。
+    """
+    name = str(req.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name 不能为空")
+    mode = int(req.mode_channels)
+    names = _normalize_channel_list(req.channel_names or [])
+    if mode <= 0:
+        raise HTTPException(status_code=400, detail="mode_channels 必须为正整数")
+    if len(names) != mode:
+        raise HTTPException(status_code=400, detail=f"channel_names 数量必须等于 mode_channels（{mode}）")
+    available = set(_normalize_channel_list(list(state.config.eeg.montage_1020_channels or [])))
+    if available:
+        for n in names:
+            if n not in available:
+                raise HTTPException(status_code=400, detail=f"非法通道名：{n}")
+    state.upsert_local_channel_preset(name=name, mode_channels=mode, channel_names=names)
+    return {"status": "success"}
+
+
+@app.post("/api/eeg/channel/presets/local/delete")
+async def eeg_channel_preset_delete(req: ChannelPresetDeleteRequest):
+    """
+    删除本机常用通道组合（按 name 匹配）。
+    """
+    name = str(req.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name 不能为空")
+    removed = state.delete_local_channel_preset(name)
+    return {"status": "success" if removed else "error", "removed": bool(removed)}
 
 @app.get("/api/status")
 async def get_status():

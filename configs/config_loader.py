@@ -14,9 +14,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.1.4 增加 WebSocket 广播队列配置，避免停采集时发送积压
 - 2026-05-03: 1.1.5 增加 UI 波形显示配置（时间窗/刷新率/降采样上限）
 - 2026-05-03: 1.1.6 配置命名区分“后端转发频率”和“前端渲染频率”
+- 2026-05-03: 1.1.7 支持本机覆盖配置与通道预设（10-20通道列表/常用组合/通道模式）
 
 作者: Spoon
-版本: 1.1.6
+版本: 1.1.7
 """
 
 import os
@@ -24,6 +25,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List
 
 import yaml
+
+from configs.local_overrides import deep_merge_dict, get_local_override_path, load_yaml_file
 
 
 @dataclass(frozen=True)
@@ -67,12 +70,22 @@ class LslConfig:
 
 
 @dataclass(frozen=True)
+class ChannelPresetConfig:
+    name: str
+    mode_channels: int
+    channel_names: List[str]
+
+
+@dataclass(frozen=True)
 class EegConfig:
     mode_channels: int
     sampling_rate_hz: int
     channel_names: List[str]
     ref_channel_name: str
     lsl: LslConfig
+    supported_channel_modes: List[int]
+    montage_1020_channels: List[str]
+    presets: List[ChannelPresetConfig]
 
 
 @dataclass(frozen=True)
@@ -181,6 +194,10 @@ def load_config(config_path: str) -> AppConfig:
     """
     with open(config_path, "r", encoding="utf-8") as f:
         raw: Dict[str, Any] = yaml.safe_load(f) or {}
+    override_path = get_local_override_path(config_path)
+    override_raw = load_yaml_file(override_path)
+    if override_raw:
+        raw = deep_merge_dict(raw, override_raw)
 
     bluetooth_raw = raw.get("bluetooth", {})
     scan_raw = bluetooth_raw.get("scan", {})
@@ -206,6 +223,57 @@ def load_config(config_path: str) -> AppConfig:
     mode_channels = int(eeg_raw.get("mode_channels", 8))
     channel_names_cfg = list(eeg_raw.get("channel_names", []) or [])
     ref_channel_cfg = str(eeg_raw.get("ref_channel_name", "") or "")
+    supported_modes_raw = eeg_raw.get("supported_channel_modes", []) or []
+    supported_modes: List[int] = []
+    if isinstance(supported_modes_raw, list):
+        for v in supported_modes_raw:
+            try:
+                iv = int(v)
+            except Exception:
+                continue
+            if iv <= 0:
+                continue
+            if iv not in supported_modes:
+                supported_modes.append(iv)
+    if not supported_modes:
+        supported_modes = [mode_channels]
+    if mode_channels not in supported_modes:
+        supported_modes.append(mode_channels)
+    supported_modes.sort()
+
+    montage_channels_raw = eeg_raw.get("montage_1020_channels", []) or []
+    montage_channels: List[str] = []
+    if isinstance(montage_channels_raw, list):
+        for v in montage_channels_raw:
+            s = str(v or "").strip()
+            if not s:
+                continue
+            if s not in montage_channels:
+                montage_channels.append(s)
+
+    presets_raw = eeg_raw.get("presets", []) or []
+    presets: List[ChannelPresetConfig] = []
+    if isinstance(presets_raw, list):
+        for item in presets_raw:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name", "") or "").strip()
+            if not name:
+                continue
+            try:
+                p_mode = int(item.get("mode_channels", 0))
+            except Exception:
+                p_mode = 0
+            p_names_raw = item.get("channel_names", []) or []
+            p_names: List[str] = []
+            if isinstance(p_names_raw, list):
+                for x in p_names_raw:
+                    xs = str(x or "").strip()
+                    if xs:
+                        p_names.append(xs)
+            if p_mode <= 0 or not p_names:
+                continue
+            presets.append(ChannelPresetConfig(name=name, mode_channels=p_mode, channel_names=p_names))
 
     device_names_cfg = list(bluetooth_raw.get("device_names", []) or [])
 
@@ -311,6 +379,9 @@ def load_config(config_path: str) -> AppConfig:
             stream_type=str(lsl_raw.get("stream_type", "EEG")),
             include_trigger_channel=bool(lsl_raw.get("include_trigger_channel", True)),
         ),
+        supported_channel_modes=supported_modes,
+        montage_1020_channels=montage_channels,
+        presets=presets,
     )
 
     protocol = ProtocolConfig(

@@ -16,15 +16,19 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.1.7 文案优化：明确原始导出包含陷波、带通在陷波之后
 - 2026-05-03: 1.1.8 EEG 波形提示合并为一行
 - 2026-05-03: 1.1.9 离线存储页增加采集时长/数据尺寸展示，并将提示行样式改为提示条
+- 2026-05-03: 1.2.0 设备页增加 10-20 通道选择地形图面板与常用组合
+- 2026-05-03: 1.2.1 设置页面 favicon 使用 logo.png
 
 作者: Spoon
-版本: 1.1.9
+版本: 1.2.1
 -->
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BHB-EEG Station</title>
+    <link rel="icon" type="image/png" href="logo.png" />
+    <link rel="apple-touch-icon" href="logo.png" />
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <link rel="stylesheet" href="styles/app.css" />
 </head>
@@ -74,18 +78,65 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                         </div>
                     </div>
                 </div>
-                <div class="card tips-card">
-                    <div class="card-header">
-                        <div>
-                            <div class="card-title">提示</div>
-                            <div class="card-sub">连接成功后进入模式选择页，再进入对应功能页面</div>
+                <div class="device-right">
+                    <div class="card topomap-card" id="card-topomap">
+                        <div class="card-header">
+                            <div>
+                                <div class="card-title">通道选择 10-20标准电极位置</div>
+                                <div class="card-sub" id="topomap-sub">点击电极选择通道与顺序；顺序用于波形/导出显示</div>
+                            </div>
+                            <div class="row">
+                                <select id="ch-mode-select" style="width: 120px;"></select>
+                                <button class="btn primary" id="ch-apply">应用到系统</button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="topomap-layout">
+                                <div class="topomap-canvas">
+                                    <div id="topomap-svg" class="topomap-svg"></div>
+                                </div>
+                                <div class="topomap-side">
+                                    <div class="topomap-badge" id="ch-count-badge">已选 <strong>0</strong> / <strong>8</strong></div>
+                                    <div class="field">
+                                        <div class="label">已选通道（顺序）</div>
+                                        <div class="chip-list" id="ch-selected-list"></div>
+                                    </div>
+                                    <div class="row">
+                                        <button class="btn" id="ch-clear">清空</button>
+                                    </div>
+                                    <div class="field">
+                                        <div class="label">常用组合</div>
+                                        <select id="ch-preset-select"></select>
+                                    </div>
+                                    <div class="row">
+                                        <button class="btn" id="ch-preset-apply">套用</button>
+                                        <button class="btn danger" id="ch-preset-delete">删除本机</button>
+                                    </div>
+                                    <div class="field">
+                                        <div class="label">保存为本机常用</div>
+                                        <input id="ch-preset-name" placeholder="例如：后部8通道" />
+                                    </div>
+                                    <div class="row">
+                                        <button class="btn primary" id="ch-preset-save">保存</button>
+                                    </div>
+                                    <div class="topomap-hint" id="ch-effective-status"></div>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <div class="card-body">
-                        <div class="stack tips-stack">
-                            <div class="card-sub">- 阻抗检测与电刺激页面后续会逐步完善数据展示与控制参数</div>
-                            <div class="card-sub">- EEG 页面包含实时波形与调试输出</div>
-                            <div class="card-sub">- 不同模式切换时建议先停止当前模式，避免设备状态混乱</div>
+                    <div class="card tips-card">
+                        <div class="card-header">
+                            <div>
+                                <div class="card-title">提示</div>
+                                <div class="card-sub">连接成功后进入模式选择页，再进入对应功能页面</div>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="stack tips-stack">
+                                <div class="card-sub">- 阻抗检测与电刺激页面后续会逐步完善数据展示与控制参数</div>
+                                <div class="card-sub">- EEG 页面包含实时波形与调试输出</div>
+                                <div class="card-sub">- 不同模式切换时建议先停止当前模式，避免设备状态混乱</div>
+                            </div>
                         </div>
                     </div>
                 </div>
