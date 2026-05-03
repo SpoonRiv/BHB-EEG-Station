@@ -6,9 +6,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 修改日志:
 - 2026-05-02: 1.0.0 新增页面流 API
 - 2026-05-03: 1.0.1 增加离线导出接口封装
+- 2026-05-03: 1.0.2 增加离线会话查询接口封装
 
 作者: Spoon
-版本: 1.0.1
+版本: 1.0.2
 */
 
 async function fetchJson(url, options) {
@@ -86,4 +87,10 @@ export async function offlineExport(payload) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload || {}),
   });
+}
+
+export async function offlineSession(sessionId) {
+  const sid = String(sessionId || '').trim();
+  const qs = new URLSearchParams({ session_id: sid });
+  return fetchJson(`/api/offline/session?${qs.toString()}`);
 }

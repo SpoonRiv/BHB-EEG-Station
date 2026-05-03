@@ -10,9 +10,12 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.3 设备页“提示”卡片加大字体，减少留白
 - 2026-05-03: 1.0.4 移除底部弹窗样式
 - 2026-05-03: 1.0.5 增加离线存储页表单控件样式（checkbox/选项行）
+- 2026-05-03: 1.0.6 离线存储页提示条与采集指标样式（区别于文本框）
+- 2026-05-03: 1.0.7 修复成功/失败提示条在日间模式下字色对比度
+- 2026-05-03: 1.0.8 导出成功提示支持换行并增大提示条高度
 
 作者: Spoon
-版本: 1.0.5
+版本: 1.0.8
 */
 
 :root {
@@ -335,6 +338,46 @@ select option {
 .status-box.error {
   border-color: rgba(255, 77, 109, 0.38);
   box-shadow: 0 0 0 1px rgba(255, 77, 109, 0.08) inset;
+}
+
+.hint-strip {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px dashed rgba(140, 170, 210, 0.28);
+  background: rgba(49, 215, 255, 0.06);
+  color: var(--muted);
+  line-height: 1.5;
+  font-size: 13px;
+  white-space: pre-line;
+  min-height: 56px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.hint-strip.success {
+  color: var(--text);
+  border-style: solid;
+  border-color: rgba(47, 229, 139, 0.35);
+  background: rgba(47, 229, 139, 0.06);
+}
+
+.hint-strip.error {
+  color: var(--text);
+  border-style: solid;
+  border-color: rgba(255, 77, 109, 0.38);
+  background: rgba(255, 77, 109, 0.06);
+}
+
+.hint-metrics {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(140, 170, 210, 0.16);
+  background: rgba(0, 0, 0, 0.10);
+  color: var(--text);
+  line-height: 1.6;
+  font-size: 13px;
 }
 
 .mode-grid {

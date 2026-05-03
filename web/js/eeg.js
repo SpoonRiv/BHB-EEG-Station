@@ -15,11 +15,13 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.8 修复暂停按钮初始化文案并强化开始采集互斥逻辑
 - 2026-05-03: 1.0.9 取消开始/停止弹窗提示并改为按钮锁定；停止按钮按“会话锁”启用
 - 2026-05-03: 1.1.0 停止采集后自动进入离线存储页并携带会话信息
-- 2026-05-03: 1.1.1 页面提示补充 50Hz 工频陷波（不可关闭）
+- 2026-05-03: 1.1.1 页面提示补充 50Hz （不可关闭）
 - 2026-05-03: 1.1.2 合并 EEG 波形提示为一行；去除电量“无更新”提示
+- 2026-05-03: 1.1.3 停止采集时立即关闭 WS 并阻止重连，避免“停止中仍刷新”
+- 2026-05-03: 1.1.4 停止采集后缓存会话元信息，供离线页展示采集时长与数据尺寸
 
 作者: Spoon
-版本: 1.1.2
+版本: 1.1.4
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -54,6 +56,7 @@ let eegWsState = 'disconnected';
 let eegHasData = false;
 let eegStatusHint = '';
 let eegSessionLocked = false;
+let eegStopping = false;
 
 function renderBatteryBadge(battery, running, streaming) {
   const badge = document.getElementById('battery-badge');
@@ -330,6 +333,7 @@ function connectEegWs() {
     eegWsState = 'disconnected';
     renderEegSubtitle();
     if (!eegPageActive) return;
+    if (eegStopping) return;
     if (eegReconnectTimer) return;
     eegReconnectTimer = setTimeout(() => {
       eegReconnectTimer = null;
@@ -367,6 +371,7 @@ function connectDebugWs() {
   };
   wsDebug.onclose = () => {
     if (!eegPageActive) return;
+    if (eegStopping) return;
     if (debugReconnectTimer) return;
     debugReconnectTimer = setTimeout(() => {
       debugReconnectTimer = null;
@@ -411,6 +416,7 @@ async function bootstrapDebug() {
 
 export async function enterEegPage() {
   eegPageActive = true;
+  eegStopping = false;
   lastEegDataAtMs = 0;
   eegHasData = false;
   eegWsState = 'disconnected';
@@ -433,7 +439,7 @@ export async function enterEegPage() {
     if (notchEl) {
       const notch = cfg && cfg.signal && cfg.signal.notch ? cfg.signal.notch : null;
       const hz = notch && typeof notch.freq_hz === 'number' ? notch.freq_hz : 50;
-      notchEl.textContent = ` ｜ 默认开启 ${hz}Hz 工频陷波（不可关闭）`;
+      notchEl.textContent = ` ｜ 默认开启 ${hz}Hz 工频陷波`;
     }
   } catch (_) {}
 
@@ -489,6 +495,13 @@ export async function enterEegPage() {
   }
   if (stopBtn) {
     stopBtn.onclick = async () => {
+      eegStopping = true;
+      eegStatusHint = '正在停止采集...';
+      renderEegSubtitle();
+      if (eegReconnectTimer) { try { clearTimeout(eegReconnectTimer); } catch (_) {} eegReconnectTimer = null; }
+      if (debugReconnectTimer) { try { clearTimeout(debugReconnectTimer); } catch (_) {} debugReconnectTimer = null; }
+      if (wsEeg) { try { wsEeg.close(); } catch (_) {} wsEeg = null; }
+      if (wsDebug) { try { wsDebug.close(); } catch (_) {} wsDebug = null; }
       stopBtn.disabled = true;
       if (startBtn) startBtn.disabled = true;
       try {
@@ -502,11 +515,14 @@ export async function enterEegPage() {
           if (sid) {
             try { sessionStorage.setItem('bhb_last_eeg_session', sid); } catch (_) {}
             try { sessionStorage.setItem('bhb_last_eeg_session_dir', sdir); } catch (_) {}
+            try { sessionStorage.setItem('bhb_last_eeg_session_meta', JSON.stringify(sess || {})); } catch (_) {}
             await navigate('#offline');
           }
         }
       } catch (e) {
+        eegStopping = false;
       } finally {
+        if (eegPageActive) eegStopping = false;
         await refreshEegStatusHint();
       }
     };

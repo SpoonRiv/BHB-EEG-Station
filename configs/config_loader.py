@@ -11,9 +11,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-02: 1.1.1 增加 LSL 解析超时与重试配置，提升波形推流稳定性
 - 2026-05-03: 1.1.2 增加离线存储与导出配置（offlinedata/滤波默认值）
 - 2026-05-03: 1.1.3 增加信号预处理配置（50Hz 陷波参数）
+- 2026-05-03: 1.1.4 增加 WebSocket 广播队列配置，避免停采集时发送积压
 
 作者: Spoon
-版本: 1.1.3
+版本: 1.1.4
 """
 
 import os
@@ -100,6 +101,8 @@ class StreamingConfig:
     buffer_size: int
     lsl_resolve_timeout_sec: float
     lsl_resolve_retry_interval_sec: float
+    ws_queue_max_chunks: int
+    ws_send_timeout_sec: float
 
 
 @dataclass(frozen=True)
@@ -200,6 +203,16 @@ def load_config(config_path: str) -> AppConfig:
         lsl_resolve_timeout_sec = 0.05
     if lsl_resolve_retry_interval_sec < 0.05:
         lsl_resolve_retry_interval_sec = 0.05
+    ws_queue_max_chunks = int(streaming_raw.get("ws_queue_max_chunks", 5))
+    if ws_queue_max_chunks < 1:
+        ws_queue_max_chunks = 1
+    if ws_queue_max_chunks > 100:
+        ws_queue_max_chunks = 100
+    ws_send_timeout_sec = float(streaming_raw.get("ws_send_timeout_sec", 0.5))
+    if ws_send_timeout_sec < 0.05:
+        ws_send_timeout_sec = 0.05
+    if ws_send_timeout_sec > 5.0:
+        ws_send_timeout_sec = 5.0
 
     def _as_u8_list(items: Any) -> List[int]:
         if not isinstance(items, list):
@@ -287,6 +300,8 @@ def load_config(config_path: str) -> AppConfig:
         buffer_size=buffer_size,
         lsl_resolve_timeout_sec=lsl_resolve_timeout_sec,
         lsl_resolve_retry_interval_sec=lsl_resolve_retry_interval_sec,
+        ws_queue_max_chunks=ws_queue_max_chunks,
+        ws_send_timeout_sec=ws_send_timeout_sec,
     )
 
     debug = DebugConfig(

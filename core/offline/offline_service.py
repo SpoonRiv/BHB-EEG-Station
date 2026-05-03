@@ -9,7 +9,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.0 创建文件
 - 2026-05-03: 1.0.1 EDF 导出改为分块写入以降低内存占用并减少失败概率
 - 2026-05-03: 1.0.2 修复 EDF header 字段：pyedflib 需要 sex 键而非 gender
-- 2026-05-03: 1.0.3 增加 50Hz 工频陷波（不可关闭）：导出 raw/filtered 均先陷波再（可选）带通
+- 2026-05-03: 1.0.3 增加 50Hz 工频陷波：导出 raw/filtered 均先陷波再（可选）带通
 - 2026-05-03: 1.0.4 导出链路统一使用“陷波+可选带通”流式处理，确保 raw/filtered 均执行 50Hz 陷波
 
 作者: Spoon

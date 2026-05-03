@@ -1,5 +1,5 @@
 app:
-  ui_version: "1.2.1"
+  ui_version: "1.2.2"
 
 bluetooth:
   device_names:
@@ -62,6 +62,10 @@ streaming:
   update_fps: 50
   # 每次推送的采样点数；若为 0，则自动按 sampling_rate_hz / update_fps 计算
   buffer_size: 0
+  # WebSocket 广播队列：满时丢弃旧数据保留最新，避免停采集时发送积压导致“尾巴很长”
+  ws_queue_max_chunks: 5
+  # 单个 WebSocket 发送超时（秒），避免慢连接拖垮整体
+  ws_send_timeout_sec: 0.5
   # LSL 解析等待与重试（用于处理“先启动采集、LSL 流稍后才出现”的情况）
   lsl_resolve_timeout_sec: 1.0
   lsl_resolve_retry_interval_sec: 0.5

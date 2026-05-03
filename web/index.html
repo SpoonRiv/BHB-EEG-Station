@@ -12,12 +12,13 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.1.3 设备页“提示”文字加大字号，减少留白
 - 2026-05-03: 1.1.4 移除底部弹窗容器
 - 2026-05-03: 1.1.5 增加离线存储页面（导出 CSV/EDF、可选带通滤波另存）
-- 2026-05-03: 1.1.6 页面提示补充：默认 50Hz 工频陷波（不可关闭），带通滤波可选
+- 2026-05-03: 1.1.6 页面提示补充：默认 50Hz 工频陷波，带通滤波可选
 - 2026-05-03: 1.1.7 文案优化：明确原始导出包含陷波、带通在陷波之后
 - 2026-05-03: 1.1.8 EEG 波形提示合并为一行
+- 2026-05-03: 1.1.9 离线存储页增加采集时长/数据尺寸展示，并将提示行样式改为提示条
 
 作者: Spoon
-版本: 1.1.8
+版本: 1.1.9
 -->
 <html lang="zh-CN">
 <head>
@@ -164,7 +165,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                 <div class="card-header">
                     <div>
                         <div class="card-title">数据存储</div>
-                        <div class="card-sub">停止采集后在此导出 CSV/EDF；默认 50Hz 工频陷波（不可关闭），带通滤波可选</div>
+                        <div class="card-sub">停止采集后在此导出 CSV/EDF ｜ 默认 50Hz 工频陷波，带通滤波可选</div>
                         <div class="card-sub" id="offline-notch-hint"></div>
                     </div>
                     <div class="row">
@@ -174,7 +175,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                 </div>
                 <div class="card-body">
                     <div class="stack">
-                        <div class="status-box" id="offline-status"></div>
+                        <div class="hint-strip" id="offline-status"></div>
                         <div class="row">
                             <div class="field" style="flex: 1; min-width: 240px;">
                                 <div class="label">会话ID</div>
@@ -185,6 +186,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                                 <div class="status-box" id="offline-session-dir">--</div>
                             </div>
                         </div>
+                        <div class="hint-metrics" id="offline-metrics" style="display: none;"></div>
 
                         <div class="row">
                             <div class="field" style="flex: 1; min-width: 260px;">

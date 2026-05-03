@@ -14,15 +14,18 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.1.4 EEG 停止后进入离线存储页，支持导出 CSV/EDF 与可选滤波
 - 2026-05-03: 1.1.5 离线导出接口补充参数校验与错误信息回传，便于定位 HTTP 500
 - 2026-05-03: 1.1.6 增加 50Hz 工频陷波预处理（波形展示与导出均生效）
+- 2026-05-03: 1.1.7 EEG WebSocket 广播改为有界队列最新覆盖，停止采集立即止波形
+- 2026-05-03: 1.1.8 增加离线会话查询接口，供前端展示采集时长与数据尺寸
 
 作者: Spoon
-版本: 1.1.6
+版本: 1.1.8
 """
 
 import asyncio
 import os
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -38,6 +41,7 @@ from core.debug_bus import DebugEventBus
 from core.ble.scanner import scan_devices
 from core.offline.offline_service import BandpassConfig, ExportTarget, OfflineService
 from core.signal.notch_filter import NotchFilter, NotchFilterConfig
+from ws_hub import EegWsHub, EegWsHubConfig
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -104,36 +108,42 @@ class AppState:
                 has_trigger_channel=bool(self.config.eeg.lsl.include_trigger_channel),
             )
         )
-        self.active_websockets: List[WebSocket] = []
+        self.eeg_ws_hub = EegWsHub(
+            EegWsHubConfig(
+                max_pending_chunks=int(self.config.streaming.ws_queue_max_chunks),
+                send_timeout_sec=float(self.config.streaming.ws_send_timeout_sec),
+            )
+        )
+        self.eeg_ws_hub.set_transform(self._apply_notch_safe)
 
-    async def broadcast_eeg_data(self, chunk: List[List[float]]):
+    def _apply_notch_safe(self, chunk: List[List[float]]) -> List[List[float]]:
         """
-        回调函数：当 LSL Streamer 凑齐一个 chunk 的数据时，通过 WebSocket 广播给所有前端
+        对 EEG chunk 应用陷波预处理（失败则回退到原始数据）。
+
+        Args:
+            chunk: 形如 [sample][channel] 的二维数组
+
+        Returns:
+            List[List[float]]: 陷波后的数据（或原始数据）
+        """
+        try:
+            return self.notch.apply(chunk)
+        except Exception:
+            return chunk
+
+    def on_lsl_chunk(self, chunk: List[List[float]]) -> None:
+        """
+        LSL 数据回调：记录离线数据并入队等待 WebSocket 广播。
+
+        设计要点：
+        - 该函数必须保持轻量且不 await，避免每个 chunk 创建 task 导致发送积压；
+        - WebSocket 发送在后台单任务中完成，并在队列满时丢弃旧数据保留最新。
         """
         try:
             self.offline.append_chunk(chunk)
         except Exception:
             pass
-        if not self.active_websockets:
-            return
-            
-        send_chunk = chunk
-        try:
-            send_chunk = self.notch.apply(chunk)
-        except Exception:
-            send_chunk = chunk
-        data_to_send = {"type": "eeg_data", "data": send_chunk}
-        
-        disconnected_ws = []
-        for ws in self.active_websockets:
-            try:
-                await ws.send_json(data_to_send)
-            except Exception as e:
-                logging.error(f"WebSocket send error: {e}")
-                disconnected_ws.append(ws)
-                
-        for ws in disconnected_ws:
-            self.active_websockets.remove(ws)
+        self.eeg_ws_hub.enqueue(chunk)
 
 state = AppState()
 
@@ -173,13 +183,14 @@ async def lifespan(app: FastAPI):
     FastAPI 生命周期管理：启动时注册数据流回调，关闭时停止设备。
     """
     logging.info("Application starting: registering callbacks...")
-    state.streamer.add_callback(state.broadcast_eeg_data)
+    state.streamer.add_callback(state.on_lsl_chunk)
     if state.config.debug.ui_enabled and not state._debug_forward_started:
         if state.controller.debug_queue is not None:
             state.debug_bus.start_forward_from_mp_queue(state.controller.debug_queue)
             state._debug_forward_started = True
     yield
     logging.info("Application shutting down: cleaning up resources...")
+    state.eeg_ws_hub.stop(clear_pending=True)
     state.streamer.stop()
     await asyncio.to_thread(state.controller.stop_device)
     await state.debug_bus.stop_forward()
@@ -277,6 +288,7 @@ async def stop_eeg():
     """停止蓝牙设备与 LSL 数据流"""
     if state.config.debug.ui_enabled:
         state.debug_bus.publish(tag="UI", message="点击停止采集", data={})
+    state.eeg_ws_hub.stop(clear_pending=True)
     state.streamer.stop()
     state.controller.stop_mode("eeg")
     session = None
@@ -331,6 +343,7 @@ async def ble_disconnect():
     """
     断开 BLE 连接并停止相关后台任务。
     """
+    state.eeg_ws_hub.stop(clear_pending=True)
     state.streamer.stop()
     state.controller.stop_mode("eeg")
     try:
@@ -371,6 +384,7 @@ async def start_mode(req: ModeRequest):
                 state.controller.stop_mode("eeg")
                 return {"status": "error", "message": f"创建离线会话失败：{e}", "device": state.controller.get_status()}
             state.streamer.start()
+            state.eeg_ws_hub.start()
             return {
                 "status": "success",
                 "message": "EEG 已启动",
@@ -388,6 +402,7 @@ async def stop_mode(req: ModeRequest):
     停止模式（向设备下发 stop 指令）。EEG 模式会同时停止 LSL->WS 推送。
     """
     if req.mode == "eeg":
+        state.eeg_ws_hub.stop(clear_pending=True)
         state.streamer.stop()
         ok = state.controller.stop_mode("eeg")
         session = None
@@ -449,6 +464,54 @@ async def offline_export(req: OfflineExportRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"离线导出失败：{e}")
 
+
+@app.get("/api/offline/session")
+async def offline_session(session_id: str):
+    """
+    查询离线会话元信息，并附带派生指标（采集时长、数据尺寸等）。
+
+    Args:
+        session_id: 会话 ID（形如 YYYYMMDD_eeg_HHMMSS_XX）
+    """
+    sid = str(session_id or "").strip()
+    if not sid:
+        raise HTTPException(status_code=400, detail="session_id 不能为空")
+    try:
+        info = state.offline.load_session(sid)
+        raw_path = os.path.join(info.session_dir, "raw_float32.bin")
+        raw_bytes = int(os.path.getsize(raw_path)) if os.path.isfile(raw_path) else 0
+        n_ch = int(len(info.channel_names))
+        total_samples = int(info.total_samples)
+        sr = int(info.sampling_rate_hz) if int(info.sampling_rate_hz) > 0 else 0
+        data_sec = (float(total_samples) / float(sr)) if sr > 0 else None
+
+        wall_clock_sec = None
+        try:
+            if info.started_at_iso and info.stopped_at_iso:
+                t0 = datetime.fromisoformat(str(info.started_at_iso))
+                t1 = datetime.fromisoformat(str(info.stopped_at_iso))
+                wall_clock_sec = max(0.0, float((t1 - t0).total_seconds()))
+        except Exception:
+            wall_clock_sec = None
+
+        return {
+            "status": "success",
+            "session": info.to_dict(),
+            "derived": {
+                "channels": n_ch,
+                "raw_bytes": raw_bytes,
+                "raw_mib": float(raw_bytes) / (1024.0 * 1024.0) if raw_bytes >= 0 else 0.0,
+                "data_duration_sec": data_sec,
+                "wall_clock_sec": wall_clock_sec,
+            },
+        }
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"读取会话失败：{e}")
+
 @app.get("/api/debug/events")
 async def get_debug_events(limit: int = 200):
     """
@@ -481,14 +544,14 @@ async def websocket_endpoint(websocket: WebSocket):
     WebSocket 端点，前端连接以获取实时 EEG 数据
     """
     await websocket.accept()
-    state.active_websockets.append(websocket)
+    state.eeg_ws_hub.register(websocket)
     logging.info("Frontend WebSocket connected.")
     try:
         while True:
             # 保持连接，处理前端可能发来的 ping 或控制信息
             data = await websocket.receive_text()
     except WebSocketDisconnect:
-        state.active_websockets.remove(websocket)
+        state.eeg_ws_hub.unregister(websocket)
         logging.info("Frontend WebSocket disconnected.")
 
 if __name__ == "__main__":

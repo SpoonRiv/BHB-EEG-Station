@@ -12,9 +12,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.1.2 移除 EEG_FRAME 调试输出，减少调试面板噪声
 - 2026-05-03: 1.1.3 修复电量状态上报条件，避免电量为 0 时不显示
 - 2026-05-03: 1.1.4 提前上报首帧电量，避免页面长期显示“--”
+- 2026-05-03: 1.1.5 EEG 停止后不再输出 EEG_RX 调试事件，避免“停采集仍在滚”
 
 作者: Spoon
-版本: 1.1.4
+版本: 1.1.5
 """
 
 import asyncio
@@ -206,6 +207,8 @@ async def _connect_and_stream(
         notify_counter += 1
         last_notify_ts = time.time()
         no_data_reported = False
+        if not eeg_streaming_enabled:
+            return
         if debug_queue is not None:
             try:
                 if notify_counter % 10 == 0:
@@ -218,8 +221,6 @@ async def _connect_and_stream(
                     )
             except Exception:
                 pass
-        if not eeg_streaming_enabled:
-            return
         # 参考旧版已验证逻辑：若收到长度刚好为一帧（140字节）的数据包，则清空缓存，避免错位累积
         if len(data) == spec.frame_len_bytes:
             if debug_queue is not None:

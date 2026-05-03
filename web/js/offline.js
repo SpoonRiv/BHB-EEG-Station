@@ -6,12 +6,15 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 修改日志:
 - 2026-05-03: 1.0.0 创建文件
 - 2026-05-03: 1.0.1 页面提示补充 50Hz 工频陷波（不可关闭）
+- 2026-05-03: 1.0.2 增加采集时长与数据尺寸展示（在导出选项之前）
+- 2026-05-03: 1.0.3 移除陷波提示行；时间戳去除 T；不再展示预估文件尺寸
+- 2026-05-03: 1.0.4 移除采集时间区间；数据尺寸增加预估大小；提示条成功字色由样式层修复
 
 作者: Spoon
-版本: 1.0.1
+版本: 1.0.4
 */
 
-import { getConfig, offlineExport } from './api.js';
+import { getConfig, offlineExport, offlineSession } from './api.js';
 import { navigate } from './router.js';
 
 let pageActive = false;
@@ -34,6 +37,18 @@ function setStatus(text, kind) {
   if (kind === 'success') box.classList.add('success');
   if (kind === 'error') box.classList.add('error');
   box.textContent = text || '';
+}
+
+function setMetricsVisible(visible) {
+  const el = document.getElementById('offline-metrics');
+  if (!el) return;
+  el.style.display = visible ? '' : 'none';
+}
+
+function setMetricsText(text) {
+  const el = document.getElementById('offline-metrics');
+  if (!el) return;
+  el.textContent = text || '';
 }
 
 function setSessionInfo(session) {
@@ -73,12 +88,6 @@ function readNumber(id, fallback) {
 
 function setDefaultsFromConfig(cfg) {
   const offline = cfg && cfg.offline ? cfg.offline : null;
-  const notchEl = document.getElementById('offline-notch-hint');
-  if (notchEl) {
-    const notch = offline && offline.notch ? offline.notch : (cfg && cfg.signal && cfg.signal.notch ? cfg.signal.notch : null);
-    const hz = notch && typeof notch.freq_hz === 'number' ? notch.freq_hz : 50;
-    notchEl.textContent = `系统默认对所有数据执行 ${hz}Hz 工频陷波（不可关闭），带通滤波在此页面可选。`;
-  }
   const fd = offline && offline.filter_defaults ? offline.filter_defaults : null;
   const low = fd && typeof fd.lowcut_hz_default === 'number' ? fd.lowcut_hz_default : 3.0;
   const high = fd && typeof fd.highcut_hz_default === 'number' ? fd.highcut_hz_default : 50.0;
@@ -89,12 +98,86 @@ function setDefaultsFromConfig(cfg) {
   if (highEl) highEl.value = String(high);
 }
 
+function fmtSeconds(sec) {
+  const v = Number(sec);
+  if (!Number.isFinite(v) || v < 0) return '--';
+  if (v < 60) return `${v.toFixed(2)}s`;
+  const m = Math.floor(v / 60);
+  const s = v - m * 60;
+  return `${m}m ${s.toFixed(1)}s`;
+}
+
+function fmtInt(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '--';
+  return String(Math.trunc(n));
+}
+
+function fmtMiB(miB) {
+  const v = Number(miB);
+  if (!Number.isFinite(v) || v < 0) return '--';
+  return v.toFixed(2);
+}
+
+function tryGetCachedSessionMeta(sid) {
+  try {
+    const raw = sessionStorage.getItem('bhb_last_eeg_session_meta') || '';
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== 'object') return null;
+    if (obj.session_id && String(obj.session_id) === String(sid)) return obj;
+  } catch (_) {}
+  return null;
+}
+
+function cacheSessionMeta(obj) {
+  try { sessionStorage.setItem('bhb_last_eeg_session_meta', JSON.stringify(obj || {})); } catch (_) {}
+}
+
+async function loadAndRenderMetrics(sessionId) {
+  if (!sessionId) {
+    setMetricsVisible(false);
+    return;
+  }
+  const cached = tryGetCachedSessionMeta(sessionId);
+  if (cached) {
+    const sr = cached.sampling_rate_hz ? Number(cached.sampling_rate_hz) : null;
+    const nCh = Array.isArray(cached.channel_names) ? cached.channel_names.length : null;
+    const samples = cached.total_samples ? Number(cached.total_samples) : null;
+    const dataSec = (sr && samples && sr > 0) ? (samples / sr) : null;
+    const estMiB = (samples && nCh) ? ((samples * nCh * 4) / (1024.0 * 1024.0)) : null;
+    setMetricsText(`数据尺寸：${fmtInt(samples)} 点 × ${fmtInt(nCh)} 通道（约 ${estMiB !== null ? fmtMiB(estMiB) : '--'} MiB） ｜ 数据时长：${dataSec !== null ? fmtSeconds(dataSec) : '--'}`);
+    setMetricsVisible(true);
+  }
+  try {
+    const res = await offlineSession(sessionId);
+    const sess = res && res.session ? res.session : null;
+    const d = res && res.derived ? res.derived : null;
+    if (sess && sess.session_id) cacheSessionMeta(sess);
+    const samples = sess && typeof sess.total_samples === 'number' ? sess.total_samples : null;
+    const nCh = d && typeof d.channels === 'number' ? d.channels : (sess && Array.isArray(sess.channel_names) ? sess.channel_names.length : null);
+    const dataSec = d && typeof d.data_duration_sec === 'number' ? d.data_duration_sec : null;
+    const estMiB = (samples && nCh) ? ((samples * nCh * 4) / (1024.0 * 1024.0)) : null;
+    setMetricsText(
+      `数据尺寸：${fmtInt(samples)} 点 × ${fmtInt(nCh)} 通道（约 ${estMiB !== null ? fmtMiB(estMiB) : '--'} MiB） ｜ 数据时长：${dataSec !== null ? fmtSeconds(dataSec) : '--'}`
+    );
+    setMetricsVisible(true);
+    setSessionInfo({ session_id: sess && sess.session_id ? sess.session_id : sessionId, session_dir: sess && sess.session_dir ? sess.session_dir : getLastSessionDir() });
+  } catch (_) {
+    if (!cached) {
+      setMetricsText('采集指标：获取失败（可继续导出，导出不受影响）');
+      setMetricsVisible(true);
+    }
+  }
+}
+
 export async function enterOfflinePage() {
   pageActive = true;
   lastSessionId = getLastSessionId();
   const lastSessionDir = getLastSessionDir();
   setStatus(lastSessionId ? '请选择导出选项并点击“导出文件”。' : '未检测到最近会话，请先进入 EEG 页面开始/停止一次采集。', lastSessionId ? '' : 'error');
   setSessionInfo(null);
+  setMetricsVisible(false);
 
   const backBtn = document.getElementById('btn-offline-back');
   const exportBtn = document.getElementById('btn-offline-export');
@@ -178,6 +261,7 @@ export async function enterOfflinePage() {
   try {
     setSessionInfo({ session_id: lastSessionId, session_dir: lastSessionDir });
   } catch (_) {}
+  await loadAndRenderMetrics(lastSessionId);
 }
 
 export async function leaveOfflinePage() {
