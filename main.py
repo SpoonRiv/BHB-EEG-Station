@@ -16,9 +16,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.1.6 增加 50Hz 工频陷波预处理（波形展示与导出均生效）
 - 2026-05-03: 1.1.7 EEG WebSocket 广播改为有界队列最新覆盖，停止采集立即止波形
 - 2026-05-03: 1.1.8 增加离线会话查询接口，供前端展示采集时长与数据尺寸
+- 2026-05-03: 1.1.9 下发 UI 波形显示配置并调整停止采集时的 WS 收尾策略
+- 2026-05-03: 1.2.0 配置命名区分“后端转发频率”和“前端渲染频率”
 
 作者: Spoon
-版本: 1.1.8
+版本: 1.2.0
 """
 
 import asyncio
@@ -248,11 +250,19 @@ async def get_config():
     ui_version = getattr(state.config, "app_ui_version", "1.0.0")
     return {
         "ui_version": ui_version,
+        "ui": {
+            "waveform": {
+                "time_window_sec": float(state.config.ui.waveform.time_window_sec),
+                "render_fps_hz": int(state.config.ui.waveform.render_fps_hz),
+                "max_render_points_per_channel": int(state.config.ui.waveform.max_render_points_per_channel),
+                "global_scale": bool(state.config.ui.waveform.global_scale),
+            }
+        },
         "mode_channels": state.config.eeg.mode_channels,
         "channel_names": state.config.eeg.channel_names,
         "sampling_rate_hz": state.config.eeg.sampling_rate_hz,
         "buffer_size": state.config.streaming.buffer_size,
-        "update_fps": state.config.streaming.update_fps,
+        "ws_send_fps_hz": state.config.streaming.ws_send_fps_hz,
         "signal": {
             "notch": {
                 "freq_hz": float(state.config.signal.notch.freq_hz),
@@ -288,7 +298,7 @@ async def stop_eeg():
     """停止蓝牙设备与 LSL 数据流"""
     if state.config.debug.ui_enabled:
         state.debug_bus.publish(tag="UI", message="点击停止采集", data={})
-    state.eeg_ws_hub.stop(clear_pending=True)
+    state.eeg_ws_hub.stop(clear_pending=False)
     state.streamer.stop()
     state.controller.stop_mode("eeg")
     session = None

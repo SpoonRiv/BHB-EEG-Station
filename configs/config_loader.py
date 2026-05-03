@@ -12,9 +12,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.1.2 增加离线存储与导出配置（offlinedata/滤波默认值）
 - 2026-05-03: 1.1.3 增加信号预处理配置（50Hz 陷波参数）
 - 2026-05-03: 1.1.4 增加 WebSocket 广播队列配置，避免停采集时发送积压
+- 2026-05-03: 1.1.5 增加 UI 波形显示配置（时间窗/刷新率/降采样上限）
+- 2026-05-03: 1.1.6 配置命名区分“后端转发频率”和“前端渲染频率”
 
 作者: Spoon
-版本: 1.1.4
+版本: 1.1.6
 """
 
 import os
@@ -97,7 +99,7 @@ class ServerConfig:
 
 @dataclass(frozen=True)
 class StreamingConfig:
-    update_fps: int
+    ws_send_fps_hz: int
     buffer_size: int
     lsl_resolve_timeout_sec: float
     lsl_resolve_retry_interval_sec: float
@@ -144,8 +146,22 @@ class OfflineConfig:
 
 
 @dataclass(frozen=True)
+class WaveformUiConfig:
+    time_window_sec: float
+    render_fps_hz: int
+    max_render_points_per_channel: int
+    global_scale: bool
+
+
+@dataclass(frozen=True)
+class UiConfig:
+    waveform: WaveformUiConfig
+
+
+@dataclass(frozen=True)
 class AppConfig:
     app_ui_version: str
+    ui: UiConfig
     bluetooth: BluetoothConfig
     eeg: EegConfig
     protocol: ProtocolConfig
@@ -183,6 +199,8 @@ def load_config(config_path: str) -> AppConfig:
     signal_raw = raw.get("signal", {}) or {}
     offline_raw = raw.get("offline", {}) or {}
     app_raw = raw.get("app", {}) or {}
+    ui_raw = raw.get("ui", {}) or {}
+    waveform_ui_raw = ui_raw.get("waveform", {}) or {}
     app_ui_version = str(app_raw.get("ui_version") or app_raw.get("version") or "1.0.0").strip() or "1.0.0"
 
     mode_channels = int(eeg_raw.get("mode_channels", 8))
@@ -192,10 +210,10 @@ def load_config(config_path: str) -> AppConfig:
     device_names_cfg = list(bluetooth_raw.get("device_names", []) or [])
 
     sampling_rate_hz = int(eeg_raw.get("sampling_rate_hz", 250))
-    update_fps = int(streaming_raw.get("update_fps", 25))
+    ws_send_fps_hz = int(streaming_raw.get("ws_send_fps_hz", streaming_raw.get("update_fps", 25)))
     buffer_size = int(streaming_raw.get("buffer_size", 0))
     if buffer_size <= 0:
-        buffer_size = max(1, int(round(sampling_rate_hz / max(1, update_fps))))
+        buffer_size = max(1, int(round(sampling_rate_hz / max(1, ws_send_fps_hz))))
 
     lsl_resolve_timeout_sec = float(streaming_raw.get("lsl_resolve_timeout_sec", 1.0))
     lsl_resolve_retry_interval_sec = float(streaming_raw.get("lsl_resolve_retry_interval_sec", 0.5))
@@ -213,6 +231,23 @@ def load_config(config_path: str) -> AppConfig:
         ws_send_timeout_sec = 0.05
     if ws_send_timeout_sec > 5.0:
         ws_send_timeout_sec = 5.0
+
+    time_window_sec = float(waveform_ui_raw.get("time_window_sec", 2.0))
+    if time_window_sec < 0.2:
+        time_window_sec = 0.2
+    if time_window_sec > 30.0:
+        time_window_sec = 30.0
+    render_fps_hz = int(waveform_ui_raw.get("render_fps_hz", waveform_ui_raw.get("render_fps", 25)))
+    if render_fps_hz < 5:
+        render_fps_hz = 5
+    if render_fps_hz > 60:
+        render_fps_hz = 60
+    max_render_points_per_channel = int(waveform_ui_raw.get("max_render_points_per_channel", 800))
+    if max_render_points_per_channel < 50:
+        max_render_points_per_channel = 50
+    if max_render_points_per_channel > 5000:
+        max_render_points_per_channel = 5000
+    global_scale = bool(waveform_ui_raw.get("global_scale", True))
 
     def _as_u8_list(items: Any) -> List[int]:
         if not isinstance(items, list):
@@ -296,7 +331,7 @@ def load_config(config_path: str) -> AppConfig:
     )
 
     streaming = StreamingConfig(
-        update_fps=update_fps,
+        ws_send_fps_hz=ws_send_fps_hz,
         buffer_size=buffer_size,
         lsl_resolve_timeout_sec=lsl_resolve_timeout_sec,
         lsl_resolve_retry_interval_sec=lsl_resolve_retry_interval_sec,
@@ -336,8 +371,18 @@ def load_config(config_path: str) -> AppConfig:
         ),
     )
 
+    ui = UiConfig(
+        waveform=WaveformUiConfig(
+            time_window_sec=time_window_sec,
+            render_fps_hz=render_fps_hz,
+            max_render_points_per_channel=max_render_points_per_channel,
+            global_scale=global_scale,
+        )
+    )
+
     return AppConfig(
         app_ui_version=app_ui_version,
+        ui=ui,
         bluetooth=bluetooth,
         eeg=eeg,
         protocol=protocol,

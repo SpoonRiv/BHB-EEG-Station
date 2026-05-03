@@ -19,9 +19,13 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.1.2 合并 EEG 波形提示为一行；去除电量“无更新”提示
 - 2026-05-03: 1.1.3 停止采集时立即关闭 WS 并阻止重连，避免“停止中仍刷新”
 - 2026-05-03: 1.1.4 停止采集后缓存会话元信息，供离线页展示采集时长与数据尺寸
+- 2026-05-03: 1.1.5 波形展示改为环形缓冲+限帧渲染+降采样渲染，降低卡顿且不丢数据
+- 2026-05-03: 1.1.6 滚动查看多通道时仅渲染可视区域，避免滚动导致渲染卡死
+- 2026-05-03: 1.1.7 修复窗口尺寸变化时的可视渲染范围与降采样缓存刷新
+- 2026-05-03: 1.1.8 配置命名区分“后端转发频率”和“前端渲染频率”
 
 作者: Spoon
-版本: 1.1.4
+版本: 1.1.8
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -31,14 +35,32 @@ let wsEeg = null;
 let wsDebug = null;
 
 let charts = [];
-let chartData = [];
 let channels = 8;
 let channelNames = [];
 let maxPoints = 500;
 
-let updateRequested = false;
+let eegSamplingRateHz = 250;
+let eegWindowSec = 2.0;
+let eegRenderFps = 25;
+let eegMaxRenderPointsPerChannel = 800;
+let eegGlobalScale = true;
+
+let eegRings = [];
+let eegDataDirty = false;
+let eegRenderLoopActive = false;
+let eegLastRenderAtMs = 0;
 let globalYMin = Infinity;
 let globalYMax = -Infinity;
+
+let eegGridEl = null;
+let eegChartContainers = [];
+let eegVisibleMask = [];
+let eegChartWidthCache = [];
+let eegTargetPointsCache = [];
+let eegScrollCheckRequested = false;
+let eegGridScrollHandler = null;
+let eegResizeHandler = null;
+let eegResizeListenerAttached = false;
 
 let debugLines = [];
 let debugFilterText = '';
@@ -175,11 +197,16 @@ function renderDebug() {
 function initCharts() {
   const grid = document.getElementById('charts-grid');
   if (!grid) return;
+  eegGridEl = grid;
   const isLight = (document.documentElement.getAttribute('data-theme') || 'light') === 'light';
 
   grid.innerHTML = '';
   charts = [];
-  chartData = Array.from({ length: channels }, () => []);
+  eegRings = Array.from({ length: channels }, () => new FloatRingBuffer(maxPoints));
+  eegChartContainers = [];
+  eegVisibleMask = Array.from({ length: channels }, () => true);
+  eegChartWidthCache = Array.from({ length: channels }, () => 0);
+  eegTargetPointsCache = Array.from({ length: channels }, () => 0);
   globalYMin = Infinity;
   globalYMax = -Infinity;
 
@@ -198,12 +225,13 @@ function initCharts() {
     container.appendChild(chartDiv);
 
     grid.appendChild(container);
+    eegChartContainers.push(container);
 
     const chart = echarts.init(chartDiv, null, { renderer: 'canvas' });
     chart.setOption({
       backgroundColor: 'transparent',
       grid: { top: 24, bottom: 12, left: 64, right: 10 },
-      xAxis: { type: 'value', show: false, boundaryGap: false, min: 'dataMin', max: 'dataMax' },
+      xAxis: { type: 'value', show: false, boundaryGap: false, min: -eegWindowSec, max: 0 },
       yAxis: {
         type: 'value',
         scale: true,
@@ -230,6 +258,8 @@ function initCharts() {
         showSymbol: false,
         hoverAnimation: false,
         data: [],
+        large: true,
+        largeThreshold: 2000,
         lineStyle: { color: isLight ? '#000000' : '#ffffff', width: 1.6 }
       }],
       animation: false,
@@ -237,6 +267,8 @@ function initCharts() {
 
     charts.push(chart);
   }
+
+  scheduleVisibleUpdate(true);
 }
 
 function applyThemeToCharts(theme) {
@@ -256,19 +288,159 @@ function applyThemeToCharts(theme) {
   }
 }
 
-function updateCharts() {
-  updateRequested = false;
+class FloatRingBuffer {
+  constructor(capacity) {
+    this.capacity = Math.max(1, Number(capacity) | 0);
+    this.buf = new Float32Array(this.capacity);
+    this.start = 0;
+    this.length = 0;
+  }
 
+  push(v) {
+    const x = Number(v);
+    const vv = Number.isFinite(x) ? x : 0;
+    if (this.length < this.capacity) {
+      const idx = (this.start + this.length) % this.capacity;
+      this.buf[idx] = vv;
+      this.length += 1;
+      return;
+    }
+    this.buf[this.start] = vv;
+    this.start = (this.start + 1) % this.capacity;
+  }
+
+  at(i) {
+    const idx = (this.start + i) % this.capacity;
+    return this.buf[idx];
+  }
+}
+
+function buildSeriesPoints(ring, samplingRateHz, targetPoints) {
+  if (!ring || ring.length <= 0) return [];
+  const sr = Math.max(1, Number(samplingRateHz) || 1);
+  const n = ring.length;
+  const tgt = Math.max(10, Math.min(n, Number(targetPoints) | 0));
+  if (n <= tgt) {
+    const out = new Array(n);
+    for (let i = 0; i < n; i++) {
+      out[i] = [(i - (n - 1)) / sr, ring.at(i)];
+    }
+    return out;
+  }
+  const out = [];
+  const bucketSize = n / tgt;
+  for (let b = 0; b < tgt; b++) {
+    const s = Math.floor(b * bucketSize);
+    const e = Math.min(n, Math.floor((b + 1) * bucketSize));
+    if (e <= s) continue;
+    let minV = Infinity;
+    let maxV = -Infinity;
+    let minI = s;
+    let maxI = s;
+    for (let i = s; i < e; i++) {
+      const v = ring.at(i);
+      if (v < minV) { minV = v; minI = i; }
+      if (v > maxV) { maxV = v; maxI = i; }
+    }
+    const pushPoint = (idx, val) => { out.push([(idx - (n - 1)) / sr, val]); };
+    if (minI === maxI) {
+      pushPoint(minI, minV);
+    } else if (minI < maxI) {
+      pushPoint(minI, minV);
+      pushPoint(maxI, maxV);
+    } else {
+      pushPoint(maxI, maxV);
+      pushPoint(minI, minV);
+    }
+  }
+  const lastV = ring.at(n - 1);
+  out.push([0, lastV]);
+  return out;
+}
+
+function computeTargetPointsForChart(chart) {
+  const width = chart && typeof chart.getWidth === 'function' ? chart.getWidth() : 600;
+  const adaptive = Math.max(80, Math.floor(width * 1.5));
+  return Math.min(eegMaxRenderPointsPerChannel, adaptive);
+}
+
+function updateVisibleMask(forceAll) {
+  if (!eegGridEl) return;
+  if (forceAll) {
+    eegVisibleMask = Array.from({ length: channels }, () => true);
+    return;
+  }
+  const gridRect = eegGridEl.getBoundingClientRect();
+  const top = gridRect.top - 200;
+  const bottom = gridRect.bottom + 200;
+  const mask = Array.from({ length: channels }, () => false);
+  for (let i = 0; i < channels; i++) {
+    const el = eegChartContainers[i];
+    if (!el) continue;
+    const r = el.getBoundingClientRect();
+    if (r.bottom >= top && r.top <= bottom) {
+      mask[i] = true;
+    }
+  }
+  eegVisibleMask = mask;
+}
+
+function updateVisibleCaches() {
+  for (let i = 0; i < channels; i++) {
+    if (!eegVisibleMask[i]) continue;
+    const ch = charts[i];
+    if (!ch || typeof ch.getWidth !== 'function') continue;
+    const w = ch.getWidth();
+    if (w !== eegChartWidthCache[i]) {
+      eegChartWidthCache[i] = w;
+      eegTargetPointsCache[i] = computeTargetPointsForChart(ch);
+    }
+  }
+}
+
+function scheduleVisibleUpdate(forceAll = false) {
+  if (eegScrollCheckRequested) return;
+  eegScrollCheckRequested = true;
+  requestAnimationFrame(() => {
+    eegScrollCheckRequested = false;
+    updateVisibleMask(forceAll);
+    updateVisibleCaches();
+    eegDataDirty = true;
+  });
+}
+
+function renderCharts() {
   const yAxisMin = globalYMin === Infinity ? null : Math.floor(globalYMin);
   const yAxisMax = globalYMax === -Infinity ? null : Math.ceil(globalYMax);
 
   for (let i = 0; i < channels; i++) {
-    if (!charts[i]) continue;
-    charts[i].setOption({
-      yAxis: { min: yAxisMin, max: yAxisMax },
-      series: [{ data: chartData[i] }],
+    if (eegVisibleMask.length === channels && !eegVisibleMask[i]) continue;
+    const ch = charts[i];
+    if (!ch) continue;
+    const ring = eegRings[i];
+    const tgt = eegTargetPointsCache[i] > 0 ? eegTargetPointsCache[i] : computeTargetPointsForChart(ch);
+    const points = buildSeriesPoints(ring, eegSamplingRateHz, tgt);
+    ch.setOption({
+      xAxis: { min: -eegWindowSec, max: 0 },
+      yAxis: eegGlobalScale ? { min: yAxisMin, max: yAxisMax } : { min: null, max: null },
+      series: [{ data: points }],
     }, false, false);
   }
+}
+
+function eegRenderLoop() {
+  if (!eegPageActive) {
+    eegRenderLoopActive = false;
+    return;
+  }
+  const now = performance.now();
+  const intervalMs = 1000 / Math.max(5, Number(eegRenderFps) || 25);
+  if (eegDataDirty && (now - eegLastRenderAtMs) >= intervalMs) {
+    eegDataDirty = false;
+    eegLastRenderAtMs = now;
+    renderCharts();
+  }
+  requestAnimationFrame(eegRenderLoop);
 }
 
 function handleEEGData(chunk) {
@@ -283,13 +455,11 @@ function handleEEGData(chunk) {
   for (const sample of chunk) {
     if (!Array.isArray(sample) || sample.length < channels) continue;
     for (let i = 0; i < channels; i++) {
-      const lastX = chartData[i].length > 0 ? chartData[i][chartData[i].length - 1][0] : 0;
       const y = Number(sample[i]);
       if (Number.isNaN(y)) continue;
       if (y < currentChunkMin) currentChunkMin = y;
       if (y > currentChunkMax) currentChunkMax = y;
-      chartData[i].push([lastX + 1, y]);
-      if (chartData[i].length > maxPoints) chartData[i].shift();
+      if (eegRings[i]) eegRings[i].push(y);
     }
   }
 
@@ -306,9 +476,11 @@ function handleEEGData(chunk) {
     }
   }
 
-  if (!updateRequested) {
-    updateRequested = true;
-    requestAnimationFrame(updateCharts);
+  eegDataDirty = true;
+  if (!eegRenderLoopActive) {
+    eegRenderLoopActive = true;
+    eegLastRenderAtMs = 0;
+    requestAnimationFrame(eegRenderLoop);
   }
 }
 
@@ -433,8 +605,15 @@ export async function enterEegPage() {
     const cfg = await getConfig();
     channels = cfg && cfg.mode_channels ? Number(cfg.mode_channels) : 8;
     channelNames = cfg && Array.isArray(cfg.channel_names) ? cfg.channel_names : [];
-    const samplingRate = cfg && cfg.sampling_rate_hz ? Number(cfg.sampling_rate_hz) : 250;
-    maxPoints = Math.max(50, Math.floor(samplingRate * 2));
+    eegSamplingRateHz = cfg && cfg.sampling_rate_hz ? Number(cfg.sampling_rate_hz) : 250;
+    const uiWave = cfg && cfg.ui && cfg.ui.waveform ? cfg.ui.waveform : null;
+    eegWindowSec = uiWave && typeof uiWave.time_window_sec === 'number' ? Number(uiWave.time_window_sec) : 1.0;
+    eegRenderFps = uiWave && typeof uiWave.render_fps_hz === 'number' ? Number(uiWave.render_fps_hz) : 25;
+    eegMaxRenderPointsPerChannel = uiWave && typeof uiWave.max_render_points_per_channel === 'number'
+      ? Number(uiWave.max_render_points_per_channel)
+      : 800;
+    eegGlobalScale = uiWave && typeof uiWave.global_scale === 'boolean' ? !!uiWave.global_scale : true;
+    maxPoints = Math.max(50, Math.floor(Math.max(1, eegSamplingRateHz) * Math.max(0.2, eegWindowSec)));
     const notchEl = document.getElementById('eeg-notch-hint');
     if (notchEl) {
       const notch = cfg && cfg.signal && cfg.signal.notch ? cfg.signal.notch : null;
@@ -444,9 +623,34 @@ export async function enterEegPage() {
   } catch (_) {}
 
   initCharts();
+  if (!eegGridScrollHandler) {
+    eegGridScrollHandler = () => {
+      scheduleVisibleUpdate(false);
+    };
+  }
+  if (eegGridEl) {
+    try { eegGridEl.removeEventListener('scroll', eegGridScrollHandler); } catch (_) {}
+    eegGridEl.addEventListener('scroll', eegGridScrollHandler, { passive: true });
+  }
+  if (!eegResizeListenerAttached) {
+    eegResizeListenerAttached = true;
+    eegResizeHandler = () => {
+      if (!eegPageActive) return;
+      charts.forEach(c => c && c.resize());
+      scheduleVisibleUpdate(true);
+    };
+    window.addEventListener('resize', eegResizeHandler);
+  }
+  scheduleVisibleUpdate(false);
   await bootstrapDebug();
   connectEegWs();
   connectDebugWs();
+  eegDataDirty = false;
+  if (!eegRenderLoopActive) {
+    eegRenderLoopActive = true;
+    eegLastRenderAtMs = 0;
+    requestAnimationFrame(eegRenderLoop);
+  }
   applyThemeToCharts(document.documentElement.getAttribute('data-theme') || 'light');
   renderEegSubtitle();
   await refreshEegStatusHint();
@@ -528,11 +732,15 @@ export async function enterEegPage() {
     };
   }
 
-  window.addEventListener('resize', () => { charts.forEach(c => c && c.resize()); }, { once: true });
 }
 
 export async function leaveEegPage() {
   eegPageActive = false;
+  eegRenderLoopActive = false;
+  if (eegGridEl && eegGridScrollHandler) {
+    try { eegGridEl.removeEventListener('scroll', eegGridScrollHandler); } catch (_) {}
+  }
+  eegGridEl = null;
   if (eegReconnectTimer) { try { clearTimeout(eegReconnectTimer); } catch (_) {} eegReconnectTimer = null; }
   if (debugReconnectTimer) { try { clearTimeout(debugReconnectTimer); } catch (_) {} debugReconnectTimer = null; }
   if (eegStatusTimer) { try { clearInterval(eegStatusTimer); } catch (_) {} eegStatusTimer = null; }

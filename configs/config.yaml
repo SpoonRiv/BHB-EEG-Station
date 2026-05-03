@@ -1,5 +1,16 @@
 app:
-  ui_version: "1.2.2"
+  ui_version: "1.2.3"
+
+ui:
+  waveform:
+    # 前端显示窗口时长（秒）。仅影响展示，不影响采集与离线存储。
+    time_window_sec: 2.0
+    # 前端波形渲染刷新频率（Hz）。仅影响展示，不影响采集与离线存储。
+    render_fps_hz: 25
+    # 单通道最大渲染点数（超过则进行降采样渲染，确保不丢数据但降低渲染负载）。
+    max_render_points_per_channel: 800
+    # 是否所有通道共用同一 y 轴范围（true=统一缩放，false=各通道独立）。
+    global_scale: true
 
 bluetooth:
   device_names:
@@ -58,11 +69,11 @@ server:
   port: 8001
 
 streaming:
-  # WebSocket 发送刷新频率，用于节流，防止前端渲染过载卡死
-  update_fps: 50
-  # 每次推送的采样点数；若为 0，则自动按 sampling_rate_hz / update_fps 计算
+  # 后端 WebSocket 转发到前端的发送频率（Hz），用于节流，降低前端收包与解析负载
+  ws_send_fps_hz: 25
+  # 每次推送的采样点数；若为 0，则自动按 sampling_rate_hz / ws_send_fps_hz 计算
   buffer_size: 0
-  # WebSocket 广播队列：满时丢弃旧数据保留最新，避免停采集时发送积压导致“尾巴很长”
+  # WebSocket 广播队列：满时合并旧 chunk（扩大单次 payload），避免积压且不丢数据
   ws_queue_max_chunks: 5
   # 单个 WebSocket 发送超时（秒），避免慢连接拖垮整体
   ws_send_timeout_sec: 0.5
