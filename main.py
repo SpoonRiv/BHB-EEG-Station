@@ -9,9 +9,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-04-30: 1.0.0 创建文件
 - 2026-05-02: 1.1.0 增加设备与模式页面流，拆分脚本入口
 - 2026-05-02: 1.1.1 增加 LSL 推流自检信息并传递解析重试配置
+- 2026-05-03: 1.1.2 禁用静态资源缓存并限制 EEG 重复启动
+- 2026-05-03: 1.1.3 EEG 停止接口幂等化，避免未推流时无法停止
 
 作者: Spoon
-版本: 1.1.1
+版本: 1.1.3
 """
 
 import asyncio
@@ -33,6 +35,23 @@ from core.debug_bus import DebugEventBus
 from core.ble.scanner import scan_devices
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+class NoCacheStaticFiles(StaticFiles):
+    """
+    禁用静态资源缓存的 StaticFiles 包装。
+
+    目的：
+        开发阶段频繁修改 web/ 下的 HTML/CSS/JS 时，浏览器缓存会导致“看起来像没生效”的假象。
+        此类统一对静态资源响应加上 Cache-Control: no-store，确保每次刷新都取最新内容。
+    """
+
+    async def get_response(self, path: str, scope) -> Any:
+        resp = await super().get_response(path, scope)
+        try:
+            resp.headers["Cache-Control"] = "no-store"
+        except Exception:
+            pass
+        return resp
 
 class AppState:
     def __init__(self):
@@ -119,7 +138,7 @@ app.add_middleware(
 )
 
 # 挂载前端静态文件
-app.mount("/web", StaticFiles(directory="web"), name="web")
+app.mount("/web", NoCacheStaticFiles(directory="web"), name="web")
 
 
 @app.get("/")
@@ -258,6 +277,8 @@ async def start_mode(req: ModeRequest):
     启动模式（向设备下发 start 指令）。EEG 模式会同时启动 LSL->WS 推送。
     """
     if req.mode == "eeg":
+        if bool(getattr(state.streamer, "is_streaming", False)):
+            return {"status": "error", "message": "EEG 正在采集中，请先停止采集", "device": state.controller.get_status()}
         state.controller.select_mode("eeg")
         ok = state.controller.start_mode("eeg")
         if ok:

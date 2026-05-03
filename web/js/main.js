@@ -7,9 +7,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-02: 1.0.0 新增页面流入口
 - 2026-05-02: 1.0.1 主题切换默认日间并允许按钮切换
 - 2026-05-02: 1.0.2 状态轮询失败时提示后端未响应，避免前端显示陈旧连接状态
+- 2026-05-03: 1.0.3 移除底部弹窗提示，统一改为按钮状态反馈
 
 作者: Spoon
-版本: 1.0.2
+版本: 1.0.3
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -17,7 +18,7 @@ import { initDevicePage } from './device.js';
 import { initModePage } from './mode.js';
 import { enterEegPage, leaveEegPage } from './eeg.js';
 import { registerRoute, startRouter, navigate } from './router.js';
-import { setConnBadge, toast } from './ui.js';
+import { setConnBadge } from './ui.js';
 
 let statusTimer = null;
 
@@ -112,11 +113,8 @@ function bindPlaceholderButtons() {
     impStart.onclick = async () => {
       impStart.disabled = true;
       try {
-        const res = await modeStart('impedance');
-        toast((res && res.status === 'success') ? '开启阻抗检测模式' : ((res && res.message) || '切换失败'));
-      } catch (e) {
-        toast(`切换失败：${e.message || e}`);
-      } finally {
+        await modeStart('impedance');
+      } catch (_) {} finally {
         impStart.disabled = false;
       }
     };
@@ -125,11 +123,8 @@ function bindPlaceholderButtons() {
     impStop.onclick = async () => {
       impStop.disabled = true;
       try {
-        const res = await modeStop('impedance');
-        toast((res && res.status === 'success') ? '阻抗检测已停止' : ((res && res.message) || '停止失败'));
-      } catch (e) {
-        toast(`停止失败：${e.message || e}`);
-      } finally {
+        await modeStop('impedance');
+      } catch (_) {} finally {
         impStop.disabled = false;
       }
     };
@@ -138,11 +133,8 @@ function bindPlaceholderButtons() {
     tdcsStart.onclick = async () => {
       tdcsStart.disabled = true;
       try {
-        const res = await modeStart('tdcs');
-        toast((res && res.status === 'success') ? '开启 tDCS 模式' : ((res && res.message) || '切换失败'));
-      } catch (e) {
-        toast(`切换失败：${e.message || e}`);
-      } finally {
+        await modeStart('tdcs');
+      } catch (_) {} finally {
         tdcsStart.disabled = false;
       }
     };
@@ -151,11 +143,8 @@ function bindPlaceholderButtons() {
     tdcsStop.onclick = async () => {
       tdcsStop.disabled = true;
       try {
-        const res = await modeStop('tdcs');
-        toast((res && res.status === 'success') ? 'tDCS 已停止' : ((res && res.message) || '停止失败'));
-      } catch (e) {
-        toast(`停止失败：${e.message || e}`);
-      } finally {
+        await modeStop('tdcs');
+      } catch (_) {} finally {
         tdcsStop.disabled = false;
       }
     };

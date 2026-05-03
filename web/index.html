@@ -7,9 +7,13 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 修改日志:
 - 2026-04-30: 1.0.0 创建文件
 - 2026-05-02: 1.1.0 增加设备与模式页面流，拆分脚本入口
+- 2026-05-03: 1.1.1 EEG 页面增加电量展示徽标
+- 2026-05-03: 1.1.2 调整调试暂停按钮文案为“暂停输出”
+- 2026-05-03: 1.1.3 设备页“提示”文字加大字号，减少留白
+- 2026-05-03: 1.1.4 移除底部弹窗容器
 
 作者: Spoon
-版本: 1.1.0
+版本: 1.1.4
 -->
 <html lang="zh-CN">
 <head>
@@ -65,7 +69,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                         </div>
                     </div>
                 </div>
-                <div class="card">
+                <div class="card tips-card">
                     <div class="card-header">
                         <div>
                             <div class="card-title">提示</div>
@@ -73,7 +77,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                         </div>
                     </div>
                     <div class="card-body">
-                        <div class="stack">
+                        <div class="stack tips-stack">
                             <div class="card-sub">- 阻抗检测与电刺激页面后续会逐步完善数据展示与控制参数</div>
                             <div class="card-sub">- EEG 页面包含实时波形与调试输出</div>
                             <div class="card-sub">- 不同模式切换时建议先停止当前模式，避免设备状态混乱</div>
@@ -121,7 +125,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                         <div class="row">
                             <input id="debug-filter" placeholder="过滤关键字" style="width: 220px;" />
                             <button class="btn" id="debug-clear">清空</button>
-                            <button class="btn" id="debug-pause">暂停</button>
+                            <button class="btn" id="debug-pause">暂停输出</button>
                             <button class="btn primary" id="btn-eeg-start">开始采集</button>
                             <button class="btn danger" id="btn-eeg-stop">停止采集</button>
                         </div>
@@ -136,6 +140,12 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                         <div>
                             <div class="card-title">EEG 波形</div>
                             <div class="card-sub" id="eeg-sub">WebSocket 实时推送</div>
+                        </div>
+                        <div class="row">
+                            <div class="badge" id="battery-badge">
+                                <div class="badge-dot"></div>
+                                <div id="battery-text">电量：--</div>
+                            </div>
                         </div>
                     </div>
                     <div class="card-body" style="height: calc(100% - 54px); padding: 12px;">
@@ -182,8 +192,6 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
         </section>
     </div>
 </div>
-
-<div class="toast" id="toast"></div>
 
 <script type="module" src="js/main.js"></script>
 </body>

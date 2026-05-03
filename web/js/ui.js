@@ -5,25 +5,14 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 修改日志:
 - 2026-05-02: 1.0.0 新增 UI 工具集
+- 2026-05-03: 1.0.1 移除底部弹窗提示，统一改为按钮状态/输出窗口反馈
 
 作者: Spoon
-版本: 1.0.0
+版本: 1.0.1
 */
 
-let toastTimer = null;
-
 export function toast(message) {
-  const el = document.getElementById('toast');
-  if (!el) return;
-  el.textContent = String(message || '');
-  el.classList.add('show');
-  if (toastTimer) {
-    clearTimeout(toastTimer);
-    toastTimer = null;
-  }
-  toastTimer = setTimeout(() => {
-    el.classList.remove('show');
-  }, 2200);
+  void message;
 }
 
 export function setActivePage(pageId) {

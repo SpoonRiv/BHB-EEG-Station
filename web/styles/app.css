@@ -6,9 +6,12 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 修改日志:
 - 2026-05-02: 1.0.0 设备选择/模式选择/EEG 页面样式
 - 2026-05-02: 1.0.1 日间模式去除渐变并提升对比度
+- 2026-05-03: 1.0.2 增加徽标 warn 状态，用于电量提示
+- 2026-05-03: 1.0.3 设备页“提示”卡片加大字体，减少留白
+- 2026-05-03: 1.0.4 移除底部弹窗样式
 
 作者: Spoon
-版本: 1.0.1
+版本: 1.0.4
 */
 
 :root {
@@ -137,6 +140,20 @@ html, body {
 .badge.error .badge-dot {
   background: var(--bad);
   box-shadow: 0 0 18px rgba(255, 77, 109, 0.35);
+}
+
+.badge.warn .badge-dot {
+  background: var(--warn);
+  box-shadow: 0 0 18px rgba(255, 204, 102, 0.25);
+}
+
+.tips-card .card-sub {
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.tips-stack {
+  gap: 12px;
 }
 
 .btn {
@@ -388,29 +405,6 @@ select option {
 }
 
 .echarts-instance { width: 100%; height: 100%; }
-
-.toast {
-  position: fixed;
-  left: 50%;
-  bottom: 16px;
-  transform: translateX(-50%);
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(140, 170, 210, 0.2);
-  background: rgba(18, 25, 38, 0.78);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(12px);
-  color: var(--text);
-  font-size: 13px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 180ms ease, transform 180ms ease;
-}
-
-.toast.show {
-  opacity: 1;
-  transform: translateX(-50%) translateY(-2px);
-}
 
 @media (max-width: 980px) {
   .page-grid { grid-template-columns: 1fr; }

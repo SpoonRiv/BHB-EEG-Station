@@ -8,9 +8,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 修改日志:
 - 2026-04-30: 1.0.0 创建文件
 - 2026-05-02: 1.1.0 增加设备与模式页面流，拆分脚本入口
+- 2026-05-03: 1.2.0 增加电量/IMU 状态缓存透传，供前端展示
 
 作者: Spoon
-版本: 1.1.0
+版本: 1.2.0
 """
 
 import multiprocessing
@@ -40,6 +41,8 @@ class EEGController:
         self.command_queue: Optional[multiprocessing.Queue] = None
         self.debug_queue: Optional[multiprocessing.Queue] = None
         self.last_status: Optional[Dict[str, Any]] = None
+        self.last_battery: Optional[Dict[str, Any]] = None
+        self.last_imu: Optional[Dict[str, Any]] = None
         self.current_mode: str = "idle"
         self.config_path = config_path or os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
@@ -63,8 +66,10 @@ class EEGController:
 
         返回约定：
         - running: 采集进程是否存活（仅表示进程存在，不等价于“已连接并开始推流”）
-        - last: 最近一次来自采集进程的状态消息（connected/connecting/error/battery/imu/stopped/idle 等）
+        - last: 最近一次来自采集进程的状态消息（connected/connecting/error/stopped/idle 等）
         - configured_name: 配置中期望匹配的设备名（用于用户核对）
+        - battery: 最近一次电量上报（来自采集进程），结构为 {value, ts}
+        - imu: 最近一次 IMU 上报（来自采集进程），结构为 {value, ts}
         """
         self._drain_status_queue()
         configured_name = self.config.bluetooth.target_device
@@ -76,6 +81,8 @@ class EEGController:
             "last": last,
             "configured_name": configured_name,
             "mode": self.current_mode,
+            "battery": self.last_battery,
+            "imu": self.last_imu,
         }
 
     def start_device(self, address: Optional[str] = None, name: Optional[str] = None) -> bool:
@@ -104,7 +111,13 @@ class EEGController:
             while time.time() < deadline:
                 remaining = max(0.1, deadline - time.time())
                 msg: Dict[str, Any] = self.status_queue.get(timeout=remaining)
-                self.last_status = msg
+                msg_type = str(msg.get("type", "")) if isinstance(msg, dict) else ""
+                if msg_type in {"connecting", "connected", "ready", "error", "stopped", "idle"}:
+                    self.last_status = msg
+                elif msg_type == "battery" and "value" in msg:
+                    self.last_battery = {"value": int(msg.get("value", 0)), "ts": time.time()}
+                elif msg_type == "imu" and "value" in msg:
+                    self.last_imu = {"value": msg.get("value"), "ts": time.time()}
 
                 if msg.get("type") == "connected":
                     logging.info("Bluetooth EEG device connected successfully.")
@@ -187,6 +200,10 @@ class EEGController:
                     msg_type = str(msg.get("type", ""))
                     if msg_type in {"connecting", "connected", "ready", "error", "stopped", "idle"}:
                         self.last_status = msg
+                    if msg_type == "battery" and "value" in msg:
+                        self.last_battery = {"value": int(msg.get("value", 0)), "ts": time.time()}
+                    if msg_type == "imu" and "value" in msg:
+                        self.last_imu = {"value": msg.get("value"), "ts": time.time()}
                     if msg_type == "mode" and "mode" in msg:
                         self.current_mode = str(msg.get("mode"))
                     if msg_type in {"mode_started", "mode_stopped"} and "mode" in msg:
@@ -227,6 +244,8 @@ class EEGController:
             self.debug_queue = None
             self.current_mode = "idle"
             self.last_status = {"type": "stopped", "message": "采集已停止", "name": self.config.bluetooth.target_device}
+            self.last_battery = None
+            self.last_imu = None
             return True
         except Exception as e:
             logging.error(f"Failed to stop EEG device: {e}")

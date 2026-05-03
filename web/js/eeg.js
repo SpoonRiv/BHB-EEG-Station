@@ -10,13 +10,16 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-02: 1.0.3 支持主题切换时实时更新波形颜色（日间黑/夜间白）
 - 2026-05-02: 1.0.4 补充数据连接状态提示与断线自动重连，避免“无波形但无提示”
 - 2026-05-02: 1.0.5 EEG 页面补充采集状态提示与数据心跳检测，便于定位“已连接但无波形”
+- 2026-05-03: 1.0.6 EEG 页面增加电量徽标展示
+- 2026-05-03: 1.0.7 修复电量展示刷新与按钮状态；暂停按钮改为暂停输出/继续滚动
+- 2026-05-03: 1.0.8 修复暂停按钮初始化文案并强化开始采集互斥逻辑
+- 2026-05-03: 1.0.9 取消开始/停止弹窗提示并改为按钮锁定；停止按钮按“会话锁”启用
 
 作者: Spoon
-版本: 1.0.5
+版本: 1.0.9
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
-import { toast } from './ui.js';
 
 let wsEeg = null;
 let wsDebug = null;
@@ -46,6 +49,58 @@ let lastEegDataAtMs = 0;
 let eegWsState = 'disconnected';
 let eegHasData = false;
 let eegStatusHint = '';
+let eegSessionLocked = false;
+
+function renderBatteryBadge(battery, running, streaming) {
+  const badge = document.getElementById('battery-badge');
+  const textEl = document.getElementById('battery-text');
+  if (!badge || !textEl) return;
+
+  badge.classList.remove('active', 'warn', 'error');
+
+  if (!running) {
+    textEl.textContent = '电量：--';
+    return;
+  }
+
+  if (streaming && (!battery || typeof battery !== 'object')) {
+    textEl.textContent = '电量：获取中';
+    badge.classList.add('warn');
+    return;
+  }
+
+  const v = battery && typeof battery.value === 'number' ? battery.value : null;
+  if (v === null || !Number.isFinite(v)) {
+    textEl.textContent = streaming ? '电量：获取中' : '电量：--';
+    if (streaming) badge.classList.add('warn');
+    return;
+  }
+
+  const nowSec = Date.now() / 1000;
+  const ts = battery && typeof battery.ts === 'number' ? battery.ts : null;
+  const ageSec = (ts && Number.isFinite(ts)) ? Math.max(0, nowSec - ts) : null;
+
+  const isPercent = Number.isInteger(v) && v >= 0 && v <= 100;
+  if (isPercent) {
+    textEl.textContent = `电量：${v}%${(streaming && ageSec !== null && ageSec > 5) ? '（无更新）' : ''}`;
+    if (v >= 50) badge.classList.add('active');
+    else if (v >= 20) badge.classList.add('warn');
+    else badge.classList.add('error');
+    return;
+  }
+
+  textEl.textContent = `电量：${v}${(streaming && ageSec !== null && ageSec > 5) ? '（无更新）' : ''}`;
+  if (streaming && ageSec !== null && ageSec > 5) {
+    badge.classList.add('warn');
+  }
+}
+
+function renderEegControlButtons(running, streaming) {
+  const startBtn = document.getElementById('btn-eeg-start');
+  const stopBtn = document.getElementById('btn-eeg-stop');
+  if (startBtn) startBtn.disabled = (!running) || !!streaming || eegSessionLocked;
+  if (stopBtn) stopBtn.disabled = (!running) || !eegSessionLocked;
+}
 
 function renderEegSubtitle() {
   const sub = document.getElementById('eeg-sub');
@@ -67,6 +122,9 @@ async function refreshEegStatusHint() {
     const dev = st && st.device ? st.device : null;
     const running = !!(dev && dev.running);
     const streaming = !!(st && st.lsl_streaming);
+    renderBatteryBadge(dev && dev.battery ? dev.battery : null, running, streaming);
+    if (!running) eegSessionLocked = false;
+    renderEegControlButtons(running, streaming);
     if (!running) {
       eegStatusHint = '设备未连接（请先在设备页连接）';
     } else if (!streaming) {
@@ -332,9 +390,10 @@ async function bootstrapDebug() {
     };
   }
   if (pauseBtn) {
+    pauseBtn.textContent = debugPaused ? '继续滚动' : '暂停输出';
     pauseBtn.onclick = () => {
       debugPaused = !debugPaused;
-      pauseBtn.textContent = debugPaused ? '继续' : '暂停';
+      pauseBtn.textContent = debugPaused ? '继续滚动' : '暂停输出';
       if (!debugPaused) {
         if (debugBufferedLines.length > 0) {
           debugLines = debugLines.concat(debugBufferedLines);
@@ -359,10 +418,13 @@ export async function enterEegPage() {
   eegHasData = false;
   eegWsState = 'disconnected';
   eegStatusHint = '';
+  eegSessionLocked = false;
   const startBtn = document.getElementById('btn-eeg-start');
   const stopBtn = document.getElementById('btn-eeg-stop');
   if (startBtn) startBtn.disabled = false;
-  if (stopBtn) stopBtn.disabled = false;
+  if (stopBtn) stopBtn.disabled = true;
+  const pauseBtn = document.getElementById('debug-pause');
+  if (pauseBtn) pauseBtn.textContent = debugPaused ? '继续滚动' : '暂停输出';
 
   try {
     const cfg = await getConfig();
@@ -405,27 +467,34 @@ export async function enterEegPage() {
 
   if (startBtn) {
     startBtn.onclick = async () => {
+      if (eegSessionLocked) {
+        return;
+      }
+      eegSessionLocked = true;
       startBtn.disabled = true;
+      if (stopBtn) stopBtn.disabled = true;
       try {
         const res = await modeStart('eeg');
-        toast((res && res.status === 'success') ? 'EEG 已启动' : ((res && res.message) || 'EEG 启动失败'));
+        const ok = !!(res && res.status === 'success');
+        if (!ok) eegSessionLocked = false;
       } catch (e) {
-        toast(`EEG 启动失败：${e.message || e}`);
+        eegSessionLocked = false;
       } finally {
-        startBtn.disabled = false;
+        await refreshEegStatusHint();
       }
     };
   }
   if (stopBtn) {
     stopBtn.onclick = async () => {
       stopBtn.disabled = true;
+      if (startBtn) startBtn.disabled = true;
       try {
         const res = await modeStop('eeg');
-        toast((res && res.status === 'success') ? 'EEG 已停止' : ((res && res.message) || 'EEG 停止失败'));
+        const ok = !!(res && res.status === 'success');
+        if (ok) eegSessionLocked = false;
       } catch (e) {
-        toast(`EEG 停止失败：${e.message || e}`);
       } finally {
-        stopBtn.disabled = false;
+        await refreshEegStatusHint();
       }
     };
   }

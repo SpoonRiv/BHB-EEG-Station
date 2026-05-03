@@ -9,9 +9,12 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-04-30: 1.0.0 创建文件
 - 2026-05-02: 1.1.0 支持连接常驻与命令队列模式切换
 - 2026-05-02: 1.1.1 调整调试输出：仅在EEG启动后提示无数据，减少默认噪声
+- 2026-05-03: 1.1.2 移除 EEG_FRAME 调试输出，减少调试面板噪声
+- 2026-05-03: 1.1.3 修复电量状态上报条件，避免电量为 0 时不显示
+- 2026-05-03: 1.1.4 提前上报首帧电量，避免页面长期显示“--”
 
 作者: Spoon
-版本: 1.1.1
+版本: 1.1.4
 """
 
 import asyncio
@@ -237,22 +240,11 @@ async def _connect_and_stream(
             del buf[: spec.frame_len_bytes]
             samples, battery, imu = parse_frame_to_samples(frame, spec)
             frame_counter += 1
-            if debug_queue is not None and frame_counter % 50 == 0:
-                try:
-                    debug_queue.put(
-                        {
-                            "tag": "EEG_FRAME",
-                            "message": "已解析EEG帧",
-                            "data": {"frame_len": int(spec.frame_len_bytes), "count": int(frame_counter)},
-                        }
-                    )
-                except Exception:
-                    pass
             if not cfg.eeg.lsl.include_trigger_channel:
                 samples = [s[: cfg.eeg.mode_channels] for s in samples]
             outlet.push_samples(samples)
-            if battery and frame_counter % 50 == 0:
-                status_queue.put({"type": "battery", "value": battery})
+            if spec.battery_len_bytes > 0 and (frame_counter == 1 or frame_counter % 50 == 0):
+                status_queue.put({"type": "battery", "value": int(battery)})
             if imu and frame_counter % 50 == 0:
                 status_queue.put({"type": "imu", "value": imu})
 

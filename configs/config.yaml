@@ -1,5 +1,5 @@
 app:
-  ui_version: "1.1.0"
+  ui_version: "1.2.0"
 
 bluetooth:
   device_names:
@@ -59,7 +59,7 @@ server:
 
 streaming:
   # WebSocket 发送刷新频率，用于节流，防止前端渲染过载卡死
-  update_fps: 20
+  update_fps: 50
   # 每次推送的采样点数；若为 0，则自动按 sampling_rate_hz / update_fps 计算
   buffer_size: 0
   # LSL 解析等待与重试（用于处理“先启动采集、LSL 流稍后才出现”的情况）
