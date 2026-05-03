@@ -9,9 +9,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-04-30: 1.0.0 创建文件
 - 2026-05-02: 1.1.0 增加设备与模式页面流，拆分脚本入口
 - 2026-05-02: 1.1.1 增加 LSL 解析超时与重试配置，提升波形推流稳定性
+- 2026-05-03: 1.1.2 增加离线存储与导出配置（offlinedata/滤波默认值）
 
 作者: Spoon
-版本: 1.1.1
+版本: 1.1.2
 """
 
 import os
@@ -107,6 +108,27 @@ class DebugConfig:
 
 
 @dataclass(frozen=True)
+class OfflineExportConfig:
+    physical_unit: str
+    uv_per_count: float
+    trigger_label: str
+
+
+@dataclass(frozen=True)
+class OfflineFilterConfig:
+    order: int
+    lowcut_hz_default: float
+    highcut_hz_default: float
+
+
+@dataclass(frozen=True)
+class OfflineConfig:
+    root_dir: str
+    export: OfflineExportConfig
+    filter: OfflineFilterConfig
+
+
+@dataclass(frozen=True)
 class AppConfig:
     app_ui_version: str
     bluetooth: BluetoothConfig
@@ -115,6 +137,7 @@ class AppConfig:
     server: ServerConfig
     streaming: StreamingConfig
     debug: DebugConfig
+    offline: OfflineConfig
 
 
 def load_config(config_path: str) -> AppConfig:
@@ -141,6 +164,7 @@ def load_config(config_path: str) -> AppConfig:
     server_raw = raw.get("server", {})
     streaming_raw = raw.get("streaming", {})
     debug_raw = raw.get("debug", {})
+    offline_raw = raw.get("offline", {}) or {}
     app_raw = raw.get("app", {}) or {}
     app_ui_version = str(app_raw.get("ui_version") or app_raw.get("version") or "1.0.0").strip() or "1.0.0"
 
@@ -256,6 +280,22 @@ def load_config(config_path: str) -> AppConfig:
         max_events=int(debug_raw.get("max_events", 500)),
     )
 
+    export_raw = offline_raw.get("export", {}) or {}
+    filter_raw = offline_raw.get("filter", {}) or {}
+    offline = OfflineConfig(
+        root_dir=str(offline_raw.get("root_dir", "offlinedata") or "offlinedata"),
+        export=OfflineExportConfig(
+            physical_unit=str(export_raw.get("physical_unit", "uV") or "uV"),
+            uv_per_count=float(export_raw.get("uv_per_count", 0.0833)),
+            trigger_label=str(export_raw.get("trigger_label", "TRIG") or "TRIG"),
+        ),
+        filter=OfflineFilterConfig(
+            order=max(1, int(filter_raw.get("order", 5))),
+            lowcut_hz_default=float(filter_raw.get("lowcut_hz_default", 3.0)),
+            highcut_hz_default=float(filter_raw.get("highcut_hz_default", 50.0)),
+        ),
+    )
+
     return AppConfig(
         app_ui_version=app_ui_version,
         bluetooth=bluetooth,
@@ -264,4 +304,5 @@ def load_config(config_path: str) -> AppConfig:
         server=server,
         streaming=streaming,
         debug=debug,
+        offline=offline,
     )

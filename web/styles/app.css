@@ -9,9 +9,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.2 增加徽标 warn 状态，用于电量提示
 - 2026-05-03: 1.0.3 设备页“提示”卡片加大字体，减少留白
 - 2026-05-03: 1.0.4 移除底部弹窗样式
+- 2026-05-03: 1.0.5 增加离线存储页表单控件样式（checkbox/选项行）
 
 作者: Spoon
-版本: 1.0.4
+版本: 1.0.5
 */
 
 :root {
@@ -251,6 +252,25 @@ html, body {
 
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 
+.check-row {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.10);
+}
+
+.check {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  font-weight: 650;
+  color: var(--text);
+  user-select: none;
+}
+
 .field {
   width: 100%;
   display: flex;
@@ -273,6 +293,12 @@ select, input {
   outline: none;
   font-size: 15px;
   color-scheme: dark;
+}
+
+input[type="checkbox"] {
+  width: auto;
+  padding: 0;
+  border-radius: 6px;
 }
 
 select:focus, input:focus {

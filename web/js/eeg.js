@@ -14,12 +14,14 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.7 修复电量展示刷新与按钮状态；暂停按钮改为暂停输出/继续滚动
 - 2026-05-03: 1.0.8 修复暂停按钮初始化文案并强化开始采集互斥逻辑
 - 2026-05-03: 1.0.9 取消开始/停止弹窗提示并改为按钮锁定；停止按钮按“会话锁”启用
+- 2026-05-03: 1.1.0 停止采集后自动进入离线存储页并携带会话信息
 
 作者: Spoon
-版本: 1.0.9
+版本: 1.1.0
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
+import { navigate } from './router.js';
 
 let wsEeg = null;
 let wsDebug = null;
@@ -491,7 +493,17 @@ export async function enterEegPage() {
       try {
         const res = await modeStop('eeg');
         const ok = !!(res && res.status === 'success');
-        if (ok) eegSessionLocked = false;
+        if (ok) {
+          eegSessionLocked = false;
+          const sess = res && res.offline && res.offline.session ? res.offline.session : null;
+          const sid = sess && sess.session_id ? String(sess.session_id) : '';
+          const sdir = sess && sess.session_dir ? String(sess.session_dir) : '';
+          if (sid) {
+            try { sessionStorage.setItem('bhb_last_eeg_session', sid); } catch (_) {}
+            try { sessionStorage.setItem('bhb_last_eeg_session_dir', sdir); } catch (_) {}
+            await navigate('#offline');
+          }
+        }
       } catch (e) {
       } finally {
         await refreshEegStatusHint();

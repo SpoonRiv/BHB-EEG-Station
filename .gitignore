@@ -37,6 +37,8 @@ logs/
 *.mat
 *.npz
 *.npy
+offlinedata/
+raw_float32.bin
 
 # IDE
 .idea/

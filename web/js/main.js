@@ -8,15 +8,17 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-02: 1.0.1 主题切换默认日间并允许按钮切换
 - 2026-05-02: 1.0.2 状态轮询失败时提示后端未响应，避免前端显示陈旧连接状态
 - 2026-05-03: 1.0.3 移除底部弹窗提示，统一改为按钮状态反馈
+- 2026-05-03: 1.0.4 增加离线存储页面路由
 
 作者: Spoon
-版本: 1.0.3
+版本: 1.0.4
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
 import { initDevicePage } from './device.js';
 import { initModePage } from './mode.js';
 import { enterEegPage, leaveEegPage } from './eeg.js';
+import { enterOfflinePage, leaveOfflinePage } from './offline.js';
 import { registerRoute, startRouter, navigate } from './router.js';
 import { setConnBadge } from './ui.js';
 
@@ -155,6 +157,7 @@ function initRoutes() {
   registerRoute('#device', { pageId: 'page-device' });
   registerRoute('#mode', { pageId: 'page-mode' });
   registerRoute('#eeg', { pageId: 'page-eeg', onEnter: enterEegPage, onLeave: leaveEegPage });
+  registerRoute('#offline', { pageId: 'page-offline', onEnter: enterOfflinePage, onLeave: leaveOfflinePage });
   registerRoute('#impedance', { pageId: 'page-impedance' });
   registerRoute('#tdcs', { pageId: 'page-tdcs' });
 }

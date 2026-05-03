@@ -11,9 +11,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-02: 1.1.1 增加 LSL 推流自检信息并传递解析重试配置
 - 2026-05-03: 1.1.2 禁用静态资源缓存并限制 EEG 重复启动
 - 2026-05-03: 1.1.3 EEG 停止接口幂等化，避免未推流时无法停止
+- 2026-05-03: 1.1.4 EEG 停止后进入离线存储页，支持导出 CSV/EDF 与可选滤波
+- 2026-05-03: 1.1.5 离线导出接口补充参数校验与错误信息回传，便于定位 HTTP 500
 
 作者: Spoon
-版本: 1.1.3
+版本: 1.1.5
 """
 
 import asyncio
@@ -22,7 +24,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
@@ -33,6 +35,7 @@ from core.eeg_controller import EEGController
 from core.lsl_streamer import LSLStreamer
 from core.debug_bus import DebugEventBus
 from core.ble.scanner import scan_devices
+from core.offline.offline_service import BandpassConfig, ExportTarget, OfflineService
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -74,12 +77,29 @@ class AppState:
             resolve_timeout_sec=resolve_timeout_sec,
             resolve_retry_interval_sec=resolve_retry_interval_sec,
         )
+        self.offline = OfflineService(
+            project_root_dir=os.path.dirname(__file__),
+            root_dir=self.config.offline.root_dir,
+            sampling_rate_hz=self.config.eeg.sampling_rate_hz,
+            channel_names=self.config.eeg.channel_names,
+            trigger_enabled=self.config.eeg.lsl.include_trigger_channel,
+            trigger_label=self.config.offline.export.trigger_label,
+            physical_unit=self.config.offline.export.physical_unit,
+            uv_per_count=self.config.offline.export.uv_per_count,
+            filter_order_default=self.config.offline.filter.order,
+            filter_lowcut_default_hz=self.config.offline.filter.lowcut_hz_default,
+            filter_highcut_default_hz=self.config.offline.filter.highcut_hz_default,
+        )
         self.active_websockets: List[WebSocket] = []
 
     async def broadcast_eeg_data(self, chunk: List[List[float]]):
         """
         回调函数：当 LSL Streamer 凑齐一个 chunk 的数据时，通过 WebSocket 广播给所有前端
         """
+        try:
+            self.offline.append_chunk(chunk)
+        except Exception:
+            pass
         if not self.active_websockets:
             return
             
@@ -108,6 +128,27 @@ class BleConnectRequest(BaseModel):
 
 class ModeRequest(BaseModel):
     mode: str
+
+
+class OfflineExportTargetRequest(BaseModel):
+    kind: str
+    fmt: str
+    filename: Optional[str] = None
+
+
+class OfflineBandpassRequest(BaseModel):
+    enabled: bool = False
+    lowcut_hz: float
+    highcut_hz: float
+    order: Optional[int] = None
+
+
+class OfflineExportRequest(BaseModel):
+    session_id: str
+    base_name_raw: str = "eeg"
+    base_name_filtered: Optional[str] = None
+    targets: List[OfflineExportTargetRequest]
+    bandpass: Optional[OfflineBandpassRequest] = None
 
 
 @asynccontextmanager
@@ -185,6 +226,13 @@ async def get_config():
         "sampling_rate_hz": state.config.eeg.sampling_rate_hz,
         "buffer_size": state.config.streaming.buffer_size,
         "update_fps": state.config.streaming.update_fps,
+        "offline": {
+            "root_dir": state.config.offline.root_dir,
+            "physical_unit": state.config.offline.export.physical_unit,
+            "uv_per_count": state.config.offline.export.uv_per_count,
+            "trigger_label": state.config.offline.export.trigger_label,
+            "filter_defaults": state.offline.filter_defaults,
+        },
     }
 
 @app.get("/api/status")
@@ -205,10 +253,15 @@ async def stop_eeg():
         state.debug_bus.publish(tag="UI", message="点击停止采集", data={})
     state.streamer.stop()
     state.controller.stop_mode("eeg")
+    session = None
+    try:
+        session = state.offline.stop_session()
+    except Exception:
+        session = None
     success = await asyncio.to_thread(state.controller.stop_device)
     if success:
-        return {"status": "success", "message": "采集已停止。", "device": state.controller.get_status()}
-    return {"status": "error", "message": "停止采集失败。", "device": state.controller.get_status()}
+        return {"status": "success", "message": "采集已停止。", "device": state.controller.get_status(), "offline": {"session": session.to_dict() if session else None}}
+    return {"status": "error", "message": "停止采集失败。", "device": state.controller.get_status(), "offline": {"session": session.to_dict() if session else None}}
 
 
 @app.get("/api/ble/devices")
@@ -254,6 +307,10 @@ async def ble_disconnect():
     """
     state.streamer.stop()
     state.controller.stop_mode("eeg")
+    try:
+        state.offline.stop_session()
+    except Exception:
+        pass
     success = await asyncio.to_thread(state.controller.stop_device)
     if success:
         return {"status": "success", "message": "蓝牙已断开。", "device": state.controller.get_status()}
@@ -282,8 +339,19 @@ async def start_mode(req: ModeRequest):
         state.controller.select_mode("eeg")
         ok = state.controller.start_mode("eeg")
         if ok:
+            try:
+                session = state.offline.start_session()
+            except Exception as e:
+                state.controller.stop_mode("eeg")
+                return {"status": "error", "message": f"创建离线会话失败：{e}", "device": state.controller.get_status()}
             state.streamer.start()
-        return {"status": "success" if ok else "error", "message": "EEG 已启动" if ok else "EEG 启动失败", "device": state.controller.get_status()}
+            return {
+                "status": "success",
+                "message": "EEG 已启动",
+                "device": state.controller.get_status(),
+                "offline": {"session": session.to_dict(), "filter_defaults": state.offline.filter_defaults},
+            }
+        return {"status": "error", "message": "EEG 启动失败", "device": state.controller.get_status()}
     ok = state.controller.start_mode(req.mode)
     return {"status": "success" if ok else "error", "message": "模式已启动" if ok else "模式启动失败", "device": state.controller.get_status()}
 
@@ -296,9 +364,64 @@ async def stop_mode(req: ModeRequest):
     if req.mode == "eeg":
         state.streamer.stop()
         ok = state.controller.stop_mode("eeg")
-        return {"status": "success" if ok else "error", "message": "EEG 已停止" if ok else "EEG 停止失败", "device": state.controller.get_status()}
+        session = None
+        try:
+            session = state.offline.stop_session()
+        except Exception:
+            session = None
+        return {
+            "status": "success" if ok else "error",
+            "message": "EEG 已停止" if ok else "EEG 停止失败",
+            "device": state.controller.get_status(),
+            "offline": {"session": session.to_dict() if session else None},
+        }
     ok = state.controller.stop_mode(req.mode)
     return {"status": "success" if ok else "error", "message": "模式已停止" if ok else "模式停止失败", "device": state.controller.get_status()}
+
+
+@app.post("/api/offline/export")
+async def offline_export(req: OfflineExportRequest):
+    """
+    导出离线会话数据为 CSV/EDF，并支持可选带通滤波另存。
+    """
+    try:
+        if not str(req.session_id or "").strip():
+            raise HTTPException(status_code=400, detail="session_id 不能为空")
+        if not str(req.base_name_raw or "").strip():
+            raise HTTPException(status_code=400, detail="base_name_raw 不能为空")
+
+        targets = [ExportTarget(kind=x.kind, fmt=x.fmt, filename=x.filename or "") for x in (req.targets or [])]
+        if not targets:
+            raise HTTPException(status_code=400, detail="targets 不能为空")
+
+        bp = None
+        if req.bandpass is not None:
+            order = int(req.bandpass.order) if req.bandpass.order else int(state.config.offline.filter.order)
+            bp = BandpassConfig(
+                enabled=bool(req.bandpass.enabled),
+                lowcut_hz=float(req.bandpass.lowcut_hz),
+                highcut_hz=float(req.bandpass.highcut_hz),
+                order=order,
+            )
+        result = await asyncio.to_thread(
+            state.offline.export,
+            req.session_id,
+            req.base_name_raw,
+            targets,
+            bp,
+            req.base_name_filtered,
+        )
+        return {"status": "success", "result": result}
+    except HTTPException:
+        raise
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"离线导出失败：{e}")
 
 @app.get("/api/debug/events")
 async def get_debug_events(limit: int = 200):

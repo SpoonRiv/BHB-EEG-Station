@@ -8,3 +8,4 @@ pandas
 scipy
 jinja2
 numpy
+pyedflib

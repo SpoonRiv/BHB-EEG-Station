@@ -5,9 +5,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 修改日志:
 - 2026-05-02: 1.0.0 新增页面流 API
+- 2026-05-03: 1.0.1 增加离线导出接口封装
 
 作者: Spoon
-版本: 1.0.0
+版本: 1.0.1
 */
 
 async function fetchJson(url, options) {
@@ -77,4 +78,12 @@ export async function modeStop(mode) {
 export async function getDebugEvents(limit = 200) {
   const qs = new URLSearchParams({ limit: String(limit) });
   return fetchJson(`/api/debug/events?${qs.toString()}`);
+}
+
+export async function offlineExport(payload) {
+  return fetchJson('/api/offline/export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+  });
 }
