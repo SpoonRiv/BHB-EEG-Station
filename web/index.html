@@ -20,9 +20,13 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.2.1 设置页面 favicon 使用 logo.png
 - 2026-05-03: 1.2.2 设备页增加参考电极下拉选择（与通道选择分离）
 - 2026-05-03: 1.2.3 参考电极改为三按钮互斥选择
+- 2026-05-03: 1.2.4 模式页卡片顺序调整（阻抗-脑电-电刺激）
+- 2026-05-03: 1.2.5 模式页三卡片增加配图（image/*.png）
+- 2026-05-03: 1.2.6 模式页卡片改为图片+文本左右布局，按钮包裹图片三面
+- 2026-05-03: 1.2.7 模式页图片外层增加留白容器（上/左/右等距），确保完整展示
 
 作者: Spoon
-版本: 1.2.3
+版本: 1.2.7
 -->
 <html lang="zh-CN">
 <head>
@@ -159,17 +163,32 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                 </div>
                 <div class="card-body">
                     <div class="mode-grid">
-                        <button type="button" class="mode-card" id="mode-eeg">
-                            <div class="mode-title">脑电采集</div>
-                            <div class="mode-desc">进入实时波形页面。开始/停止采集指令仅影响推流，不影响连接状态。</div>
-                        </button>
                         <button type="button" class="mode-card" id="mode-impedance">
-                            <div class="mode-title">阻抗检测</div>
-                            <div class="mode-desc">先完成设备模式切换与指令通路，阻抗数据解析与可视化后续接入。</div>
+                            <div class="mode-hero-wrap">
+                                <img class="mode-hero" src="image/impedance_mode.png" alt="Impedance mode" />
+                            </div>
+                            <div class="mode-meta">
+                                <div class="mode-title">阻抗检测</div>
+                                <div class="mode-desc">先完成设备模式切换与指令通路，阻抗数据解析与可视化后续接入。</div>
+                            </div>
+                        </button>
+                        <button type="button" class="mode-card" id="mode-eeg">
+                            <div class="mode-hero-wrap">
+                                <img class="mode-hero" src="image/eeg_mode.png" alt="EEG mode" />
+                            </div>
+                            <div class="mode-meta">
+                                <div class="mode-title">脑电采集</div>
+                                <div class="mode-desc">进入实时波形页面。开始/停止采集指令仅影响推流，不影响连接状态。</div>
+                            </div>
                         </button>
                         <button type="button" class="mode-card" id="mode-tdcs">
-                            <div class="mode-title">电刺激（tDCS）</div>
-                            <div class="mode-desc">后续会增加电流/升降沿等参数配置与安全校验。目前仅保留模式切换入口。</div>
+                            <div class="mode-hero-wrap">
+                                <img class="mode-hero" src="image/tdcs_mode.png" alt="tDCS mode" />
+                            </div>
+                            <div class="mode-meta">
+                                <div class="mode-title">电刺激（tDCS）</div>
+                                <div class="mode-desc">后续会增加电流/升降沿等参数配置与安全校验。目前仅保留模式切换入口。</div>
+                            </div>
                         </button>
                     </div>
                 </div>

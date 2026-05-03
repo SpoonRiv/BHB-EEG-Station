@@ -54,7 +54,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 class NoCacheStaticFiles(StaticFiles):
     """
     禁用静态资源缓存的 StaticFiles 包装。
-
+·
     目的：
         开发阶段频繁修改 web/ 下的 HTML/CSS/JS 时，浏览器缓存会导致“看起来像没生效”的假象。
         此类统一对静态资源响应加上 Cache-Control: no-store，确保每次刷新都取最新内容。

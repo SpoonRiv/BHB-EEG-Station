@@ -15,9 +15,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.8 导出成功提示支持换行并增大提示条高度
 - 2026-05-03: 1.0.9 设备页增加 10-20 通道选择地形图样式
 - 2026-05-03: 1.0.10 调整设备页左右列宽，给通道选择区更多空间
+- 2026-05-03: 1.0.11 设备页布局优化与模式页视觉升级（列宽、字号、三卡片配图与间距等）
 
 作者: Spoon
-版本: 1.0.10
+版本: 1.0.11
 */
 
 @import "./topomap.css";
@@ -156,7 +157,7 @@ html, body {
 }
 
 .tips-card .card-sub {
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.6;
 }
 
@@ -217,7 +218,7 @@ html, body {
 .page-grid {
   width: 100%;
   display: grid;
-  grid-template-columns: 360px 1fr;
+  grid-template-columns: 420px 1fr;
   gap: 14px;
   height: 100%;
 }
@@ -243,12 +244,12 @@ html, body {
 .card-title {
   font-weight: 800;
   letter-spacing: 0.2px;
-  font-size: 16px;
+  font-size: 17px;
 }
 
 .card-sub {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .card-body {
@@ -387,24 +388,25 @@ select option {
 .mode-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(220px, 1fr));
-  gap: 12px;
+  gap: 28px;
   grid-auto-rows: 1fr;
+  align-items: stretch;
 }
 
 .mode-card {
   appearance: none;
-  text-align: left;
   color: var(--text);
   background: var(--panel-2);
   border: 1px solid rgba(120, 170, 210, 0.18);
   border-radius: var(--radius);
-  padding: 18px;
+  padding: 0;
+  overflow: hidden;
   cursor: pointer;
   transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
-  min-height: 190px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  align-items: stretch;
+  min-height: 520px;
 }
 
 .mode-card:hover {
@@ -413,8 +415,40 @@ select option {
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18);
 }
 
-.mode-title { font-weight: 900; font-size: 17px; }
-.mode-desc { color: var(--muted); font-size: 13px; line-height: 1.6; }
+.mode-hero-wrap {
+  width: 100%;
+  height: 420px;
+  padding: 18px 18px 0 18px;
+  background: rgba(255, 255, 255, 0.92);
+  box-sizing: border-box;
+}
+
+[data-theme="light"] .mode-hero-wrap {
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.mode-hero {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 0;
+  border: 0;
+  background: transparent;
+  display: block;
+}
+
+.mode-meta {
+  min-width: 0;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 10px;
+  text-align: center;
+}
+
+.mode-title { font-weight: 900; font-size: 20px; }
+.mode-desc { color: var(--muted); font-size: 15px; line-height: 1.7; }
 
 .eeg-layout {
   width: 100%;
@@ -443,7 +477,7 @@ select option {
 }
 
 .page#page-mode .card-body {
-  padding: 12px;
+  padding: 28px;
 }
 
 .charts-grid {
