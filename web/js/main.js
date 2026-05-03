@@ -9,9 +9,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-02: 1.0.2 状态轮询失败时提示后端未响应，避免前端显示陈旧连接状态
 - 2026-05-03: 1.0.3 移除底部弹窗提示，统一改为按钮状态反馈
 - 2026-05-03: 1.0.4 增加离线存储页面路由
+- 2026-05-03: 1.0.5 断联与停止采集时显示“连接已断开”，避免误报“连接失败”
+- 2026-05-03: 1.0.6 任务运行中锁定右上角导航按钮，禁止返回设备/模式页面
 
 作者: Spoon
-版本: 1.0.4
+版本: 1.0.6
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -23,6 +25,7 @@ import { registerRoute, startRouter, navigate } from './router.js';
 import { setConnBadge } from './ui.js';
 
 let statusTimer = null;
+let navLocked = false;
 
 function applyConnBadge(deviceStatus) {
   const last = deviceStatus && deviceStatus.last ? deviceStatus.last : null;
@@ -43,13 +46,29 @@ function applyConnBadge(deviceStatus) {
     setConnBadge('error', `连接失败：${name}${msg ? `（${msg}）` : ''}`);
     return;
   }
+  if (t === 'disconnected' || t === 'stopped') {
+    setConnBadge('', `连接已断开：${name}`);
+    return;
+  }
   setConnBadge('', configured ? `未连接（期望：${configured}）` : '未连接');
+}
+
+function applyNavLock(deviceStatus) {
+  const running = Boolean(deviceStatus && deviceStatus.task_running);
+  navLocked = running;
+  const navDevice = document.getElementById('nav-device');
+  const navMode = document.getElementById('nav-mode');
+  if (navDevice) navDevice.disabled = running;
+  if (navMode) navMode.disabled = running;
 }
 
 async function refreshStatusOnce() {
   try {
     const data = await getStatus();
-    if (data && data.device) applyConnBadge(data.device);
+    if (data && data.device) {
+      applyConnBadge(data.device);
+      applyNavLock(data.device);
+    }
   } catch (_) {
     setConnBadge('error', '后端未响应');
   }
@@ -64,8 +83,18 @@ function startStatusPolling() {
 function bindHeaderNav() {
   const navDevice = document.getElementById('nav-device');
   const navMode = document.getElementById('nav-mode');
-  if (navDevice) navDevice.onclick = () => navigate('#device');
-  if (navMode) navMode.onclick = () => navigate('#mode');
+  if (navDevice) {
+    navDevice.onclick = () => {
+      if (navLocked) return;
+      navigate('#device');
+    };
+  }
+  if (navMode) {
+    navMode.onclick = () => {
+      if (navLocked) return;
+      navigate('#mode');
+    };
+  }
 }
 
 function setTheme(theme) {

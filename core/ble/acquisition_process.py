@@ -13,9 +13,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.1.3 修复电量状态上报条件，避免电量为 0 时不显示
 - 2026-05-03: 1.1.4 提前上报首帧电量，避免页面长期显示“--”
 - 2026-05-03: 1.1.5 EEG 停止后不再输出 EEG_RX 调试事件，避免“停采集仍在滚”
+- 2026-05-03: 1.1.6 停止模式指令失败不再上报“连接失败”，断联时改为上报“连接已断开”
+- 2026-05-03: 1.1.7 stop_mode 无论指令是否成功都上报 mode_stopped，用于 UI 解除运行态锁定
 
 作者: Spoon
-版本: 1.1.5
+版本: 1.1.7
 """
 
 import asyncio
@@ -344,17 +346,62 @@ async def _connect_and_stream(
                             if mode == "eeg":
                                 eeg_streaming_enabled = False
                                 buf.clear()
-                                await _send_cmd(cfg.bluetooth.commands.stop_eeg, action="stop_eeg")
+                                try:
+                                    await _send_cmd(cfg.bluetooth.commands.stop_eeg, action="stop_eeg")
+                                except Exception as e:
+                                    if debug_queue is not None:
+                                        try:
+                                            debug_queue.put(
+                                                {
+                                                    "tag": "CMD_TX",
+                                                    "message": "发送 stop_eeg 指令失败",
+                                                    "data": {"error": str(e), "write_handle": int(write_handle)},
+                                                }
+                                            )
+                                        except Exception:
+                                            pass
+                                    if not bool(getattr(client, "is_connected", True)):
+                                        status_queue.put({"type": "disconnected", "message": "蓝牙连接已断开", "address": address, "name": resolved_name})
                                 status_queue.put({"type": "mode_stopped", "mode": "eeg"})
                             elif mode == "impedance":
                                 eeg_streaming_enabled = False
                                 buf.clear()
-                                await _send_cmd(cfg.bluetooth.commands.stop_impedance, action="stop_impedance")
+                                try:
+                                    await _send_cmd(cfg.bluetooth.commands.stop_impedance, action="stop_impedance")
+                                except Exception as e:
+                                    if debug_queue is not None:
+                                        try:
+                                            debug_queue.put(
+                                                {
+                                                    "tag": "CMD_TX",
+                                                    "message": "发送 stop_impedance 指令失败",
+                                                    "data": {"error": str(e), "write_handle": int(write_handle)},
+                                                }
+                                            )
+                                        except Exception:
+                                            pass
+                                    if not bool(getattr(client, "is_connected", True)):
+                                        status_queue.put({"type": "disconnected", "message": "蓝牙连接已断开", "address": address, "name": resolved_name})
                                 status_queue.put({"type": "mode_stopped", "mode": "impedance"})
                             elif mode == "tdcs":
                                 eeg_streaming_enabled = False
                                 buf.clear()
-                                await _send_cmd(cfg.bluetooth.commands.stop_tdcs, action="stop_tdcs")
+                                try:
+                                    await _send_cmd(cfg.bluetooth.commands.stop_tdcs, action="stop_tdcs")
+                                except Exception as e:
+                                    if debug_queue is not None:
+                                        try:
+                                            debug_queue.put(
+                                                {
+                                                    "tag": "CMD_TX",
+                                                    "message": "发送 stop_tdcs 指令失败",
+                                                    "data": {"error": str(e), "write_handle": int(write_handle)},
+                                                }
+                                            )
+                                        except Exception:
+                                            pass
+                                    if not bool(getattr(client, "is_connected", True)):
+                                        status_queue.put({"type": "disconnected", "message": "蓝牙连接已断开", "address": address, "name": resolved_name})
                                 status_queue.put({"type": "mode_stopped", "mode": "tdcs"})
                             current_mode = "idle"
                             status_queue.put({"type": "mode", "mode": current_mode})

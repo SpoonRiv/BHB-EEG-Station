@@ -15,9 +15,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.1.5 增加 UI 波形显示配置（时间窗/刷新率/降采样上限）
 - 2026-05-03: 1.1.6 配置命名区分“后端转发频率”和“前端渲染频率”
 - 2026-05-03: 1.1.7 支持本机覆盖配置与通道预设（10-20通道列表/常用组合/通道模式）
+- 2026-05-03: 1.1.8 增加参考电极候选配置（供 UI 下拉选择）
+- 2026-05-03: 1.1.9 通道预设增加参考电极字段（ref_channel_name）
 
 作者: Spoon
-版本: 1.1.7
+版本: 1.1.9
 """
 
 import os
@@ -74,6 +76,7 @@ class ChannelPresetConfig:
     name: str
     mode_channels: int
     channel_names: List[str]
+    ref_channel_name: str
 
 
 @dataclass(frozen=True)
@@ -82,6 +85,7 @@ class EegConfig:
     sampling_rate_hz: int
     channel_names: List[str]
     ref_channel_name: str
+    ref_selectable_channels: List[str]
     lsl: LslConfig
     supported_channel_modes: List[int]
     montage_1020_channels: List[str]
@@ -223,6 +227,17 @@ def load_config(config_path: str) -> AppConfig:
     mode_channels = int(eeg_raw.get("mode_channels", 8))
     channel_names_cfg = list(eeg_raw.get("channel_names", []) or [])
     ref_channel_cfg = str(eeg_raw.get("ref_channel_name", "") or "")
+    ref_selectable_raw = eeg_raw.get("ref_selectable_channels", eeg_raw.get("ref_candidates", None))
+    ref_selectable: List[str] = []
+    if isinstance(ref_selectable_raw, list):
+        for v in ref_selectable_raw:
+            s = str(v or "").strip()
+            if not s:
+                continue
+            if s not in ref_selectable:
+                ref_selectable.append(s)
+    if not ref_selectable:
+        ref_selectable = ["Fz", "Cz", "Pz"]
     supported_modes_raw = eeg_raw.get("supported_channel_modes", []) or []
     supported_modes: List[int] = []
     if isinstance(supported_modes_raw, list):
@@ -273,7 +288,10 @@ def load_config(config_path: str) -> AppConfig:
                         p_names.append(xs)
             if p_mode <= 0 or not p_names:
                 continue
-            presets.append(ChannelPresetConfig(name=name, mode_channels=p_mode, channel_names=p_names))
+            p_ref = str(item.get("ref_channel_name", "") or "").strip()
+            if not p_ref:
+                p_ref = str(ref_channel_cfg or "").strip() or "Pz"
+            presets.append(ChannelPresetConfig(name=name, mode_channels=p_mode, channel_names=p_names, ref_channel_name=p_ref))
 
     device_names_cfg = list(bluetooth_raw.get("device_names", []) or [])
 
@@ -374,6 +392,7 @@ def load_config(config_path: str) -> AppConfig:
         sampling_rate_hz=sampling_rate_hz,
         channel_names=channel_names_cfg,
         ref_channel_name=ref_channel_cfg,
+        ref_selectable_channels=ref_selectable,
         lsl=LslConfig(
             stream_name=str(lsl_raw.get("stream_name", "BHB-EEG")),
             stream_type=str(lsl_raw.get("stream_type", "EEG")),

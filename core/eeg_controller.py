@@ -9,9 +9,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-04-30: 1.0.0 创建文件
 - 2026-05-02: 1.1.0 增加设备与模式页面流，拆分脚本入口
 - 2026-05-03: 1.2.0 增加电量/IMU 状态缓存透传，供前端展示
+- 2026-05-03: 1.2.1 增加断联状态类型（disconnected），用于前端显示“连接已断开”
+- 2026-05-03: 1.2.2 增加任务运行态标记（task_running），用于运行中锁定导航入口
 
 作者: Spoon
-版本: 1.2.0
+版本: 1.2.2
 """
 
 import multiprocessing
@@ -44,6 +46,8 @@ class EEGController:
         self.last_battery: Optional[Dict[str, Any]] = None
         self.last_imu: Optional[Dict[str, Any]] = None
         self.current_mode: str = "idle"
+        self.task_running: bool = False
+        self.task_mode: str = ""
         self.config_path = config_path or os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
             "configs",
@@ -81,6 +85,8 @@ class EEGController:
             "last": last,
             "configured_name": configured_name,
             "mode": self.current_mode,
+            "task_running": bool(self.task_running),
+            "task_mode": str(self.task_mode or ""),
             "battery": self.last_battery,
             "imu": self.last_imu,
         }
@@ -112,7 +118,7 @@ class EEGController:
                 remaining = max(0.1, deadline - time.time())
                 msg: Dict[str, Any] = self.status_queue.get(timeout=remaining)
                 msg_type = str(msg.get("type", "")) if isinstance(msg, dict) else ""
-                if msg_type in {"connecting", "connected", "ready", "error", "stopped", "idle"}:
+                if msg_type in {"connecting", "connected", "ready", "error", "stopped", "idle", "disconnected"}:
                     self.last_status = msg
                 elif msg_type == "battery" and "value" in msg:
                     self.last_battery = {"value": int(msg.get("value", 0)), "ts": time.time()}
@@ -198,7 +204,7 @@ class EEGController:
                 msg = self.status_queue.get_nowait()
                 if isinstance(msg, dict):
                     msg_type = str(msg.get("type", ""))
-                    if msg_type in {"connecting", "connected", "ready", "error", "stopped", "idle"}:
+                    if msg_type in {"connecting", "connected", "ready", "error", "stopped", "idle", "disconnected"}:
                         self.last_status = msg
                     if msg_type == "battery" and "value" in msg:
                         self.last_battery = {"value": int(msg.get("value", 0)), "ts": time.time()}
@@ -209,8 +215,12 @@ class EEGController:
                     if msg_type in {"mode_started", "mode_stopped"} and "mode" in msg:
                         if msg_type == "mode_started":
                             self.current_mode = str(msg.get("mode"))
+                            self.task_running = True
+                            self.task_mode = str(msg.get("mode"))
                         else:
                             self.current_mode = "idle"
+                            self.task_running = False
+                            self.task_mode = ""
             except queue.Empty:
                 break
             except Exception:
@@ -246,6 +256,8 @@ class EEGController:
             self.last_status = {"type": "stopped", "message": "采集已停止", "name": self.config.bluetooth.target_device}
             self.last_battery = None
             self.last_imu = None
+            self.task_running = False
+            self.task_mode = ""
             return True
         except Exception as e:
             logging.error(f"Failed to stop EEG device: {e}")

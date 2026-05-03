@@ -19,9 +19,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.1.9 下发 UI 波形显示配置并调整停止采集时的 WS 收尾策略
 - 2026-05-03: 1.2.0 配置命名区分“后端转发频率”和“前端渲染频率”
 - 2026-05-03: 1.2.1 增加 10-20 通道选择与常用组合接口（本机覆盖配置，不写入 config.yaml）
+- 2026-05-03: 1.2.2 增加参考电极下拉选择（候选列表/待应用保存/应用到系统）
+- 2026-05-03: 1.2.3 通道预设增加参考电极字段，套用/保存包含参考电极
 
 作者: Spoon
-版本: 1.2.1
+版本: 1.2.3
 """
 
 import asyncio
@@ -127,12 +129,13 @@ class AppState:
     def _save_local_raw(self, raw: Dict[str, Any]) -> None:
         write_yaml_file_atomic(self.local_override_path, raw)
 
-    def get_pending_channel_selection(self) -> Tuple[int, List[str]]:
+    def get_pending_channel_selection(self) -> Tuple[int, List[str], str]:
         raw = self._load_local_raw()
         ui = raw.get("ui", {}) if isinstance(raw, dict) else {}
         sel = ui.get("channel_selection", {}) if isinstance(ui, dict) else {}
         mode = int(sel.get("mode_channels", 0) or 0) if isinstance(sel, dict) else 0
         names_raw = sel.get("channel_names", []) if isinstance(sel, dict) else []
+        ref = str(sel.get("ref_channel_name", "") or "").strip() if isinstance(sel, dict) else ""
         names: List[str] = []
         if isinstance(names_raw, list):
             for x in names_raw:
@@ -143,14 +146,17 @@ class AppState:
             mode = int(self.config.eeg.mode_channels)
         if not names:
             names = list(self.config.eeg.channel_names)
-        return mode, names
+        if not ref:
+            ref = str(self.config.eeg.ref_channel_name or "").strip()
+        return mode, names, ref
 
-    def set_pending_channel_selection(self, mode_channels: int, channel_names: List[str]) -> None:
+    def set_pending_channel_selection(self, mode_channels: int, channel_names: List[str], ref_channel_name: str) -> None:
         raw = self._load_local_raw()
         ui = raw.get("ui", {}) if isinstance(raw.get("ui", {}), dict) else {}
         ui["channel_selection"] = {
             "mode_channels": int(mode_channels),
             "channel_names": list(channel_names),
+            "ref_channel_name": str(ref_channel_name or "").strip(),
         }
         raw["ui"] = ui
         self._save_local_raw(raw)
@@ -180,15 +186,19 @@ class AppState:
                             ch.append(s)
                 if mode <= 0 or not ch:
                     continue
-                presets.append({"name": name, "mode_channels": mode, "channel_names": ch})
+                ref = str(item.get("ref_channel_name", "") or "").strip()
+                if not ref:
+                    ref = str(self.config.eeg.ref_channel_name or "").strip()
+                presets.append({"name": name, "mode_channels": mode, "channel_names": ch, "ref_channel_name": ref})
         return presets
 
-    def upsert_local_channel_preset(self, name: str, mode_channels: int, channel_names: List[str]) -> None:
+    def upsert_local_channel_preset(self, name: str, mode_channels: int, channel_names: List[str], ref_channel_name: str) -> None:
         raw = self._load_local_raw()
         ui = raw.get("ui", {}) if isinstance(raw.get("ui", {}), dict) else {}
         presets_raw = ui.get("channel_presets_local", []) if isinstance(ui.get("channel_presets_local", []), list) else []
         out: List[Dict[str, Any]] = []
         normalized_name = str(name or "").strip()
+        normalized_ref = str(ref_channel_name or "").strip()
         for item in presets_raw:
             if not isinstance(item, dict):
                 continue
@@ -196,7 +206,7 @@ class AppState:
             if not n or n == normalized_name:
                 continue
             out.append(item)
-        out.append({"name": normalized_name, "mode_channels": int(mode_channels), "channel_names": list(channel_names)})
+        out.append({"name": normalized_name, "mode_channels": int(mode_channels), "channel_names": list(channel_names), "ref_channel_name": normalized_ref})
         ui["channel_presets_local"] = out
         raw["ui"] = ui
         self._save_local_raw(raw)
@@ -222,11 +232,12 @@ class AppState:
         return removed
 
     def apply_pending_channel_selection_to_effective_config(self) -> None:
-        mode, names = self.get_pending_channel_selection()
+        mode, names, ref = self.get_pending_channel_selection()
         raw = self._load_local_raw()
         eeg = raw.get("eeg", {}) if isinstance(raw.get("eeg", {}), dict) else {}
         eeg["mode_channels"] = int(mode)
         eeg["channel_names"] = list(names)
+        eeg["ref_channel_name"] = str(ref or "").strip()
         raw["eeg"] = eeg
         self._save_local_raw(raw)
 
@@ -428,12 +439,14 @@ async def get_config():
 class ChannelSelectionRequest(BaseModel):
     mode_channels: int
     channel_names: List[str]
+    ref_channel_name: Optional[str] = None
 
 
 class ChannelPresetRequest(BaseModel):
     name: str
     mode_channels: int
     channel_names: List[str]
+    ref_channel_name: Optional[str] = None
 
 
 class ChannelPresetDeleteRequest(BaseModel):
@@ -456,7 +469,7 @@ async def eeg_channel_options():
     """
     获取 10-20 通道选择相关元信息（可选电极/预设/当前选择）。
     """
-    pending_mode, pending_names = state.get_pending_channel_selection()
+    pending_mode, pending_names, pending_ref = state.get_pending_channel_selection()
     available = list(state.config.eeg.montage_1020_channels or [])
     if not available:
         base = list(state.config.eeg.channel_names or [])
@@ -465,13 +478,14 @@ async def eeg_channel_options():
             base.append(ref)
         available = _normalize_channel_list(base)
     presets_cfg = [
-        {"scope": "config", "name": p.name, "mode_channels": int(p.mode_channels), "channel_names": list(p.channel_names)}
+        {"scope": "config", "name": p.name, "mode_channels": int(p.mode_channels), "channel_names": list(p.channel_names), "ref_channel_name": str(p.ref_channel_name or "")}
         for p in (state.config.eeg.presets or [])
     ]
     presets_local = [{"scope": "local", **p} for p in state.get_local_channel_presets()]
     return {
         "supported_channel_modes": list(state.config.eeg.supported_channel_modes or []),
         "available_channels": available,
+        "ref_candidates": _normalize_channel_list(list(state.config.eeg.ref_selectable_channels or [])),
         "presets": presets_cfg + presets_local,
         "effective": {
             "mode_channels": int(state.config.eeg.mode_channels),
@@ -481,6 +495,7 @@ async def eeg_channel_options():
         "pending": {
             "mode_channels": int(pending_mode),
             "channel_names": list(pending_names),
+            "ref_channel_name": str(pending_ref or ""),
         },
     }
 
@@ -490,8 +505,8 @@ async def eeg_channel_get_selection():
     """
     获取当前“待应用”的通道选择（本机覆盖配置 ui.channel_selection）。
     """
-    mode, names = state.get_pending_channel_selection()
-    return {"mode_channels": int(mode), "channel_names": list(names)}
+    mode, names, ref = state.get_pending_channel_selection()
+    return {"mode_channels": int(mode), "channel_names": list(names), "ref_channel_name": str(ref or "")}
 
 
 @app.post("/api/eeg/channel/selection")
@@ -501,6 +516,7 @@ async def eeg_channel_set_selection(req: ChannelSelectionRequest):
     """
     mode = int(req.mode_channels)
     names = _normalize_channel_list(req.channel_names or [])
+    ref = str(req.ref_channel_name or "").strip()
     if mode <= 0:
         raise HTTPException(status_code=400, detail="mode_channels 必须为正整数")
     if len(names) > mode:
@@ -510,8 +526,14 @@ async def eeg_channel_set_selection(req: ChannelSelectionRequest):
         for n in names:
             if n not in available:
                 raise HTTPException(status_code=400, detail=f"非法通道名：{n}")
-    state.set_pending_channel_selection(mode, names)
-    return {"status": "success", "mode_channels": mode, "channel_names": names}
+    candidates = set(_normalize_channel_list(list(state.config.eeg.ref_selectable_channels or [])))
+    if ref:
+        if candidates and ref not in candidates:
+            raise HTTPException(status_code=400, detail=f"参考电极必须在候选列表中：{ref}")
+        if available and ref not in available:
+            raise HTTPException(status_code=400, detail=f"非法参考电极名：{ref}")
+    state.set_pending_channel_selection(mode, names, ref)
+    return {"status": "success", "mode_channels": mode, "channel_names": names, "ref_channel_name": ref}
 
 
 @app.post("/api/eeg/channel/apply")
@@ -522,12 +544,24 @@ async def eeg_channel_apply():
     if bool(getattr(state.streamer, "is_streaming", False)):
         raise HTTPException(status_code=409, detail="EEG 正在推流中，禁止切换通道配置")
 
-    mode, names = state.get_pending_channel_selection()
+    mode, names, ref = state.get_pending_channel_selection()
     supported = set(int(x) for x in (state.config.eeg.supported_channel_modes or []))
     if supported and int(mode) not in supported:
         raise HTTPException(status_code=400, detail=f"当前不支持 {mode} 通道模式")
     if len(names) != int(mode):
         raise HTTPException(status_code=400, detail=f"请先选择满 {mode} 个通道，再点击应用")
+    candidates = _normalize_channel_list(list(state.config.eeg.ref_selectable_channels or []))
+    if not ref:
+        ref = str(state.config.eeg.ref_channel_name or "").strip()
+    if not ref and candidates:
+        ref = candidates[0]
+    if not ref:
+        raise HTTPException(status_code=400, detail="请先选择参考电极，再点击应用")
+    if candidates and ref not in set(candidates):
+        raise HTTPException(status_code=400, detail=f"参考电极必须在候选列表中：{ref}")
+    available = set(_normalize_channel_list(list(state.config.eeg.montage_1020_channels or [])))
+    if available and ref not in available:
+        raise HTTPException(status_code=400, detail=f"非法参考电极名：{ref}")
 
     if state.controller.is_running() and int(mode) != int(state.config.eeg.mode_channels):
         raise HTTPException(status_code=409, detail="设备已连接，切换8/16通道需先断开蓝牙再应用")
@@ -540,7 +574,11 @@ async def eeg_channel_apply():
 
     return {
         "status": "success",
-        "effective": {"mode_channels": int(state.config.eeg.mode_channels), "channel_names": list(state.config.eeg.channel_names)},
+        "effective": {
+            "mode_channels": int(state.config.eeg.mode_channels),
+            "channel_names": list(state.config.eeg.channel_names),
+            "ref_channel_name": str(state.config.eeg.ref_channel_name or ""),
+        },
     }
 
 
@@ -554,6 +592,7 @@ async def eeg_channel_preset_upsert(req: ChannelPresetRequest):
         raise HTTPException(status_code=400, detail="name 不能为空")
     mode = int(req.mode_channels)
     names = _normalize_channel_list(req.channel_names or [])
+    ref = str(req.ref_channel_name or "").strip()
     if mode <= 0:
         raise HTTPException(status_code=400, detail="mode_channels 必须为正整数")
     if len(names) != mode:
@@ -563,7 +602,18 @@ async def eeg_channel_preset_upsert(req: ChannelPresetRequest):
         for n in names:
             if n not in available:
                 raise HTTPException(status_code=400, detail=f"非法通道名：{n}")
-    state.upsert_local_channel_preset(name=name, mode_channels=mode, channel_names=names)
+    candidates = _normalize_channel_list(list(state.config.eeg.ref_selectable_channels or []))
+    if not ref:
+        ref = str(state.config.eeg.ref_channel_name or "").strip()
+    if not ref and candidates:
+        ref = candidates[0]
+    if not ref:
+        raise HTTPException(status_code=400, detail="ref_channel_name 不能为空")
+    if candidates and ref not in set(candidates):
+        raise HTTPException(status_code=400, detail=f"参考电极必须在候选列表中：{ref}")
+    if available and ref not in available:
+        raise HTTPException(status_code=400, detail=f"非法参考电极名：{ref}")
+    state.upsert_local_channel_preset(name=name, mode_channels=mode, channel_names=names, ref_channel_name=ref)
     return {"status": "success"}
 
 

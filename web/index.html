@@ -18,9 +18,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.1.9 离线存储页增加采集时长/数据尺寸展示，并将提示行样式改为提示条
 - 2026-05-03: 1.2.0 设备页增加 10-20 通道选择地形图面板与常用组合
 - 2026-05-03: 1.2.1 设置页面 favicon 使用 logo.png
+- 2026-05-03: 1.2.2 设备页增加参考电极下拉选择（与通道选择分离）
+- 2026-05-03: 1.2.3 参考电极改为三按钮互斥选择
 
 作者: Spoon
-版本: 1.2.1
+版本: 1.2.3
 -->
 <html lang="zh-CN">
 <head>
@@ -97,6 +99,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                                 </div>
                                 <div class="topomap-side">
                                     <div class="topomap-badge" id="ch-count-badge">已选 <strong>0</strong> / <strong>8</strong></div>
+                                    <div class="field">
+                                        <div class="label">参考电极</div>
+                                        <div class="ref-pills" id="ch-ref-pills" role="group" aria-label="参考电极"></div>
+                                    </div>
                                     <div class="field">
                                         <div class="label">已选通道（顺序）</div>
                                         <div class="chip-list" id="ch-selected-list"></div>

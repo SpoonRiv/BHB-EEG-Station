@@ -6,9 +6,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 修改日志:
 - 2026-05-02: 1.0.0 新增设备选择页
 - 2026-05-03: 1.0.1 增加 10-20 通道选择地形图面板初始化
+- 2026-05-03: 1.0.2 断联与停止采集时显示“已断开”，避免误报“连接失败”
 
 作者: Spoon
-版本: 1.0.1
+版本: 1.0.2
 */
 
 import { bleConnect, bleDevices, bleDisconnect, getStatus } from './api.js';
@@ -127,6 +128,7 @@ export function initDevicePage() {
       if (t === 'connected' || t === 'ready') setDeviceStatus('success', `状态：已连接 ${name}`);
       else if (t === 'connecting') setDeviceStatus('', `状态：连接中 ${name}`);
       else if (t === 'error') setDeviceStatus('error', `状态：失败 ${name}${msg ? `（${msg}）` : ''}`);
+      else if (t === 'disconnected' || t === 'stopped') setDeviceStatus('', `状态：已断开 ${name || ''}`.trim());
       else setDeviceStatus('', '状态：未连接（请先扫描并选择设备）');
     } catch (_) {}
   }

@@ -14,9 +14,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.7 选满通道徽标转为绿色提示，电极圆圈描边更细
 - 2026-05-03: 1.0.8 徽标消息按成功/失败分别着色（绿/红）
 - 2026-05-03: 1.0.9 徽标改为两列网格布局，消息不顶格并支持自动换行对齐
+- 2026-05-03: 1.0.10 徽标最小高度与垂直居中，视觉与表单控件一致
+- 2026-05-03: 1.0.11 参考电极改为三按钮互斥选择控件（选中高亮，其它置灰）
 
 作者: Spoon
-版本: 1.0.9
+版本: 1.0.11
 */
 
 .device-right {
@@ -181,6 +183,47 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
   gap: 6px;
 }
 
+.ref-pills {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ref-pill {
+  appearance: none;
+  border: 1px solid rgba(120, 170, 210, 0.16);
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.06);
+  padding: 10px 10px;
+  border-radius: 14px;
+  cursor: pointer;
+  font-weight: 900;
+  letter-spacing: 0.4px;
+  transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+}
+
+.ref-pill:hover {
+  transform: translateY(-1px);
+  border-color: rgba(49, 215, 255, 0.38);
+}
+
+.ref-pill.active {
+  border-color: rgba(49, 215, 255, 0.72);
+  box-shadow: 0 0 0 1px rgba(49, 215, 255, 0.10) inset;
+  background: rgba(49, 215, 255, 0.10);
+}
+
+.ref-pills.has-active .ref-pill:not(.active) {
+  opacity: 0.45;
+  border-color: rgba(120, 170, 210, 0.10);
+}
+
+.ref-pill:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none;
+}
+
 .mini-btn {
   appearance: none;
   border: 1px solid rgba(120, 170, 210, 0.16);
@@ -226,7 +269,9 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
   column-gap: 10px;
   row-gap: 4px;
   align-items: center;
+  align-content: center;
   padding: 7px 10px;
+  min-height: 44px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.12);

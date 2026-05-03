@@ -15,9 +15,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.8 移除底部“当前已应用”提示行，仅保留错误/成功状态提示
 - 2026-05-03: 1.0.9 应用成功后将“实际应用通道+参考”写入绿色徽标消息
 - 2026-05-03: 1.0.10 徽标改为“计数+消息”两列布局，消息自动换行且不顶格
+- 2026-05-03: 1.0.11 增加参考电极下拉选择（与通道选择分离并随待应用一起保存）
+- 2026-05-03: 1.0.12 参考电极改为三按钮互斥选择，并与预设套用/保存联动
 
 作者: Spoon
-版本: 1.0.10
+版本: 1.0.12
 */
 
 import {
@@ -201,6 +203,7 @@ export function initTopomapPanel() {
   const listHost = document.getElementById('ch-selected-list');
   const btnClear = document.getElementById('ch-clear');
   const badge = document.getElementById('ch-count-badge');
+  const refPills = document.getElementById('ch-ref-pills');
   const presetSel = document.getElementById('ch-preset-select');
   const btnPresetApply = document.getElementById('ch-preset-apply');
   const btnPresetSave = document.getElementById('ch-preset-save');
@@ -208,15 +211,17 @@ export function initTopomapPanel() {
   const presetNameInput = document.getElementById('ch-preset-name');
   const effectiveStatus = document.getElementById('ch-effective-status');
 
-  if (!modeSel || !btnApply || !svgHost || !listHost || !btnClear || !badge || !presetSel || !btnPresetApply || !btnPresetSave || !btnPresetDelete || !presetNameInput || !effectiveStatus) {
+  if (!modeSel || !btnApply || !svgHost || !listHost || !btnClear || !badge || !refPills || !presetSel || !btnPresetApply || !btnPresetSave || !btnPresetDelete || !presetNameInput || !effectiveStatus) {
     return;
   }
 
   let supportedModes = [];
   let availableChannels = [];
+  let refCandidates = [];
   let presets = [];
   let pendingMode = 8;
   let selected = [];
+  let pendingRef = '';
   let effective = { mode_channels: 8, channel_names: [], ref_channel_name: '' };
   let lastError = '';
   let dragName = '';
@@ -321,6 +326,33 @@ export function initTopomapPanel() {
     modeSel.appendChild(opt8);
     modeSel.appendChild(opt16);
     modeSel.value = String(pendingMode);
+  }
+
+  function renderRefPills() {
+    const cur = String(pendingRef || '').trim();
+    refPills.innerHTML = '';
+    refPills.classList.toggle('has-active', Boolean(cur));
+    if (!refCandidates.length) {
+      const btn = el('button', 'ref-pill', '无候选');
+      btn.type = 'button';
+      btn.disabled = true;
+      refPills.appendChild(btn);
+      return;
+    }
+    const chosen = refCandidates.includes(cur) ? cur : refCandidates[0];
+    pendingRef = String(chosen || '').trim();
+    refPills.classList.add('has-active');
+    for (const name of refCandidates) {
+      const b = el('button', 'ref-pill', name);
+      b.type = 'button';
+      b.classList.toggle('active', name === pendingRef);
+      b.setAttribute('aria-pressed', name === pendingRef ? 'true' : 'false');
+      b.addEventListener('click', async () => {
+        pendingRef = String(name || '').trim();
+        await persistPending();
+      });
+      refPills.appendChild(b);
+    }
   }
 
   function renderPresetSelect() {
@@ -457,6 +489,7 @@ export function initTopomapPanel() {
   function render() {
     updateBadge();
     renderModeSelect();
+    renderRefPills();
     renderPresetSelect();
     renderSelectedList();
     renderSvg();
@@ -475,7 +508,7 @@ export function initTopomapPanel() {
   async function persistPending() {
     if (badgeMsg) setBadgeMsg('', '');
     try {
-      await eegChannelSetSelection({ mode_channels: pendingMode, channel_names: selected });
+      await eegChannelSetSelection({ mode_channels: pendingMode, channel_names: selected, ref_channel_name: pendingRef });
       lastError = '';
     } catch (e) {
       lastError = `保存选择失败：${e && e.message ? e.message : e}`;
@@ -510,11 +543,14 @@ export function initTopomapPanel() {
       const data = await eegChannelOptions();
       supportedModes = normalizeUnique((data && data.supported_channel_modes) || []).map((x) => Number(x)).filter((x) => Number.isFinite(x));
       availableChannels = normalizeUnique((data && data.available_channels) || []);
+      refCandidates = normalizeUnique((data && data.ref_candidates) || []);
       presets = (data && Array.isArray(data.presets)) ? data.presets : [];
       const p = data && data.pending ? data.pending : null;
       pendingMode = intOr(p && p.mode_channels, 8);
       selected = normalizeUnique((p && p.channel_names) || []);
+      pendingRef = String((p && p.ref_channel_name) || '').trim();
       effective = data && data.effective ? data.effective : effective;
+      if (!pendingRef) pendingRef = String(effective.ref_channel_name || '').trim();
       lastError = '';
       if (badgeMsg) setBadgeMsg('', '');
     } catch (e) {
@@ -545,6 +581,8 @@ export function initTopomapPanel() {
     const p = presets[idx];
     pendingMode = intOr(p.mode_channels, pendingMode);
     selected = normalizeUnique(p.channel_names || []).slice(0, pendingMode);
+    const ref = String(p.ref_channel_name || '').trim();
+    if (ref) pendingRef = ref;
     await persistPending();
   };
 
@@ -561,7 +599,7 @@ export function initTopomapPanel() {
       return;
     }
     try {
-      await eegChannelPresetUpsertLocal({ name, mode_channels: pendingMode, channel_names: selected });
+      await eegChannelPresetUpsertLocal({ name, mode_channels: pendingMode, channel_names: selected, ref_channel_name: pendingRef });
       presetNameInput.value = '';
       lastError = '';
       await loadAll();
@@ -595,6 +633,10 @@ export function initTopomapPanel() {
   btnApply.onclick = async () => {
     if (selected.length !== pendingMode) {
       setBadgeMsg(`应用失败：请先选择满 ${pendingMode} 个通道，再点击应用`, 'error');
+      return;
+    }
+    if (!String(pendingRef || '').trim()) {
+      setBadgeMsg('应用失败：请先选择参考电极，再点击应用', 'error');
       return;
     }
     btnApply.disabled = true;
