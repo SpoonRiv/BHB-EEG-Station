@@ -17,9 +17,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.10 徽标改为“计数+消息”两列布局，消息自动换行且不顶格
 - 2026-05-03: 1.0.11 增加参考电极下拉选择（与通道选择分离并随待应用一起保存）
 - 2026-05-03: 1.0.12 参考电极改为三按钮互斥选择，并与预设套用/保存联动
+- 2026-05-04: 1.0.13 已选通道拖拽排序体验优化：拖拽预览跟随、插入占位提示与更平滑的位移动画
 
 作者: Spoon
-版本: 1.0.12
+版本: 1.0.13
 */
 
 import {
@@ -226,6 +227,9 @@ export function initTopomapPanel() {
   let lastError = '';
   let dragName = '';
   let dndBound = false;
+  let dragInsertIndex = -1;
+  let dragPlaceholderEl = null;
+  let dragPreviewEl = null;
   let badgeMsg = '';
   let badgeMsgEl = null;
   let badgeMsgKind = '';
@@ -399,6 +403,22 @@ export function initTopomapPanel() {
           e.dataTransfer.dropEffect = 'move';
         } catch (err) {
         }
+        const hostRect = listHost.getBoundingClientRect();
+        const scrollMargin = 32;
+        if (e.clientY < hostRect.top + scrollMargin) {
+          listHost.scrollTop -= 12;
+        } else if (e.clientY > hostRect.bottom - scrollMargin) {
+          listHost.scrollTop += 12;
+        }
+
+        const insertIdx = calcDragInsertIndex(e);
+        placeDragPlaceholder(insertIdx);
+      });
+      listHost.addEventListener('dragleave', (e) => {
+        if (!dragName) return;
+        const rt = e.relatedTarget;
+        if (rt && listHost.contains(rt)) return;
+        clearDragPlaceholder();
       });
       listHost.addEventListener('drop', (e) => {
         if (!dragName) return;
@@ -407,8 +427,12 @@ export function initTopomapPanel() {
         if (from < 0) return;
         const item = selected[from];
         selected.splice(from, 1);
-        selected.push(item);
+        const to = Number.isFinite(dragInsertIndex) && dragInsertIndex >= 0 ? Math.min(Math.max(dragInsertIndex, 0), selected.length) : selected.length;
+        selected.splice(to, 0, item);
         dragName = '';
+        dragInsertIndex = -1;
+        clearDragPlaceholder();
+        clearDragPreview();
         persistPending();
       });
       dndBound = true;
@@ -416,23 +440,33 @@ export function initTopomapPanel() {
     for (let i = 0; i < selected.length; i++) {
       const name = selected[i];
       const row = el('div', 'chip');
+      row.dataset.name = name;
       const left = el('div', 'chip-left');
       const handle = el('div', 'chip-handle', '⋮⋮');
       handle.draggable = true;
       handle.addEventListener('dragstart', (e) => {
         dragName = name;
         row.classList.add('dragging');
+        dragInsertIndex = -1;
         try {
           e.dataTransfer.setData('text/plain', name);
           e.dataTransfer.effectAllowed = 'move';
         } catch (err) {
         }
+        setDragPreview(e, row);
+        requestAnimationFrame(() => {
+          row.classList.add('drag-hidden');
+          const from = selected.indexOf(name);
+          if (from >= 0) placeDragPlaceholder(from);
+        });
       });
       handle.addEventListener('dragend', () => {
         dragName = '';
         row.classList.remove('dragging');
-        const nodes = listHost.querySelectorAll('.chip.drop-target');
-        for (const n of nodes) n.classList.remove('drop-target');
+        row.classList.remove('drag-hidden');
+        dragInsertIndex = -1;
+        clearDragPlaceholder();
+        clearDragPreview();
       });
       left.appendChild(handle);
       left.appendChild(el('div', 'chip-index', String(i + 1)));
@@ -444,38 +478,121 @@ export function initTopomapPanel() {
       btnDel.onclick = () => toggle(name);
       actions.appendChild(btnDel);
       row.appendChild(actions);
-      row.addEventListener('dragenter', () => {
-        if (!dragName || dragName === name) return;
-        row.classList.add('drop-target');
-      });
-      row.addEventListener('dragleave', () => {
-        row.classList.remove('drop-target');
-      });
-      row.addEventListener('dragover', (e) => {
-        if (!dragName || dragName === name) return;
-        e.preventDefault();
-        try {
-          e.dataTransfer.dropEffect = 'move';
-        } catch (err) {
-        }
-      });
-      row.addEventListener('drop', (e) => {
-        if (!dragName || dragName === name) return;
-        e.preventDefault();
-        e.stopPropagation();
-        row.classList.remove('drop-target');
-        const from = selected.indexOf(dragName);
-        let to = i;
-        if (from < 0 || to < 0 || to >= selected.length) return;
-        const item = selected[from];
-        selected.splice(from, 1);
-        if (from < to) to -= 1;
-        selected.splice(to, 0, item);
-        dragName = '';
-        persistPending();
-      });
       listHost.appendChild(row);
     }
+  }
+
+  function getDraggableChips() {
+    return Array.from(listHost.querySelectorAll('.chip')).filter((n) => !n.classList.contains('chip-placeholder') && !n.classList.contains('drag-hidden'));
+  }
+
+  function calcDragInsertIndex(e) {
+    const chips = getDraggableChips();
+    if (!chips.length) return 0;
+
+    const elAt = document.elementFromPoint(e.clientX, e.clientY);
+    const chip = elAt ? elAt.closest('.chip') : null;
+    if (!chip) {
+      return chips.length;
+    }
+    if (chip.classList.contains('chip-placeholder')) {
+      return Number.isFinite(dragInsertIndex) && dragInsertIndex >= 0 ? dragInsertIndex : chips.length;
+    }
+    if (chip.classList.contains('drag-hidden')) {
+      return chips.length;
+    }
+    const idx = chips.indexOf(chip);
+    if (idx < 0) return chips.length;
+    const r = chip.getBoundingClientRect();
+    const sameRow = Math.abs(e.clientY - (r.top + r.height / 2)) < r.height * 0.35;
+    const after = sameRow ? (e.clientX > r.left + r.width / 2) : (e.clientY > r.top + r.height / 2);
+    return after ? (idx + 1) : idx;
+  }
+
+  function ensureDragPlaceholder() {
+    if (dragPlaceholderEl) return dragPlaceholderEl;
+    const p = el('div', 'chip chip-placeholder');
+    p.setAttribute('aria-hidden', 'true');
+    dragPlaceholderEl = p;
+    return dragPlaceholderEl;
+  }
+
+  function snapshotChipRects() {
+    const m = new Map();
+    const nodes = Array.from(listHost.querySelectorAll('.chip')).filter((n) => !n.classList.contains('chip-placeholder') && !n.classList.contains('drag-hidden'));
+    for (const n of nodes) {
+      const key = n.dataset.name || '';
+      if (!key) continue;
+      m.set(key, n.getBoundingClientRect());
+    }
+    return m;
+  }
+
+  function animateFlip(before) {
+    const nodes = Array.from(listHost.querySelectorAll('.chip')).filter((n) => !n.classList.contains('chip-placeholder') && !n.classList.contains('drag-hidden'));
+    for (const n of nodes) {
+      const key = n.dataset.name || '';
+      if (!key) continue;
+      const b = before.get(key);
+      if (!b) continue;
+      const a = n.getBoundingClientRect();
+      const dx = b.left - a.left;
+      const dy = b.top - a.top;
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
+      n.style.transform = `translate(${dx}px, ${dy}px)`;
+      n.style.transition = 'transform 0s';
+      requestAnimationFrame(() => {
+        n.style.transition = '';
+        n.style.transform = '';
+      });
+    }
+  }
+
+  function placeDragPlaceholder(insertIndex) {
+    const p = ensureDragPlaceholder();
+    const chips = getDraggableChips();
+    const idx = Math.min(Math.max(Number(insertIndex) || 0, 0), chips.length);
+    if (dragInsertIndex === idx && p.parentElement === listHost) return;
+
+    const before = snapshotChipRects();
+    if (idx >= chips.length) {
+      listHost.appendChild(p);
+    } else {
+      listHost.insertBefore(p, chips[idx]);
+    }
+    dragInsertIndex = idx;
+    animateFlip(before);
+  }
+
+  function clearDragPlaceholder() {
+    if (!dragPlaceholderEl) return;
+    if (dragPlaceholderEl.parentElement) dragPlaceholderEl.parentElement.removeChild(dragPlaceholderEl);
+    dragPlaceholderEl = null;
+  }
+
+  function setDragPreview(e, row) {
+    clearDragPreview();
+    try {
+      const r = row.getBoundingClientRect();
+      const px = Math.max(0, Math.min(r.width, e.clientX - r.left));
+      const py = Math.max(0, Math.min(r.height, e.clientY - r.top));
+      const p = row.cloneNode(true);
+      p.classList.add('chip-drag-preview');
+      p.style.position = 'fixed';
+      p.style.left = '-1000px';
+      p.style.top = '-1000px';
+      p.style.pointerEvents = 'none';
+      document.body.appendChild(p);
+      dragPreviewEl = p;
+      e.dataTransfer.setDragImage(p, px, py);
+    } catch (err) {
+    }
+  }
+
+  function clearDragPreview() {
+    if (!dragPreviewEl) return;
+    if (dragPreviewEl.parentElement) dragPreviewEl.parentElement.removeChild(dragPreviewEl);
+    dragPreviewEl = null;
   }
 
   function renderSvg() {

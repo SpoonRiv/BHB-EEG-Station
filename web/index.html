@@ -24,9 +24,12 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.2.5 模式页三卡片增加配图（image/*.png）
 - 2026-05-03: 1.2.6 模式页卡片改为图片+文本左右布局，按钮包裹图片三面
 - 2026-05-03: 1.2.7 模式页图片外层增加留白容器（上/左/右等距），确保完整展示
+- 2026-05-04: 1.2.8 设备页“提示”列表去掉前缀横线
+- 2026-05-04: 1.2.9 恢复“提示”列表项目符号，分割线样式交由 CSS 控制
+- 2026-05-04: 1.2.10 页面图片替代文本改为中文，移除英文
 
 作者: Spoon
-版本: 1.2.7
+版本: 1.2.10
 -->
 <html lang="zh-CN">
 <head>
@@ -165,7 +168,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                     <div class="mode-grid">
                         <button type="button" class="mode-card" id="mode-impedance">
                             <div class="mode-hero-wrap">
-                                <img class="mode-hero" src="image/impedance_mode.png" alt="Impedance mode" />
+                                <img class="mode-hero" src="image/impedance_mode.png" alt="阻抗检测模式" />
                             </div>
                             <div class="mode-meta">
                                 <div class="mode-title">阻抗检测</div>
@@ -174,7 +177,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                         </button>
                         <button type="button" class="mode-card" id="mode-eeg">
                             <div class="mode-hero-wrap">
-                                <img class="mode-hero" src="image/eeg_mode.png" alt="EEG mode" />
+                                <img class="mode-hero" src="image/eeg_mode.png" alt="脑电采集模式" />
                             </div>
                             <div class="mode-meta">
                                 <div class="mode-title">脑电采集</div>
@@ -183,10 +186,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                         </button>
                         <button type="button" class="mode-card" id="mode-tdcs">
                             <div class="mode-hero-wrap">
-                                <img class="mode-hero" src="image/tdcs_mode.png" alt="tDCS mode" />
+                                <img class="mode-hero" src="image/tdcs_mode.png" alt="电刺激 tDCS 模式" />
                             </div>
                             <div class="mode-meta">
-                                <div class="mode-title">电刺激（tDCS）</div>
+                                <div class="mode-title">电刺激</div>
                                 <div class="mode-desc">后续会增加电流/升降沿等参数配置与安全校验。目前仅保留模式切换入口。</div>
                             </div>
                         </button>
@@ -207,8 +210,8 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             <input id="debug-filter" placeholder="过滤关键字" style="width: 220px;" />
                             <button class="btn" id="debug-clear">清空</button>
                             <button class="btn" id="debug-pause">暂停输出</button>
-                            <button class="btn primary" id="btn-eeg-start">开始采集</button>
-                            <button class="btn danger" id="btn-eeg-stop">停止采集</button>
+                            <button class="btn primary" id="btn-eeg-start">开始EEG采集</button>
+                            <button class="btn danger" id="btn-eeg-stop">停止EEG采集</button>
                         </div>
                     </div>
                     <div class="card-body" style="height: calc(260px - 54px);">

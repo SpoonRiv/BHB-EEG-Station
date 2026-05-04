@@ -5,9 +5,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 修改日志:
 - 2026-04-30: 1.0.0 创建文件
+- 2026-05-04: 1.0.1 连接状态与日志文案去括号/去英文，设备名去尾部括号后缀
 
 作者: Spoon
-版本: 1.0.0
+版本: 1.0.1
 */
 
 const WS_URL = `ws://${window.location.host}/ws/eeg`;
@@ -34,6 +35,35 @@ let connectAttemptTs = 0;
 
 let globalYMin = Infinity;
 let globalYMax = -Infinity;
+
+function stripTrailingParenSuffix(text) {
+    let s = String(text || '').trim();
+    for (let i = 0; i < 3; i++) {
+        const next = s.replace(/\s*[\(\（][^()\（\）]{0,64}[\)\）]\s*$/g, '').trim();
+        if (next === s) break;
+        s = next;
+    }
+    return s;
+}
+
+function normalizeDeviceName(name) {
+    const raw = String(name || '').trim();
+    const cleaned = stripTrailingParenSuffix(raw);
+    return cleaned || raw || "未知设备";
+}
+
+function normalizeDeviceMessage(msg) {
+    const raw = stripTrailingParenSuffix(String(msg || '').trim());
+    if (!raw) return "";
+    const lower = raw.toLowerCase();
+    if (lower === "not connected" || lower === "not_connected") return "未连接";
+    const replaced = raw
+        .replace(/not connected/ig, "未连接")
+        .replace(/timeout/ig, "超时")
+        .replace(/disconnected/ig, "已断开");
+    if (/[a-zA-Z]/.test(replaced)) return "";
+    return replaced;
+}
 
 // DOM 元素
 const btnStart = document.getElementById('btn-start');
@@ -62,7 +92,7 @@ function initCharts() {
         
         const title = document.createElement('div');
         title.className = 'chart-title';
-        title.innerText = channelNames[i] ? `${channelNames[i]}` : `CH ${i + 1}`;
+        title.innerText = channelNames[i] ? `${channelNames[i]}` : `通道 ${i + 1}`;
         container.appendChild(title);
         
         const chartDiv = document.createElement('div');
@@ -137,7 +167,7 @@ function connectWebSocket() {
     }
     
     ws.onopen = () => {
-        console.log("WebSocket connected.");
+        console.log("WebSocket 已连接。");
         pingTimer = setInterval(() => {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send("ping");
@@ -153,7 +183,7 @@ function connectWebSocket() {
     };
     
     ws.onclose = () => {
-        console.log("WebSocket disconnected.");
+        console.log("WebSocket 已断开。");
         if (pingTimer) {
             clearInterval(pingTimer);
             pingTimer = null;
@@ -162,7 +192,7 @@ function connectWebSocket() {
     };
     
     ws.onerror = (err) => {
-        console.error("WebSocket error:", err);
+        console.error("WebSocket 发生错误：", err);
     };
 
 }
@@ -186,9 +216,9 @@ function applyDeviceStatus(deviceStatus) {
     if (!configuredDeviceName && configured) {
         configuredDeviceName = configured;
     }
-    const name = st && st.name ? String(st.name) : (configuredDeviceName || "未知设备");
+    const name = normalizeDeviceName(st && st.name ? String(st.name) : (configuredDeviceName || "未知设备"));
     const t = st && st.type ? String(st.type) : "idle";
-    const msg = st && st.message ? String(st.message) : "";
+    const msg = normalizeDeviceMessage(st && st.message ? String(st.message) : "");
 
     if (t === "connected") {
         connectAttempt = false;
@@ -203,7 +233,7 @@ function applyDeviceStatus(deviceStatus) {
     }
     if (t === "error") {
         connectAttempt = false;
-        const suffix = msg ? `（${msg}）` : "";
+        const suffix = msg ? `：${msg}` : "";
         setDeviceIndicator("error", `连接失败：${name}${suffix}`);
         btnStart.disabled = false;
         btnStop.disabled = true;
@@ -212,10 +242,10 @@ function applyDeviceStatus(deviceStatus) {
     if (t === "stopped") {
         const elapsed = Date.now() - connectAttemptTs;
         if (connectAttempt && elapsed > 3000) {
-            const suffix = msg ? `（${msg}）` : "";
+            const suffix = msg ? `：${msg}` : "";
             setDeviceIndicator("error", `连接失败：${name}${suffix}`);
         } else {
-            setDeviceIndicator("", configuredDeviceName ? `设备未连接（期望：${configuredDeviceName}）` : "设备未连接");
+            setDeviceIndicator("", configuredDeviceName ? `设备未连接，期望：${configuredDeviceName}` : "设备未连接");
         }
         btnStart.disabled = false;
         btnStop.disabled = true;
@@ -223,13 +253,13 @@ function applyDeviceStatus(deviceStatus) {
     }
     const elapsed = Date.now() - connectAttemptTs;
     if (connectAttempt && elapsed > 3000) {
-        const suffix = msg ? `（${msg}）` : "";
+        const suffix = msg ? `：${msg}` : "";
         setDeviceIndicator("error", `连接失败：${name}${suffix}`);
         btnStart.disabled = false;
         btnStop.disabled = true;
         return;
     }
-    setDeviceIndicator("", configuredDeviceName ? `设备未连接（期望：${configuredDeviceName}）` : "设备未连接");
+    setDeviceIndicator("", configuredDeviceName ? `设备未连接，期望：${configuredDeviceName}` : "设备未连接");
 }
 
 async function refreshStatusOnce() {
@@ -425,7 +455,7 @@ btnStart.addEventListener('click', async () => {
     try {
         const res = await fetch(API_START);
         const data = await res.json();
-        console.log("Start response:", data);
+        console.log("开始采集响应：", data);
         if (data.status === "success") {
             btnStop.disabled = false;
             if (data.device) {
@@ -458,7 +488,7 @@ btnStop.addEventListener('click', async () => {
     try {
         const res = await fetch(API_STOP);
         const data = await res.json();
-        console.log("Stop response:", data);
+        console.log("停止采集响应：", data);
         if (data.status === "success") {
             btnStart.disabled = false;
             if (data.device) {

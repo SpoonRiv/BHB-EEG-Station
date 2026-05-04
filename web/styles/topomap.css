@@ -17,9 +17,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.10 徽标最小高度与垂直居中，视觉与表单控件一致
 - 2026-05-03: 1.0.11 参考电极改为三按钮互斥选择控件（选中高亮，其它置灰）
 - 2026-05-04: 1.0.12 阻抗页右侧面板不使用内部滚动条，避免出现列表滑条
+- 2026-05-04: 1.0.13 已选通道拖拽排序体验优化：插入占位提示与更平滑的位移动画
 
 作者: Spoon
-版本: 1.0.12
+版本: 1.0.13
 */
 
 .device-right {
@@ -124,6 +125,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
   background: rgba(0, 0, 0, 0.10);
   width: 100%;
   min-width: 0;
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease, background 140ms ease;
 }
 
 [data-theme="light"] .chip {
@@ -151,6 +153,33 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 .chip.dragging {
   opacity: 0.55;
+}
+
+.chip.drag-hidden {
+  display: none;
+}
+
+.chip.chip-placeholder {
+  border: 2px dashed rgba(49, 215, 255, 0.62);
+  background: rgba(49, 215, 255, 0.06);
+  box-shadow: 0 0 0 1px rgba(49, 215, 255, 0.08) inset;
+  animation: chipPlaceholderPop 120ms ease-out;
+}
+
+[data-theme="light"] .chip.chip-placeholder {
+  border: 2px dashed rgba(12, 18, 28, 0.45);
+  background: rgba(12, 18, 28, 0.05);
+  box-shadow: 0 0 0 1px rgba(12, 18, 28, 0.08) inset;
+}
+
+@keyframes chipPlaceholderPop {
+  from { opacity: 0.2; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.chip.chip-drag-preview {
+  border-color: rgba(49, 215, 255, 0.55);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
 
 .chip.drop-target {

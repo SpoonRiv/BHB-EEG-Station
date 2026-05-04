@@ -8,14 +8,44 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.1 增加 10-20 通道选择地形图面板初始化
 - 2026-05-03: 1.0.2 断联与停止采集时显示“已断开”，避免误报“连接失败”
 - 2026-05-04: 1.0.3 仅当蓝牙已连接且通道选择已完成并应用后，才自动跳转到模式页
+- 2026-05-04: 1.0.4 设备名/错误提示移除括号与英文后缀，设备列表展示不再使用括号
 
 作者: Spoon
-版本: 1.0.3
+版本: 1.0.4
 */
 
 import { bleConnect, bleDevices, bleDisconnect, eegChannelOptions, getStatus } from './api.js';
 import { navigate } from './router.js';
 import { initTopomapPanel } from './topomap.js';
+
+function stripTrailingParenSuffix(text) {
+  let s = String(text || '').trim();
+  for (let i = 0; i < 3; i++) {
+    const next = s.replace(/\s*[\(\（][^()\（\）]{0,64}[\)\）]\s*$/g, '').trim();
+    if (next === s) break;
+    s = next;
+  }
+  return s;
+}
+
+function normalizeDeviceName(name) {
+  const raw = String(name || '').trim();
+  const cleaned = stripTrailingParenSuffix(raw);
+  return cleaned || raw || '未知设备';
+}
+
+function normalizeDeviceMessage(msg) {
+  const raw = stripTrailingParenSuffix(String(msg || '').trim());
+  if (!raw) return '';
+  const lower = raw.toLowerCase();
+  if (lower === 'not connected' || lower === 'not_connected') return '未连接';
+  const replaced = raw
+    .replace(/not connected/ig, '未连接')
+    .replace(/timeout/ig, '超时')
+    .replace(/disconnected/ig, '已断开');
+  if (/[a-zA-Z]/.test(replaced)) return '';
+  return replaced;
+}
 
 function renderSelect(selectEl, devices) {
   selectEl.innerHTML = '';
@@ -28,9 +58,10 @@ function renderSelect(selectEl, devices) {
   for (const d of devices) {
     const opt = document.createElement('option');
     opt.value = d.address || '';
-    const rssi = (d.rssi === null || typeof d.rssi === 'undefined') ? '' : ` RSSI ${d.rssi}`;
-    opt.textContent = `${d.name || 'Unknown'} (${d.address || '-'})${rssi}`;
-    opt.dataset.name = d.name || '';
+    const rssi = (d.rssi === null || typeof d.rssi === 'undefined') ? '' : `｜信号 ${d.rssi}`;
+    const displayName = normalizeDeviceName(d.name || '未知设备');
+    opt.textContent = `${displayName}｜${d.address || '-'}${rssi}`;
+    opt.dataset.name = displayName === '未知设备' ? '' : displayName;
     selectEl.appendChild(opt);
   }
 }
@@ -55,7 +86,7 @@ export function initDevicePage() {
 
   initTopomapPanel();
 
-  setDeviceStatus('', '状态：未连接（请先扫描并选择设备）');
+  setDeviceStatus('', '状态：未连接，请先扫描并选择设备');
   selectEl.disabled = true;
   let autoNavigated = false;
   let lastChannelCheckAtMs = 0;
@@ -99,14 +130,15 @@ export function initDevicePage() {
       if (list.length > 0) {
         renderSelect(selectEl, list);
         selectEl.disabled = false;
-        setDeviceStatus('success', `状态：扫描到 ${list.length} 个设备（请选择后点击连接）`);
+        setDeviceStatus('success', `状态：扫描到 ${list.length} 个设备，请选择后点击连接`);
       } else {
         selectEl.innerHTML = '<option value="">未扫描到设备</option>';
-        setDeviceStatus('error', '状态：未扫描到设备（请确认设备已开机并靠近）');
+        setDeviceStatus('error', '状态：未扫描到设备，请确认设备已开机并靠近');
       }
     } catch (e) {
       selectEl.innerHTML = '<option value="">扫描失败</option>';
-      setDeviceStatus('error', `状态：扫描失败（${e.message || e}）`);
+      const err = normalizeDeviceMessage(e && (e.message || e)) || '未知错误';
+      setDeviceStatus('error', `状态：扫描失败：${err}`);
     } finally {
       btnScan.disabled = false;
     }
@@ -121,7 +153,7 @@ export function initDevicePage() {
     try {
       const res = await bleConnect(address, name);
       if (res && res.status === 'success') {
-        setDeviceStatus('success', '状态：已连接（请先确认通道选择并点击“应用到系统”）');
+        setDeviceStatus('success', '状态：已连接，请先确认通道选择并点击“应用到系统”');
         autoNavigated = false;
         const ok = await checkChannelReady();
         if (ok) {
@@ -129,10 +161,12 @@ export function initDevicePage() {
           await navigate('#mode');
         }
       } else {
-        setDeviceStatus('error', `状态：连接失败（${(res && res.message) ? res.message : '未知错误'}）`);
+        const err = normalizeDeviceMessage(res && res.message ? res.message : '') || ((res && res.message) ? '' : '未知错误');
+        setDeviceStatus('error', err ? `状态：连接失败：${err}` : '状态：连接失败');
       }
     } catch (e) {
-      setDeviceStatus('error', `状态：连接失败（${e.message || e}）`);
+      const err = normalizeDeviceMessage(e && (e.message || e)) || '未知错误';
+      setDeviceStatus('error', `状态：连接失败：${err}`);
     } finally {
       btnConnect.disabled = false;
     }
@@ -144,12 +178,14 @@ export function initDevicePage() {
     try {
       const res = await bleDisconnect();
       if (res && res.status === 'success') {
-        setDeviceStatus('', '状态：已断开（请先扫描并选择设备）');
+        setDeviceStatus('', '状态：已断开，请先扫描并选择设备');
       } else {
-        setDeviceStatus('error', `状态：断开失败（${(res && res.message) ? res.message : '未知错误'}）`);
+        const err = normalizeDeviceMessage(res && res.message ? res.message : '') || ((res && res.message) ? '' : '未知错误');
+        setDeviceStatus('error', err ? `状态：断开失败：${err}` : '状态：断开失败');
       }
     } catch (e) {
-      setDeviceStatus('error', `状态：断开失败（${e.message || e}）`);
+      const err = normalizeDeviceMessage(e && (e.message || e)) || '未知错误';
+      setDeviceStatus('error', `状态：断开失败：${err}`);
     } finally {
       btnDisconnect.disabled = false;
     }
@@ -160,28 +196,28 @@ export function initDevicePage() {
       const st = await getStatus();
       const last = st && st.device && st.device.last ? st.device.last : null;
       const t = last && last.type ? String(last.type) : 'idle';
-      const name = last && last.name ? String(last.name) : '';
-      const msg = last && last.message ? String(last.message) : '';
+      const name = normalizeDeviceName(last && last.name ? String(last.name) : '');
+      const msg = normalizeDeviceMessage(last && last.message ? String(last.message) : '');
       if (t === 'connected' || t === 'ready') {
         const ok = await checkChannelReady();
         if (ok) {
-          setDeviceStatus('success', `状态：已连接 ${name}（通道已应用）`);
+          setDeviceStatus('success', `状态：已连接 ${name}，通道已应用`);
           if (!autoNavigated && (location.hash === '#device' || !location.hash)) {
             autoNavigated = true;
             await navigate('#mode');
           }
         } else {
-          setDeviceStatus('success', `状态：已连接 ${name}（请先选择通道并点击“应用到系统”）`);
+          setDeviceStatus('success', `状态：已连接 ${name}`);
           autoNavigated = false;
         }
       }
       else if (t === 'connecting') setDeviceStatus('', `状态：连接中 ${name}`);
-      else if (t === 'error') setDeviceStatus('error', `状态：失败 ${name}${msg ? `（${msg}）` : ''}`);
+      else if (t === 'error') setDeviceStatus('error', `状态：失败 ${name}${msg ? `：${msg}` : ''}`.trim());
       else if (t === 'disconnected' || t === 'stopped') {
         autoNavigated = false;
         setDeviceStatus('', `状态：已断开 ${name || ''}`.trim());
       }
-      else setDeviceStatus('', '状态：未连接（请先扫描并选择设备）');
+      else setDeviceStatus('', '状态：未连接，请先扫描并选择设备');
     } catch (_) {}
   }
 

@@ -22,9 +22,15 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.0.15 阻抗列表去掉位置/预留文案并压缩高度，右侧不再需要内部滚动条
 - 2026-05-04: 1.0.16 阻抗列表网格列数可变：8通道2列/16通道4列
 - 2026-05-04: 1.0.17 阻抗列表状态标签移到通道名右侧显示
+- 2026-05-04: 1.0.18 顶栏品牌区改为垂直居中对齐，修复 logo 与大标题未居中问题
+- 2026-05-04: 1.0.19 设备页“提示”卡片去掉标题与内容分割线，并增加左侧缩进
+- 2026-05-04: 1.0.20 阻抗阈值滑块改为圆条，并增加液态玻璃高对比样式
+- 2026-05-04: 1.0.21 阈值滑块改为横向长圆条，提升命中面积并遮挡分段底色
+- 2026-05-04: 1.0.22 阻抗阈值三档标识右侧增加“默认”按钮并优化布局
+- 2026-05-04: 1.0.23 阻抗列表拆分为电极与参考电极两组并增加分组标题
 
 作者: Spoon
-版本: 1.0.17
+版本: 1.0.23
 */
 
 @import "./topomap.css";
@@ -91,11 +97,12 @@ html, body {
 .brand {
   display: flex;
   gap: 10px;
-  align-items: baseline;
+  align-items: center;
   user-select: none;
 }
 
 .brand-logo {
+  display: block;
   width: 28px;
   height: 28px;
   border-radius: 10px;
@@ -162,6 +169,10 @@ html, body {
   box-shadow: 0 0 18px rgba(255, 204, 102, 0.25);
 }
 
+.tips-card .card-header {
+  border-bottom: none;
+}
+
 .tips-card .card-sub {
   font-size: 16px;
   line-height: 1.6;
@@ -169,6 +180,7 @@ html, body {
 
 .tips-stack {
   gap: 12px;
+  padding-left: 12px;
 }
 
 .btn {
@@ -582,14 +594,19 @@ select option {
 .imp-th-pills {
   width: 100%;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
   gap: 6px;
+  align-items: center;
 }
 
 .imp-th-pills .imp-pill {
   width: 100%;
   justify-content: center;
   text-align: center;
+}
+
+.imp-th-pills .imp-th-default {
+  justify-self: end;
 }
 
 .imp-range {
@@ -608,6 +625,17 @@ select option {
   border: 1px solid rgba(120, 170, 210, 0.16);
   background: rgba(0, 0, 0, 0.10);
   overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05) inset, 0 10px 22px rgba(0, 0, 0, 0.16);
+}
+
+.imp-range-track::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 999px;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.20) 0%, rgba(255, 255, 255, 0.08) 45%, rgba(0, 0, 0, 0.10) 100%);
+  opacity: 0.9;
 }
 
 .imp-range-mark {
@@ -647,16 +675,40 @@ select option {
   -webkit-appearance: none;
   appearance: none;
   pointer-events: auto;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 1px solid rgba(120, 170, 210, 0.26);
-  background: rgba(20, 30, 45, 0.92);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  width: 34px;
+  height: 16px;
+  margin-top: -5px;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 170, 210, 0.34);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 252, 255, 0.92) 62%, rgba(236, 245, 255, 0.86) 100%);
+  box-shadow:
+    0 10px 22px rgba(0, 0, 0, 0.28),
+    0 0 0 1px rgba(0, 0, 0, 0.10),
+    0 0 18px rgba(49, 215, 255, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.12);
+  cursor: ew-resize;
 }
 
 [data-theme="light"] .imp-range input[type="range"]::-webkit-slider-thumb {
-  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(0, 0, 0, 0.14);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(246, 250, 255, 0.94) 72%, rgba(236, 245, 255, 0.90) 100%);
+  box-shadow:
+    0 10px 22px rgba(0, 0, 0, 0.18),
+    0 0 0 1px rgba(0, 0, 0, 0.08),
+    0 0 18px rgba(49, 215, 255, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.10);
+}
+
+.imp-range input[type="range"]:active::-webkit-slider-thumb,
+.imp-range input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.30),
+    0 0 0 2px rgba(49, 215, 255, 0.28),
+    0 0 22px rgba(49, 215, 255, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.80),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.10);
 }
 
 .imp-range input[type="range"]::-moz-range-track {
@@ -665,18 +717,43 @@ select option {
   border: none;
 }
 
+.imp-list-group-title {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0.2px;
+  margin-top: 2px;
+}
+
+.imp-list-group-title-extra {
+  margin-top: 8px;
+}
+
 .imp-range input[type="range"]::-moz-range-thumb {
   pointer-events: auto;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 1px solid rgba(120, 170, 210, 0.26);
-  background: rgba(20, 30, 45, 0.92);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  width: 34px;
+  height: 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 170, 210, 0.34);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 252, 255, 0.92) 62%, rgba(236, 245, 255, 0.86) 100%);
+  box-shadow:
+    0 10px 22px rgba(0, 0, 0, 0.28),
+    0 0 0 1px rgba(0, 0, 0, 0.10),
+    0 0 18px rgba(49, 215, 255, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.12);
+  cursor: ew-resize;
 }
 
 [data-theme="light"] .imp-range input[type="range"]::-moz-range-thumb {
-  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(0, 0, 0, 0.14);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(246, 250, 255, 0.94) 72%, rgba(236, 245, 255, 0.90) 100%);
+  box-shadow:
+    0 10px 22px rgba(0, 0, 0, 0.18),
+    0 0 0 1px rgba(0, 0, 0, 0.08),
+    0 0 18px rgba(49, 215, 255, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.10);
 }
 
 .imp-grid-wrap {

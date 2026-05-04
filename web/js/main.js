@@ -12,9 +12,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.5 断联与停止采集时显示“连接已断开”，避免误报“连接失败”
 - 2026-05-03: 1.0.6 任务运行中锁定右上角导航按钮，禁止返回设备/模式页面
 - 2026-05-04: 1.0.7 接入阻抗页面模块（WS 数据与可视化）
+- 2026-05-04: 1.0.8 连接状态展示移除括号与英文提示，设备名去尾部括号后缀
+- 2026-05-04: 1.0.9 连接状态文案规范：仅“未连接”与“连接失败：设备名”
 
 作者: Spoon
-版本: 1.0.7
+版本: 1.0.9
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -29,12 +31,41 @@ import { setConnBadge } from './ui.js';
 let statusTimer = null;
 let navLocked = false;
 
+function stripTrailingParenSuffix(text) {
+  let s = String(text || '').trim();
+  for (let i = 0; i < 3; i++) {
+    const next = s.replace(/\s*[\(\（][^()\（\）]{0,64}[\)\）]\s*$/g, '').trim();
+    if (next === s) break;
+    s = next;
+  }
+  return s;
+}
+
+function normalizeDeviceName(name) {
+  const raw = String(name || '').trim();
+  const cleaned = stripTrailingParenSuffix(raw);
+  return cleaned || raw || '未知设备';
+}
+
+function normalizeDeviceMessage(msg) {
+  const raw = stripTrailingParenSuffix(String(msg || '').trim());
+  if (!raw) return '';
+  const lower = raw.toLowerCase();
+  if (lower === 'not connected' || lower === 'not_connected') return '未连接';
+  const replaced = raw
+    .replace(/not connected/ig, '未连接')
+    .replace(/timeout/ig, '超时')
+    .replace(/disconnected/ig, '已断开');
+  if (/[a-zA-Z]/.test(replaced)) return '';
+  return replaced;
+}
+
 function applyConnBadge(deviceStatus) {
   const last = deviceStatus && deviceStatus.last ? deviceStatus.last : null;
   const configured = deviceStatus && deviceStatus.configured_name ? String(deviceStatus.configured_name) : '';
-  const name = last && last.name ? String(last.name) : (configured || '未知设备');
+  const name = normalizeDeviceName(last && last.name ? String(last.name) : (configured || '未知设备'));
   const t = last && last.type ? String(last.type) : 'idle';
-  const msg = last && last.message ? String(last.message) : '';
+  const msg = normalizeDeviceMessage(last && last.message ? String(last.message) : '');
 
   if (t === 'connected' || t === 'ready') {
     setConnBadge('active', `已连接：${name}`);
@@ -45,14 +76,16 @@ function applyConnBadge(deviceStatus) {
     return;
   }
   if (t === 'error') {
-    setConnBadge('error', `连接失败：${name}${msg ? `（${msg}）` : ''}`);
+    void msg;
+    setConnBadge('error', `连接失败：${name}`);
     return;
   }
   if (t === 'disconnected' || t === 'stopped') {
     setConnBadge('', `连接已断开：${name}`);
     return;
   }
-  setConnBadge('', configured ? `未连接（期望：${configured}）` : '未连接');
+  void configured;
+  setConnBadge('', '未连接');
 }
 
 function applyNavLock(deviceStatus) {

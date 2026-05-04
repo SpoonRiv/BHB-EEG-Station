@@ -14,9 +14,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.0.7 列表卡片去掉位置标签与“预留”文案，降低单元高度以避免滚动
 - 2026-05-04: 1.0.8 8通道列表改为4行2列，16通道改为4行4列（与设备页通道选择一致）
 - 2026-05-04: 1.0.9 将通道状态（如偏高）移动到通道名右侧展示
+- 2026-05-04: 1.0.10 阈值三档标识右侧增加“默认”按钮，一键恢复默认阈值
+- 2026-05-04: 1.0.11 阻抗列表分组：电极阻抗与参考电极阻抗
 
 作者: Spoon
-版本: 1.0.9
+版本: 1.0.11
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -45,6 +47,8 @@ let gridMainEl = null;
 let gridExtraEl = null;
 let listItems = new Map();
 let selectedName = '';
+let listTitleMainEl = null;
+let listTitleExtraEl = null;
 
 let debugLines = [];
 let debugFilterText = '';
@@ -168,6 +172,12 @@ function renderLegend() {
   pills.appendChild(pillW);
   pills.appendChild(pillB);
 
+  const btnDefault = document.createElement('button');
+  btnDefault.className = 'btn imp-th-default';
+  btnDefault.textContent = '默认';
+  btnDefault.onclick = () => applyThresholds(5000, 20000);
+  pills.appendChild(btnDefault);
+
   const range = document.createElement('div');
   range.className = 'imp-range';
   const track = document.createElement('div');
@@ -248,6 +258,26 @@ function ensureGridHosts() {
   if (!listHost) listHost = document.getElementById('imp-list');
   if (!gridMainEl) gridMainEl = document.getElementById('imp-grid-main');
   if (!gridExtraEl) gridExtraEl = document.getElementById('imp-grid-extra');
+  if (listHost && gridMainEl && !listTitleMainEl) {
+    const existing = listHost.querySelector('.imp-list-group-title-main');
+    if (existing) listTitleMainEl = existing;
+    else {
+      const el = document.createElement('div');
+      el.className = 'imp-list-group-title imp-list-group-title-main';
+      listHost.insertBefore(el, gridMainEl);
+      listTitleMainEl = el;
+    }
+  }
+  if (listHost && gridExtraEl && !listTitleExtraEl) {
+    const existing = listHost.querySelector('.imp-list-group-title-extra');
+    if (existing) listTitleExtraEl = existing;
+    else {
+      const el = document.createElement('div');
+      el.className = 'imp-list-group-title imp-list-group-title-extra';
+      listHost.insertBefore(el, gridExtraEl);
+      listTitleExtraEl = el;
+    }
+  }
 }
 
 function setSelectedCell(name) {
@@ -311,6 +341,8 @@ function ensureList() {
   }
 
   const slots = Math.max(1, Math.min(16, Math.round(Number(impModeChannels) || mains.length || 8)));
+  if (listTitleMainEl) listTitleMainEl.textContent = `电极阻抗（${slots}通道）`;
+  if (listTitleExtraEl) listTitleExtraEl.textContent = '参考电极阻抗';
   const cols = slots <= 8 ? 2 : 4;
   gridMainEl.style.setProperty('--imp-grid-cols', String(cols));
   for (let i = 0; i < slots; i++) {
