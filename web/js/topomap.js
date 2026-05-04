@@ -18,9 +18,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.11 增加参考电极下拉选择（与通道选择分离并随待应用一起保存）
 - 2026-05-03: 1.0.12 参考电极改为三按钮互斥选择，并与预设套用/保存联动
 - 2026-05-04: 1.0.13 已选通道拖拽排序体验优化：拖拽预览跟随、插入占位提示与更平滑的位移动画
+- 2026-05-04: 1.0.14 通道选择变更/应用成功向外派发事件，用于设备页自动跳转门禁
 
 作者: Spoon
-版本: 1.0.13
+版本: 1.0.14
 */
 
 import {
@@ -623,6 +624,7 @@ export function initTopomapPanel() {
   }
 
   async function persistPending() {
+    try { window.dispatchEvent(new CustomEvent('bhb-channel-selection-dirty')); } catch (_) {}
     if (badgeMsg) setBadgeMsg('', '');
     try {
       await eegChannelSetSelection({ mode_channels: pendingMode, channel_names: selected, ref_channel_name: pendingRef });
@@ -767,6 +769,11 @@ export function initTopomapPanel() {
         const ref = String(effective.ref_channel_name || '').trim();
         const hint = `已应用：${effMode}ch [${effNames.join(', ')}]${ref ? ` ｜ 参考：${ref}` : ''}`;
         setBadgeMsg(hint, 'success');
+        try {
+          window.dispatchEvent(new CustomEvent('bhb-channel-applied', {
+            detail: { mode_channels: effMode, channel_names: effNames, ref_channel_name: ref },
+          }));
+        } catch (_) {}
       } else {
         const msg = (res && res.message) ? String(res.message) : '应用失败';
         if (msg.includes('请先选择满') && msg.includes('通道')) {

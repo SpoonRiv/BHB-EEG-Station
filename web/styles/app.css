@@ -28,9 +28,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.0.21 阈值滑块改为横向长圆条，提升命中面积并遮挡分段底色
 - 2026-05-04: 1.0.22 阻抗阈值三档标识右侧增加“默认”按钮并优化布局
 - 2026-05-04: 1.0.23 阻抗列表拆分为电极与参考电极两组并增加分组标题
+- 2026-05-04: 1.0.24 顶栏版本号改为底部对齐（与大标题基线对齐）
 
 作者: Spoon
-版本: 1.0.23
+版本: 1.0.24
 */
 
 @import "./topomap.css";
@@ -97,12 +98,13 @@ html, body {
 .brand {
   display: flex;
   gap: 10px;
-  align-items: center;
+  align-items: baseline;
   user-select: none;
 }
 
 .brand-logo {
   display: block;
+  align-self: center;
   width: 28px;
   height: 28px;
   border-radius: 10px;

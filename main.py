@@ -24,9 +24,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.3.0 增加阻抗检测数据流：LSL->WebSocket 推送与前端可视化入口
 - 2026-05-04: 1.3.1 下发阻抗阈值滑条上限配置（slider_max_ohm）
 - 2026-05-04: 1.3.2 下发阻抗阈值滑条步进配置（slider_step_ohm）
+- 2026-05-04: 1.3.3 下发电刺激（tDCS）占位配置（enabled/ui）
 
 作者: Spoon
-版本: 1.3.2
+版本: 1.3.3
 """
 
 import asyncio
@@ -468,6 +469,12 @@ async def get_config():
                 "warn_max_ohm": int(state.config.impedance.ui.warn_max_ohm),
                 "slider_max_ohm": int(state.config.impedance.ui.slider_max_ohm),
                 "slider_step_ohm": int(state.config.impedance.ui.slider_step_ohm),
+            },
+        },
+        "tdcs": {
+            "enabled": bool(getattr(state.config, "tdcs", None) and state.config.tdcs.enabled),
+            "ui": {
+                "show_reserved": bool(getattr(state.config, "tdcs", None) and state.config.tdcs.ui.show_reserved),
             },
         },
         "buffer_size": state.config.streaming.buffer_size,

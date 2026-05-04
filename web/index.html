@@ -27,9 +27,13 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.2.8 设备页“提示”列表去掉前缀横线
 - 2026-05-04: 1.2.9 恢复“提示”列表项目符号，分割线样式交由 CSS 控制
 - 2026-05-04: 1.2.10 页面图片替代文本改为中文，移除英文
+- 2026-05-04: 1.2.11 电刺激页面增加状态提示条与预留容器（后续扩展参数区）
+- 2026-05-04: 1.2.12 电刺激页面新增调试输出窗口（独立过滤/清空/暂停）
+- 2026-05-04: 1.2.13 电刺激页面布局调整为与阻抗检测一致（上调试/下控制）
+- 2026-05-04: 1.2.14 电刺激按钮移动到调试输出栏，与阻抗检测一致
 
 作者: Spoon
-版本: 1.2.10
+版本: 1.2.14
 -->
 <html lang="zh-CN">
 <head>
@@ -375,19 +379,42 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
         </section>
 
         <section class="page" id="page-tdcs">
-            <div class="card" style="width: 100%;">
-                <div class="card-header">
-                    <div>
-                        <div class="card-title">电刺激（tDCS）</div>
-                        <div class="card-sub">页面占位：后续增加参数、流程与安全校验</div>
+            <div class="eeg-layout">
+                <div class="card">
+                    <div class="card-header">
+                        <div>
+                            <div class="card-title">调试输出</div>
+                            <div class="card-sub">仅展示结构化调试事件，不展示网络/蓝牙连接信息</div>
+                        </div>
+                        <div class="row">
+                            <input id="tdcs-debug-filter" placeholder="过滤关键字" style="width: 220px;" />
+                            <button class="btn" id="tdcs-debug-clear">清空</button>
+                            <button class="btn" id="tdcs-debug-pause">暂停输出</button>
+                            <button class="btn primary" id="btn-tdcs-start">开启电刺激</button>
+                            <button class="btn danger" id="btn-tdcs-stop">停止电刺激</button>
+                        </div>
                     </div>
-                    <div class="row">
-                        <button class="btn primary" id="btn-tdcs-start"> tDCS 模式</button>
-                        <button class="btn danger" id="btn-tdcs-stop">停止 tDCS</button>
+                    <div class="card-body" style="height: calc(260px - 54px);">
+                        <div class="debug-log" id="tdcs-debug-log"></div>
                     </div>
                 </div>
-                <div class="card-body">
-                    <div class="card-sub">当前版本仅实现：连接后可下发 tDCS start/stop 指令；参数与执行过程后续开发。</div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <div>
+                            <div class="card-title">电刺激（tDCS）</div>
+                            <div class="card-sub">页面占位：后续增加参数、流程与安全校验</div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="stack">
+                            <div class="hint-strip" id="tdcs-status"></div>
+                            <div class="card-sub">当前版本仅实现：连接后可下发 tDCS start/stop 指令；参数与执行过程后续开发。</div>
+                            <div id="tdcs-reserved">
+                                <div class="card-sub">参数区（预留）：电流/时长/升降沿/电极信息/安全阈值等后续在此处接入。</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>

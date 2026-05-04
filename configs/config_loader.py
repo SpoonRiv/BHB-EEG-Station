@@ -22,9 +22,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.1.12 阻抗阈值默认改为 5000/20000，并增加阈值滑条上限配置
 - 2026-05-04: 1.1.13 阻抗阈值滑条步进改为可配置（slider_step_ohm）
 - 2026-05-04: 1.1.14 阻抗阈值滑条默认上限调整为 25000
+- 2026-05-04: 1.1.15 增加电刺激（tDCS）配置段占位（enabled/ui）
 
 作者: Spoon
-版本: 1.1.14
+版本: 1.1.15
 """
 
 import os
@@ -222,12 +223,24 @@ class ImpedanceConfig:
 
 
 @dataclass(frozen=True)
+class TdcsUiConfig:
+    show_reserved: bool
+
+
+@dataclass(frozen=True)
+class TdcsConfig:
+    enabled: bool
+    ui: TdcsUiConfig
+
+
+@dataclass(frozen=True)
 class AppConfig:
     app_ui_version: str
     ui: UiConfig
     bluetooth: BluetoothConfig
     eeg: EegConfig
     impedance: ImpedanceConfig
+    tdcs: TdcsConfig
     protocol: ProtocolConfig
     server: ServerConfig
     streaming: StreamingConfig
@@ -266,6 +279,9 @@ def load_config(config_path: str) -> AppConfig:
     impedance_lsl_raw = impedance_raw.get("lsl", {}) or {}
     impedance_streaming_raw = impedance_raw.get("streaming", {}) or {}
     impedance_ui_raw = impedance_raw.get("ui", {}) or {}
+
+    tdcs_raw = raw.get("tdcs", {}) or {}
+    tdcs_ui_raw = tdcs_raw.get("ui", {}) or {}
 
     server_raw = raw.get("server", {})
     streaming_raw = raw.get("streaming", {})
@@ -505,6 +521,13 @@ def load_config(config_path: str) -> AppConfig:
         ),
     )
 
+    tdcs = TdcsConfig(
+        enabled=bool(tdcs_raw.get("enabled", True)),
+        ui=TdcsUiConfig(
+            show_reserved=bool(tdcs_ui_raw.get("show_reserved", True)),
+        ),
+    )
+
     protocol = ProtocolConfig(
         frame=FrameProtocolConfig(
             header_len_bytes=int(frame_raw.get("header_len_bytes", 3)),
@@ -578,6 +601,7 @@ def load_config(config_path: str) -> AppConfig:
         bluetooth=bluetooth,
         eeg=eeg,
         impedance=impedance,
+        tdcs=tdcs,
         protocol=protocol,
         server=server,
         streaming=streaming,

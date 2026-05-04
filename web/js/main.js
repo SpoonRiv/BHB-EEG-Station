@@ -14,17 +14,20 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.0.7 接入阻抗页面模块（WS 数据与可视化）
 - 2026-05-04: 1.0.8 连接状态展示移除括号与英文提示，设备名去尾部括号后缀
 - 2026-05-04: 1.0.9 连接状态文案规范：仅“未连接”与“连接失败：设备名”
+- 2026-05-04: 1.0.10 拆分电刺激页面模块（tdcs.js），路由进入时初始化占位逻辑
+- 2026-05-04: 1.0.10 非连接状态时顶部指示灯显示为红色
 
 作者: Spoon
-版本: 1.0.9
+版本: 1.0.10
 */
 
-import { getConfig, getStatus, modeStart, modeStop } from './api.js';
+import { getConfig, getStatus } from './api.js';
 import { initDevicePage } from './device.js';
 import { initModePage } from './mode.js';
 import { enterEegPage, leaveEegPage } from './eeg.js';
 import { enterImpedancePage, leaveImpedancePage } from './impedance.js';
 import { enterOfflinePage, leaveOfflinePage } from './offline.js';
+import { enterTdcsPage, leaveTdcsPage } from './tdcs.js';
 import { registerRoute, startRouter, navigate } from './router.js';
 import { setConnBadge } from './ui.js';
 
@@ -72,7 +75,7 @@ function applyConnBadge(deviceStatus) {
     return;
   }
   if (t === 'connecting') {
-    setConnBadge('', `连接中：${name}`);
+    setConnBadge('error', `连接中：${name}`);
     return;
   }
   if (t === 'error') {
@@ -81,11 +84,11 @@ function applyConnBadge(deviceStatus) {
     return;
   }
   if (t === 'disconnected' || t === 'stopped') {
-    setConnBadge('', `连接已断开：${name}`);
+    setConnBadge('error', `连接已断开：${name}`);
     return;
   }
   void configured;
-  setConnBadge('', '未连接');
+  setConnBadge('error', '未连接');
 }
 
 function applyNavLock(deviceStatus) {
@@ -169,38 +172,13 @@ async function initVersionLabel() {
   } catch (_) {}
 }
 
-function bindPlaceholderButtons() {
-  const tdcsStart = document.getElementById('btn-tdcs-start');
-  const tdcsStop = document.getElementById('btn-tdcs-stop');
-  if (tdcsStart) {
-    tdcsStart.onclick = async () => {
-      tdcsStart.disabled = true;
-      try {
-        await modeStart('tdcs');
-      } catch (_) {} finally {
-        tdcsStart.disabled = false;
-      }
-    };
-  }
-  if (tdcsStop) {
-    tdcsStop.onclick = async () => {
-      tdcsStop.disabled = true;
-      try {
-        await modeStop('tdcs');
-      } catch (_) {} finally {
-        tdcsStop.disabled = false;
-      }
-    };
-  }
-}
-
 function initRoutes() {
   registerRoute('#device', { pageId: 'page-device' });
   registerRoute('#mode', { pageId: 'page-mode' });
   registerRoute('#eeg', { pageId: 'page-eeg', onEnter: enterEegPage, onLeave: leaveEegPage });
   registerRoute('#offline', { pageId: 'page-offline', onEnter: enterOfflinePage, onLeave: leaveOfflinePage });
   registerRoute('#impedance', { pageId: 'page-impedance', onEnter: enterImpedancePage, onLeave: leaveImpedancePage });
-  registerRoute('#tdcs', { pageId: 'page-tdcs' });
+  registerRoute('#tdcs', { pageId: 'page-tdcs', onEnter: enterTdcsPage, onLeave: leaveTdcsPage });
 }
 
 function init() {
@@ -210,7 +188,6 @@ function init() {
   bindHeaderNav();
   initThemeToggle();
   initVersionLabel();
-  bindPlaceholderButtons();
   startStatusPolling();
   startRouter();
 }

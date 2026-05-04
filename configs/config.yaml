@@ -1,5 +1,5 @@
 app:
-  ui_version: "1.4.1"
+  ui_version: "1.4.2"
 
 ui:
   waveform:
@@ -112,6 +112,11 @@ impedance:
     warn_max_ohm: 20000
     slider_max_ohm: 30000
     slider_step_ohm: 100
+
+tdcs:
+  enabled: true
+  ui:
+    show_reserved: true
 
 protocol:
   # 8通道默认协议参数（根据文档 CH8(带tDCS)底层FPGA操作指令及帧格式V1.0.docx 配置，总长 140 bytes）

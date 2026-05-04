@@ -9,9 +9,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.2 断联与停止采集时显示“已断开”，避免误报“连接失败”
 - 2026-05-04: 1.0.3 仅当蓝牙已连接且通道选择已完成并应用后，才自动跳转到模式页
 - 2026-05-04: 1.0.4 设备名/错误提示移除括号与英文后缀，设备列表展示不再使用括号
+- 2026-05-04: 1.0.5 自动跳转需同时满足：蓝牙连接成功 + 本次会话通道“应用成功”提示出现
 
 作者: Spoon
-版本: 1.0.4
+版本: 1.0.5
 */
 
 import { bleConnect, bleDevices, bleDisconnect, eegChannelOptions, getStatus } from './api.js';
@@ -91,6 +92,27 @@ export function initDevicePage() {
   let autoNavigated = false;
   let lastChannelCheckAtMs = 0;
   let lastChannelReady = false;
+  let lastConnReady = false;
+  let channelAppliedOk = false;
+
+  window.addEventListener('bhb-channel-selection-dirty', () => {
+    channelAppliedOk = false;
+    autoNavigated = false;
+  });
+
+  window.addEventListener('bhb-channel-applied', () => {
+    channelAppliedOk = true;
+    autoNavigated = false;
+    if (lastConnReady && (location.hash === '#device' || !location.hash)) {
+      void (async () => {
+        const ok = await checkChannelReady();
+        if (ok && channelAppliedOk && !autoNavigated) {
+          autoNavigated = true;
+          await navigate('#mode');
+        }
+      })();
+    }
+  });
 
   async function checkChannelReady() {
     const now = Date.now();
@@ -153,18 +175,21 @@ export function initDevicePage() {
     try {
       const res = await bleConnect(address, name);
       if (res && res.status === 'success') {
+        lastConnReady = true;
         setDeviceStatus('success', '状态：已连接，请先确认通道选择并点击“应用到系统”');
         autoNavigated = false;
         const ok = await checkChannelReady();
-        if (ok) {
+        if (ok && channelAppliedOk) {
           autoNavigated = true;
           await navigate('#mode');
         }
       } else {
+        lastConnReady = false;
         const err = normalizeDeviceMessage(res && res.message ? res.message : '') || ((res && res.message) ? '' : '未知错误');
         setDeviceStatus('error', err ? `状态：连接失败：${err}` : '状态：连接失败');
       }
     } catch (e) {
+      lastConnReady = false;
       const err = normalizeDeviceMessage(e && (e.message || e)) || '未知错误';
       setDeviceStatus('error', `状态：连接失败：${err}`);
     } finally {
@@ -178,12 +203,15 @@ export function initDevicePage() {
     try {
       const res = await bleDisconnect();
       if (res && res.status === 'success') {
+        lastConnReady = false;
+        autoNavigated = false;
         setDeviceStatus('', '状态：已断开，请先扫描并选择设备');
       } else {
         const err = normalizeDeviceMessage(res && res.message ? res.message : '') || ((res && res.message) ? '' : '未知错误');
         setDeviceStatus('error', err ? `状态：断开失败：${err}` : '状态：断开失败');
       }
     } catch (e) {
+      lastConnReady = false;
       const err = normalizeDeviceMessage(e && (e.message || e)) || '未知错误';
       setDeviceStatus('error', `状态：断开失败：${err}`);
     } finally {
@@ -199,8 +227,9 @@ export function initDevicePage() {
       const name = normalizeDeviceName(last && last.name ? String(last.name) : '');
       const msg = normalizeDeviceMessage(last && last.message ? String(last.message) : '');
       if (t === 'connected' || t === 'ready') {
+        lastConnReady = true;
         const ok = await checkChannelReady();
-        if (ok) {
+        if (ok && channelAppliedOk) {
           setDeviceStatus('success', `状态：已连接 ${name}，通道已应用`);
           if (!autoNavigated && (location.hash === '#device' || !location.hash)) {
             autoNavigated = true;
@@ -215,9 +244,13 @@ export function initDevicePage() {
       else if (t === 'error') setDeviceStatus('error', `状态：失败 ${name}${msg ? `：${msg}` : ''}`.trim());
       else if (t === 'disconnected' || t === 'stopped') {
         autoNavigated = false;
+        lastConnReady = false;
         setDeviceStatus('', `状态：已断开 ${name || ''}`.trim());
       }
-      else setDeviceStatus('', '状态：未连接，请先扫描并选择设备');
+      else {
+        lastConnReady = false;
+        setDeviceStatus('', '状态：未连接，请先扫描并选择设备');
+      }
     } catch (_) {}
   }
 
