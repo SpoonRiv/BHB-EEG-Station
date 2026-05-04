@@ -6,9 +6,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 修改日志:
 - 2026-04-30: 1.0.0 创建文件
 - 2026-05-04: 1.0.1 连接状态与日志文案去括号/去英文，设备名去尾部括号后缀
+- 2026-05-04: 1.0.2 配置字段更名：mode_channels -> n_channels（与三模式命名一致）
 
 作者: Spoon
-版本: 1.0.1
+版本: 1.0.2
 */
 
 const WS_URL = `ws://${window.location.host}/ws/eeg`;
@@ -516,7 +517,7 @@ window.addEventListener('resize', () => {
 async function loadConfig() {
     const res = await fetch(API_CONFIG);
     const cfg = await res.json();
-    channels = cfg.mode_channels || 8;
+    channels = cfg.n_channels || 8;
     channelNames = Array.isArray(cfg.channel_names) ? cfg.channel_names : [];
     const samplingRate = cfg.sampling_rate_hz || 250;
     maxPoints = Math.max(50, Math.floor(samplingRate * 2));

@@ -16,9 +16,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.1.6 停止模式指令失败不再上报“连接失败”，断联时改为上报“连接已断开”
 - 2026-05-03: 1.1.7 stop_mode 无论指令是否成功都上报 mode_stopped，用于 UI 解除运行态锁定
 - 2026-05-04: 1.1.8 增加阻抗帧解析与阻抗 LSL 推流（供 WebSocket 可视化）
+- 2026-05-04: 1.1.9 统一三模式命名并显式区分 8/16 通道配置字段（n_channels/protocol.ch8/ch16）
+- 2026-05-04: 1.1.10 限制 tDCS 仅在 8 通道模式可用（16 通道规划不包含电刺激）
 
 作者: Spoon
-版本: 1.1.8
+版本: 1.1.10
 """
 
 import asyncio
@@ -157,18 +159,23 @@ async def _connect_and_stream(
     """
     cfg = load_config(config_path)
 
+    eeg_n_channels = int(cfg.eeg.n_channels)
+    eeg_proto = cfg.eeg.protocol.ch8 if eeg_n_channels == 8 else cfg.eeg.protocol.ch16
+    if eeg_proto is None:
+        raise ValueError("eeg.n_channels=16 时必须配置 eeg.protocol.ch16.frame")
+
     spec = FrameSpec(
-        channels=cfg.eeg.mode_channels,
-        header_len_bytes=cfg.protocol.frame.header_len_bytes,
-        bytes_per_sample_per_channel=cfg.protocol.frame.bytes_per_sample_per_channel,
-        samples_per_frame=cfg.protocol.frame.samples_per_frame,
-        trigger_len_bytes=cfg.protocol.frame.trigger_len_bytes,
-        imu_len_bytes=cfg.protocol.frame.imu_len_bytes,
-        battery_len_bytes=cfg.protocol.frame.battery_len_bytes,
-        tail_len_bytes=cfg.protocol.frame.tail_len_bytes,
+        channels=eeg_n_channels,
+        header_len_bytes=eeg_proto.frame.header_len_bytes,
+        bytes_per_sample_per_channel=eeg_proto.frame.bytes_per_sample_per_channel,
+        samples_per_frame=eeg_proto.frame.samples_per_frame,
+        trigger_len_bytes=eeg_proto.frame.trigger_len_bytes,
+        imu_len_bytes=eeg_proto.frame.imu_len_bytes,
+        battery_len_bytes=eeg_proto.frame.battery_len_bytes,
+        tail_len_bytes=eeg_proto.frame.tail_len_bytes,
     )
 
-    channel_count = cfg.eeg.mode_channels + (1 if cfg.eeg.lsl.include_trigger_channel else 0)
+    channel_count = eeg_n_channels + (1 if cfg.eeg.lsl.include_trigger_channel else 0)
     outlet = LslOutletWriter(
         LslOutletConfig(
             stream_name=cfg.eeg.lsl.stream_name,
@@ -179,22 +186,22 @@ async def _connect_and_stream(
         )
     )
 
-    imp_mode_channels = int(cfg.impedance.mode_channels)
-    imp_include_tdcs = bool(cfg.impedance.frame.include_tdcs_if_ch8) and imp_mode_channels == 8
+    imp_n_channels = int(cfg.impedance.n_channels)
+    imp_include_tdcs = bool(cfg.impedance.frame.include_tdcs_if_ch8) and imp_n_channels == 8
     imp_tail_channels = (1 if bool(cfg.impedance.frame.include_bias) else 0) + (1 if imp_include_tdcs else 0)
     imp_outlet = LslOutletWriter(
         LslOutletConfig(
             stream_name=cfg.impedance.lsl.stream_name,
             stream_type=cfg.impedance.lsl.stream_type,
-            channel_count=imp_mode_channels + imp_tail_channels,
+            channel_count=imp_n_channels + imp_tail_channels,
             sampling_rate_hz=int(cfg.impedance.lsl.sampling_rate_hz),
             source_id=f"bhb-imp-{cfg.bluetooth.target_device}",
         )
     )
     imp_spec = ImpedanceFrameSpec(
         header=(int(cfg.impedance.frame.header[0]) & 0xFF, int(cfg.impedance.frame.header[1]) & 0xFF),
-        mode_channels=imp_mode_channels,
-        frame_len_bytes=int(cfg.impedance.frame.frame_len_bytes_ch8 if imp_mode_channels == 8 else cfg.impedance.frame.frame_len_bytes_ch16),
+        n_channels=imp_n_channels,
+        frame_len_bytes=int(cfg.impedance.frame.frame_len_bytes_ch8 if imp_n_channels == 8 else cfg.impedance.frame.frame_len_bytes_ch16),
         include_bias=bool(cfg.impedance.frame.include_bias),
         include_tdcs=imp_include_tdcs,
         gain_scale=float(cfg.impedance.frame.gain_scale),
@@ -349,7 +356,7 @@ async def _connect_and_stream(
             samples, battery, imu = parse_frame_to_samples(frame, spec)
             frame_counter += 1
             if not cfg.eeg.lsl.include_trigger_channel:
-                samples = [s[: cfg.eeg.mode_channels] for s in samples]
+                samples = [s[:eeg_n_channels] for s in samples]
             outlet.push_samples(samples)
             if spec.battery_len_bytes > 0 and (frame_counter == 1 or frame_counter % 50 == 0):
                 status_queue.put({"type": "battery", "value": int(battery)})
@@ -455,6 +462,9 @@ async def _connect_and_stream(
                                 impedance_streaming_enabled = True
                                 status_queue.put({"type": "mode_started", "mode": "impedance"})
                             elif mode == "tdcs":
+                                if int(cfg.eeg.n_channels) != 8:
+                                    status_queue.put({"type": "error", "message": f"{int(cfg.eeg.n_channels)}通道模式不支持电刺激（tDCS）"})
+                                    continue
                                 current_mode = "tdcs"
                                 eeg_streaming_enabled = False
                                 impedance_streaming_enabled = False

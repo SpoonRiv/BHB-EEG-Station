@@ -31,9 +31,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.2.12 电刺激页面新增调试输出窗口（独立过滤/清空/暂停）
 - 2026-05-04: 1.2.13 电刺激页面布局调整为与阻抗检测一致（上调试/下控制）
 - 2026-05-04: 1.2.14 电刺激按钮移动到调试输出栏，与阻抗检测一致
+- 2026-05-04: 1.2.15 调试输出窗口自适应头部高度，避免按钮换行导致留白不一致
+- 2026-05-04: 1.2.16 调试输出窗口改为自适应卡片高度，统一灰色窗口四周留白
 
 作者: Spoon
-版本: 1.2.14
+版本: 1.2.16
 -->
 <html lang="zh-CN">
 <head>
@@ -176,7 +178,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             </div>
                             <div class="mode-meta">
                                 <div class="mode-title">阻抗检测</div>
-                                <div class="mode-desc">先完成设备模式切换与指令通路，阻抗数据解析与可视化后续接入。</div>
+                                <div class="mode-desc">用于上机前的电极接触检查：开启后实时接收各通道阻抗，并以地形图与列表展示，帮助快速定位接触不良通道，便于调整电极与导电介质。</div>
                             </div>
                         </button>
                         <button type="button" class="mode-card" id="mode-eeg">
@@ -185,7 +187,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             </div>
                             <div class="mode-meta">
                                 <div class="mode-title">脑电采集</div>
-                                <div class="mode-desc">进入实时波形页面。开始/停止采集指令仅影响推流，不影响连接状态。</div>
+                                <div class="mode-desc">用于实时脑电采集与可视化：开始采集后通过 WebSocket 显示多通道波形与调试事件，同时按会话录制数据；停止后可在“数据存储”页导出 CSV/EDF，并可选带通滤波另存。</div>
                             </div>
                         </button>
                         <button type="button" class="mode-card" id="mode-tdcs">
@@ -194,7 +196,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             </div>
                             <div class="mode-meta">
                                 <div class="mode-title">电刺激</div>
-                                <div class="mode-desc">后续会增加电流/升降沿等参数配置与安全校验。目前仅保留模式切换入口。</div>
+                                <div class="mode-desc">电刺激（tDCS）功能占位：当前版本仅提供页面入口与 start/stop 指令下发；后续将增加电流/时长/升降沿等参数配置与安全校验，并支持通过配置开关启用/隐藏。</div>
                             </div>
                         </button>
                     </div>
@@ -204,7 +206,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
         <section class="page" id="page-eeg">
             <div class="eeg-layout">
-                <div class="card">
+                <div class="card" style="height: 100%; display: flex; flex-direction: column;">
                     <div class="card-header">
                         <div>
                             <div class="card-title">调试输出</div>
@@ -218,7 +220,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             <button class="btn danger" id="btn-eeg-stop">停止EEG采集</button>
                         </div>
                     </div>
-                    <div class="card-body" style="height: calc(260px - 54px);">
+                    <div class="card-body" style="flex: 1; min-height: 0;">
                         <div class="debug-log" id="debug-log"></div>
                     </div>
                 </div>
@@ -324,7 +326,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
         <section class="page" id="page-impedance">
             <div class="eeg-layout">
-                <div class="card">
+                <div class="card" style="height: 100%; display: flex; flex-direction: column;">
                     <div class="card-header">
                         <div>
                             <div class="card-title">调试输出</div>
@@ -338,7 +340,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             <button class="btn danger" id="btn-imp-stop">停止阻抗检测</button>
                         </div>
                     </div>
-                    <div class="card-body" style="height: calc(260px - 54px);">
+                    <div class="card-body" style="flex: 1; min-height: 0;">
                         <div class="debug-log" id="imp-debug-log"></div>
                     </div>
                 </div>
@@ -380,7 +382,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
         <section class="page" id="page-tdcs">
             <div class="eeg-layout">
-                <div class="card">
+                <div class="card" style="height: 100%; display: flex; flex-direction: column;">
                     <div class="card-header">
                         <div>
                             <div class="card-title">调试输出</div>
@@ -394,7 +396,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             <button class="btn danger" id="btn-tdcs-stop">停止电刺激</button>
                         </div>
                     </div>
-                    <div class="card-body" style="height: calc(260px - 54px);">
+                    <div class="card-body" style="flex: 1; min-height: 0;">
                         <div class="debug-log" id="tdcs-debug-log"></div>
                     </div>
                 </div>

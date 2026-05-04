@@ -7,9 +7,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-02: 1.0.0 新增模式选择页
 - 2026-05-03: 1.0.1 移除底部弹窗提示，统一改为按钮状态/页面导航反馈
 - 2026-05-04: 1.0.2 按配置启用/禁用电刺激入口（tdcs.enabled）
+- 2026-05-04: 1.0.3 按通道模式禁用电刺激入口（tdcs.supported_channel_modes + n_channels）
 
 作者: Spoon
-版本: 1.0.2
+版本: 1.0.3
 */
 
 import { getConfig, modeSelect } from './api.js';
@@ -31,8 +32,16 @@ export function initModePage() {
   void (async () => {
     try {
       const cfg = await getConfig();
+      const nChannels = cfg && cfg.n_channels ? Number(cfg.n_channels) : 8;
       const enabled = !!(cfg && cfg.tdcs && cfg.tdcs.enabled);
-      if (!enabled) setModeDisabled(tdcs, true, '电刺激模式已在配置中禁用（tdcs.enabled=false）');
+      if (!enabled) {
+        setModeDisabled(tdcs, true, '电刺激模式已在配置中禁用（tdcs.enabled=false）');
+        return;
+      }
+      const supported = (cfg && cfg.tdcs && Array.isArray(cfg.tdcs.supported_channel_modes)) ? cfg.tdcs.supported_channel_modes.map(Number).filter(Number.isFinite) : [];
+      if (supported.length && !supported.includes(nChannels)) {
+        setModeDisabled(tdcs, true, `当前 ${nChannels} 通道模式不支持电刺激（tdcs.supported_channel_modes=${supported.join(', ')}）`);
+      }
     } catch (_) {}
   })();
 

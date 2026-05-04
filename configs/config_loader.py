@@ -23,14 +23,15 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.1.13 阻抗阈值滑条步进改为可配置（slider_step_ohm）
 - 2026-05-04: 1.1.14 阻抗阈值滑条默认上限调整为 25000
 - 2026-05-04: 1.1.15 增加电刺激（tDCS）配置段占位（enabled/ui）
+- 2026-05-04: 1.1.16 统一三模式命名（eeg/impedance/tdcs），并显式区分 8/16 通道配置字段
 
 作者: Spoon
-版本: 1.1.15
+版本: 1.1.16
 """
 
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import yaml
 
@@ -80,14 +81,14 @@ class LslConfig:
 @dataclass(frozen=True)
 class ChannelPresetConfig:
     name: str
-    mode_channels: int
+    n_channels: int
     channel_names: List[str]
     ref_channel_name: str
 
 
 @dataclass(frozen=True)
 class EegConfig:
-    mode_channels: int
+    n_channels: int
     sampling_rate_hz: int
     channel_names: List[str]
     ref_channel_name: str
@@ -96,6 +97,7 @@ class EegConfig:
     supported_channel_modes: List[int]
     montage_1020_channels: List[str]
     presets: List[ChannelPresetConfig]
+    protocol: "EegProtocolConfig"
 
 
 @dataclass(frozen=True)
@@ -110,8 +112,22 @@ class FrameProtocolConfig:
 
 
 @dataclass(frozen=True)
-class ProtocolConfig:
+class EegProtocolVariantConfig:
     frame: FrameProtocolConfig
+
+
+@dataclass(frozen=True)
+class EegProtocolConfig:
+    """
+    EEG 帧协议配置（按通道模式区分）。
+
+    Attributes:
+        ch8: 8 通道协议
+        ch16: 16 通道协议（可选；当 eeg.n_channels=16 时必须提供）
+    """
+
+    ch8: EegProtocolVariantConfig
+    ch16: Optional[EegProtocolVariantConfig]
 
 
 @dataclass(frozen=True)
@@ -215,7 +231,7 @@ class ImpedanceUiConfig:
 @dataclass(frozen=True)
 class ImpedanceConfig:
     enabled: bool
-    mode_channels: int
+    n_channels: int
     frame: ImpedanceFrameConfig
     lsl: ImpedanceLslConfig
     streaming: ImpedanceStreamingConfig
@@ -230,6 +246,7 @@ class TdcsUiConfig:
 @dataclass(frozen=True)
 class TdcsConfig:
     enabled: bool
+    supported_channel_modes: List[int]
     ui: TdcsUiConfig
 
 
@@ -241,7 +258,6 @@ class AppConfig:
     eeg: EegConfig
     impedance: ImpedanceConfig
     tdcs: TdcsConfig
-    protocol: ProtocolConfig
     server: ServerConfig
     streaming: StreamingConfig
     debug: DebugConfig
@@ -266,13 +282,19 @@ def load_config(config_path: str) -> AppConfig:
     bluetooth_raw = raw.get("bluetooth", {})
     scan_raw = bluetooth_raw.get("scan", {})
     gatt_raw = bluetooth_raw.get("gatt", {})
-    cmd_raw = bluetooth_raw.get("commands", {}) or {}
+    cmd_raw = bluetooth_raw.get("command_bytes") or bluetooth_raw.get("commands", {}) or {}
 
     eeg_raw = raw.get("eeg", {})
     lsl_raw = eeg_raw.get("lsl", {})
 
-    protocol_raw = raw.get("protocol", {})
-    frame_raw = protocol_raw.get("frame", {})
+    eeg_protocol_raw: Dict[str, Any] = {}
+    proto_candidate = eeg_raw.get("protocol", None)
+    if isinstance(proto_candidate, dict) and proto_candidate:
+        eeg_protocol_raw = proto_candidate
+    else:
+        proto_candidate = raw.get("protocol", {})
+        if isinstance(proto_candidate, dict) and proto_candidate:
+            eeg_protocol_raw = proto_candidate
 
     impedance_raw = raw.get("impedance", {}) or {}
     impedance_frame_raw = impedance_raw.get("frame", {}) or {}
@@ -293,7 +315,7 @@ def load_config(config_path: str) -> AppConfig:
     waveform_ui_raw = ui_raw.get("waveform", {}) or {}
     app_ui_version = str(app_raw.get("ui_version") or app_raw.get("version") or "1.0.0").strip() or "1.0.0"
 
-    mode_channels = int(eeg_raw.get("mode_channels", 8))
+    n_channels = int(eeg_raw.get("n_channels", eeg_raw.get("mode_channels", 8)))
     channel_names_cfg = list(eeg_raw.get("channel_names", []) or [])
     ref_channel_cfg = str(eeg_raw.get("ref_channel_name", "") or "")
     ref_selectable_raw = eeg_raw.get("ref_selectable_channels", eeg_raw.get("ref_candidates", None))
@@ -320,9 +342,9 @@ def load_config(config_path: str) -> AppConfig:
             if iv not in supported_modes:
                 supported_modes.append(iv)
     if not supported_modes:
-        supported_modes = [mode_channels]
-    if mode_channels not in supported_modes:
-        supported_modes.append(mode_channels)
+        supported_modes = [n_channels]
+    if n_channels not in supported_modes:
+        supported_modes.append(n_channels)
     supported_modes.sort()
 
     montage_channels_raw = eeg_raw.get("montage_1020_channels", []) or []
@@ -345,7 +367,7 @@ def load_config(config_path: str) -> AppConfig:
             if not name:
                 continue
             try:
-                p_mode = int(item.get("mode_channels", 0))
+                p_mode = int(item.get("n_channels", item.get("mode_channels", 0)))
             except Exception:
                 p_mode = 0
             p_names_raw = item.get("channel_names", []) or []
@@ -360,7 +382,7 @@ def load_config(config_path: str) -> AppConfig:
             p_ref = str(item.get("ref_channel_name", "") or "").strip()
             if not p_ref:
                 p_ref = str(ref_channel_cfg or "").strip() or "Pz"
-            presets.append(ChannelPresetConfig(name=name, mode_channels=p_mode, channel_names=p_names, ref_channel_name=p_ref))
+            presets.append(ChannelPresetConfig(name=name, n_channels=p_mode, channel_names=p_names, ref_channel_name=p_ref))
 
     device_names_cfg = list(bluetooth_raw.get("device_names", []) or [])
 
@@ -425,7 +447,7 @@ def load_config(config_path: str) -> AppConfig:
             out.append(_as_u8_list(one))
         return out
 
-    init_commands_cfg = _as_u8_list_list(cmd_raw.get("init", []))
+    init_commands_cfg = _as_u8_list_list(cmd_raw.get("init_commands", cmd_raw.get("init", [])))
     start_eeg_cfg = _as_u8_list(cmd_raw.get("start_eeg") or cmd_raw.get("start_stream") or [0x02, 0x01])
     stop_eeg_cfg = _as_u8_list(cmd_raw.get("stop_eeg") or cmd_raw.get("stop_stream") or [0x02, 0x02])
     start_impedance_cfg = _as_u8_list(cmd_raw.get("start_impedance", [0x03, 0x01]))
@@ -456,8 +478,37 @@ def load_config(config_path: str) -> AppConfig:
         ),
     )
 
+    def _build_frame_protocol(frame_cfg_raw: Dict[str, Any]) -> FrameProtocolConfig:
+        return FrameProtocolConfig(
+            header_len_bytes=int(frame_cfg_raw.get("header_len_bytes", 3)),
+            bytes_per_sample_per_channel=int(frame_cfg_raw.get("bytes_per_sample_per_channel", 3)),
+            samples_per_frame=int(frame_cfg_raw.get("samples_per_frame", 5)),
+            trigger_len_bytes=int(frame_cfg_raw.get("trigger_len_bytes", 1)),
+            imu_len_bytes=int(frame_cfg_raw.get("imu_len_bytes", 12)),
+            battery_len_bytes=int(frame_cfg_raw.get("battery_len_bytes", 2)),
+            tail_len_bytes=int(frame_cfg_raw.get("tail_len_bytes", 2)),
+        )
+
+    ch8_variant_raw: Dict[str, Any]
+    if isinstance(eeg_protocol_raw.get("ch8"), dict):
+        ch8_variant_raw = eeg_protocol_raw.get("ch8", {}) or {}
+    else:
+        ch8_variant_raw = eeg_protocol_raw
+    ch8_frame_raw = ch8_variant_raw.get("frame", {}) if isinstance(ch8_variant_raw.get("frame", {}), dict) else {}
+    ch8_proto = EegProtocolVariantConfig(frame=_build_frame_protocol(ch8_frame_raw))
+
+    ch16_proto: Optional[EegProtocolVariantConfig] = None
+    ch16_variant = eeg_protocol_raw.get("ch16", None)
+    if isinstance(ch16_variant, dict) and ch16_variant:
+        ch16_frame_raw = ch16_variant.get("frame", {}) if isinstance(ch16_variant.get("frame", {}), dict) else {}
+        if ch16_frame_raw:
+            ch16_proto = EegProtocolVariantConfig(frame=_build_frame_protocol(ch16_frame_raw))
+
+    if int(n_channels) == 16 and ch16_proto is None:
+        raise ValueError("eeg.n_channels=16 时必须配置 eeg.protocol.ch16.frame")
+
     eeg = EegConfig(
-        mode_channels=mode_channels,
+        n_channels=n_channels,
         sampling_rate_hz=sampling_rate_hz,
         channel_names=channel_names_cfg,
         ref_channel_name=ref_channel_cfg,
@@ -470,11 +521,12 @@ def load_config(config_path: str) -> AppConfig:
         supported_channel_modes=supported_modes,
         montage_1020_channels=montage_channels,
         presets=presets,
+        protocol=EegProtocolConfig(ch8=ch8_proto, ch16=ch16_proto),
     )
 
-    impedance_mode_channels = int(impedance_raw.get("mode_channels", mode_channels))
-    if impedance_mode_channels <= 0:
-        impedance_mode_channels = mode_channels
+    impedance_n_channels = int(impedance_raw.get("n_channels", impedance_raw.get("mode_channels", n_channels)))
+    if impedance_n_channels <= 0:
+        impedance_n_channels = n_channels
     header_cfg = _as_u8_list(impedance_frame_raw.get("header", [0x55, 0x66]))
     if len(header_cfg) != 2:
         header_cfg = [0x55, 0x66]
@@ -495,7 +547,7 @@ def load_config(config_path: str) -> AppConfig:
     slider_step_ohm = max(1, int(impedance_ui_raw.get("slider_step_ohm", 100)))
     impedance = ImpedanceConfig(
         enabled=bool(impedance_raw.get("enabled", True)),
-        mode_channels=impedance_mode_channels,
+        n_channels=impedance_n_channels,
         frame=ImpedanceFrameConfig(
             header=header_cfg,
             frame_len_bytes_ch8=frame_len_ch8,
@@ -521,23 +573,27 @@ def load_config(config_path: str) -> AppConfig:
         ),
     )
 
+    tdcs_supported_modes_raw = tdcs_raw.get("supported_channel_modes", [8]) or [8]
+    tdcs_supported_modes: List[int] = []
+    if isinstance(tdcs_supported_modes_raw, list):
+        for v in tdcs_supported_modes_raw:
+            try:
+                iv = int(v)
+            except Exception:
+                continue
+            if iv <= 0:
+                continue
+            if iv not in tdcs_supported_modes:
+                tdcs_supported_modes.append(iv)
+    if not tdcs_supported_modes:
+        tdcs_supported_modes = [8]
+    tdcs_supported_modes.sort()
     tdcs = TdcsConfig(
         enabled=bool(tdcs_raw.get("enabled", True)),
+        supported_channel_modes=tdcs_supported_modes,
         ui=TdcsUiConfig(
             show_reserved=bool(tdcs_ui_raw.get("show_reserved", True)),
         ),
-    )
-
-    protocol = ProtocolConfig(
-        frame=FrameProtocolConfig(
-            header_len_bytes=int(frame_raw.get("header_len_bytes", 3)),
-            bytes_per_sample_per_channel=int(frame_raw.get("bytes_per_sample_per_channel", 3)),
-            samples_per_frame=int(frame_raw.get("samples_per_frame", 5)),
-            trigger_len_bytes=int(frame_raw.get("trigger_len_bytes", 1)),
-            imu_len_bytes=int(frame_raw.get("imu_len_bytes", 12)),
-            battery_len_bytes=int(frame_raw.get("battery_len_bytes", 2)),
-            tail_len_bytes=int(frame_raw.get("tail_len_bytes", 2)),
-        )
     )
 
     server = ServerConfig(
@@ -602,7 +658,6 @@ def load_config(config_path: str) -> AppConfig:
         eeg=eeg,
         impedance=impedance,
         tdcs=tdcs,
-        protocol=protocol,
         server=server,
         streaming=streaming,
         debug=debug,

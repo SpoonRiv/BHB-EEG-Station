@@ -16,9 +16,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.0.9 将通道状态（如偏高）移动到通道名右侧展示
 - 2026-05-04: 1.0.10 阈值三档标识右侧增加“默认”按钮，一键恢复默认阈值
 - 2026-05-04: 1.0.11 阻抗列表分组：电极阻抗与参考电极阻抗
+- 2026-05-04: 1.0.12 配置字段更名：impedance.mode_channels -> impedance.n_channels（与三模式命名一致）
 
 作者: Spoon
-版本: 1.0.11
+版本: 1.0.12
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -573,7 +574,7 @@ async function initImpedanceUiOnce() {
     const imp = cfg && cfg.impedance ? cfg.impedance : null;
     const names = imp && Array.isArray(imp.channel_names) ? imp.channel_names : [];
     impNames = names.map(x => String(x || '').trim()).filter(Boolean);
-    impModeChannels = imp && Number.isFinite(Number(imp.mode_channels)) ? Math.round(Number(imp.mode_channels)) : impModeChannels;
+    impModeChannels = imp && Number.isFinite(Number(imp.n_channels)) ? Math.round(Number(imp.n_channels)) : impModeChannels;
     impUi = imp && imp.ui ? {
       refresh_hz: Number(imp.ui.refresh_hz) || 1,
       good_max_ohm: Number(imp.ui.good_max_ohm) || 5000,

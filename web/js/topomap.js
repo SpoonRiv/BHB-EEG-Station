@@ -19,9 +19,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.12 参考电极改为三按钮互斥选择，并与预设套用/保存联动
 - 2026-05-04: 1.0.13 已选通道拖拽排序体验优化：拖拽预览跟随、插入占位提示与更平滑的位移动画
 - 2026-05-04: 1.0.14 通道选择变更/应用成功向外派发事件，用于设备页自动跳转门禁
+- 2026-05-04: 1.0.15 配置字段更名：mode_channels -> n_channels（与三模式命名一致）
 
 作者: Spoon
-版本: 1.0.14
+版本: 1.0.15
 */
 
 import {
@@ -224,7 +225,7 @@ export function initTopomapPanel() {
   let pendingMode = 8;
   let selected = [];
   let pendingRef = '';
-  let effective = { mode_channels: 8, channel_names: [], ref_channel_name: '' };
+  let effective = { n_channels: 8, channel_names: [], ref_channel_name: '' };
   let lastError = '';
   let dragName = '';
   let dndBound = false;
@@ -627,7 +628,7 @@ export function initTopomapPanel() {
     try { window.dispatchEvent(new CustomEvent('bhb-channel-selection-dirty')); } catch (_) {}
     if (badgeMsg) setBadgeMsg('', '');
     try {
-      await eegChannelSetSelection({ mode_channels: pendingMode, channel_names: selected, ref_channel_name: pendingRef });
+      await eegChannelSetSelection({ n_channels: pendingMode, channel_names: selected, ref_channel_name: pendingRef });
       lastError = '';
     } catch (e) {
       lastError = `保存选择失败：${e && e.message ? e.message : e}`;
@@ -665,7 +666,7 @@ export function initTopomapPanel() {
       refCandidates = normalizeUnique((data && data.ref_candidates) || []);
       presets = (data && Array.isArray(data.presets)) ? data.presets : [];
       const p = data && data.pending ? data.pending : null;
-      pendingMode = intOr(p && p.mode_channels, 8);
+      pendingMode = intOr(p && p.n_channels, 8);
       selected = normalizeUnique((p && p.channel_names) || []);
       pendingRef = String((p && p.ref_channel_name) || '').trim();
       effective = data && data.effective ? data.effective : effective;
@@ -698,7 +699,7 @@ export function initTopomapPanel() {
     const idx = presets.findIndex((p) => `${p.scope}:${p.name}` === v);
     if (idx < 0) return;
     const p = presets[idx];
-    pendingMode = intOr(p.mode_channels, pendingMode);
+    pendingMode = intOr(p.n_channels, pendingMode);
     selected = normalizeUnique(p.channel_names || []).slice(0, pendingMode);
     const ref = String(p.ref_channel_name || '').trim();
     if (ref) pendingRef = ref;
@@ -718,7 +719,7 @@ export function initTopomapPanel() {
       return;
     }
     try {
-      await eegChannelPresetUpsertLocal({ name, mode_channels: pendingMode, channel_names: selected, ref_channel_name: pendingRef });
+      await eegChannelPresetUpsertLocal({ name, n_channels: pendingMode, channel_names: selected, ref_channel_name: pendingRef });
       presetNameInput.value = '';
       lastError = '';
       await loadAll();
@@ -764,14 +765,14 @@ export function initTopomapPanel() {
       if (res && res.status === 'success') {
         lastError = '';
         await loadAll();
-        const effMode = intOr(effective.mode_channels, pendingMode);
+        const effMode = intOr(effective.n_channels, pendingMode);
         const effNames = normalizeUnique(effective.channel_names || []);
         const ref = String(effective.ref_channel_name || '').trim();
         const hint = `已应用：${effMode}ch [${effNames.join(', ')}]${ref ? ` ｜ 参考：${ref}` : ''}`;
         setBadgeMsg(hint, 'success');
         try {
           window.dispatchEvent(new CustomEvent('bhb-channel-applied', {
-            detail: { mode_channels: effMode, channel_names: effNames, ref_channel_name: ref },
+            detail: { n_channels: effMode, channel_names: effNames, ref_channel_name: ref },
           }));
         } catch (_) {}
       } else {

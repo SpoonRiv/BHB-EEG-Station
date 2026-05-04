@@ -7,15 +7,20 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.0.0 创建文件
 - 2026-05-04: 1.0.1 根据后端 status 字段判断成功/失败并展示错误消息
 - 2026-05-04: 1.0.2 增加调试输出窗口（ws/debug，过滤/清空/暂停）
+- 2026-05-04: 1.0.3 按 task_running/task_mode 刷新按钮状态：运行中禁用“开始”并启用“停止”，并与顶部导航锁定一致
+- 2026-05-04: 1.0.4 点击 start/stop 时立即临时禁用顶部导航按钮，避免状态轮询延迟导致误操作
+- 2026-05-04: 1.0.5 页面内状态轮询同步顶部导航锁定（以 task_running 为准），停止后无需等待全局轮询即可解锁
 
 作者: Spoon
-版本: 1.0.2
+版本: 1.0.5
 */
 
-import { getConfig, modeStart, modeStop } from './api.js';
+import { getConfig, getStatus, modeStart, modeStop } from './api.js';
 
 let pageActive = false;
 let bound = false;
+let statusTimer = null;
+let tdcsConfigEnabled = false;
 
 let debugWs = null;
 let debugLines = [];
@@ -38,11 +43,54 @@ function setReservedVisible(visible) {
   el.style.display = visible ? '' : 'none';
 }
 
-function setButtonsEnabled(enabled) {
+function renderTdcsControlButtons(running, connected, taskActive) {
   const startBtn = document.getElementById('btn-tdcs-start');
   const stopBtn = document.getElementById('btn-tdcs-stop');
-  if (startBtn) startBtn.disabled = !enabled;
-  if (stopBtn) stopBtn.disabled = !enabled;
+  const enabled = !!tdcsConfigEnabled;
+  if (startBtn) startBtn.disabled = (!enabled) || (!running) || (!connected) || !!taskActive;
+  if (stopBtn) stopBtn.disabled = (!enabled) || (!running) || (!connected) || !taskActive;
+}
+
+function setHeaderNavDisabled(disabled) {
+  const navDevice = document.getElementById('nav-device');
+  const navMode = document.getElementById('nav-mode');
+  if (navDevice) navDevice.disabled = !!disabled;
+  if (navMode) navMode.disabled = !!disabled;
+}
+
+async function refreshTdcsStatusHint() {
+  try {
+    const st = await getStatus();
+    const dev = st && st.device ? st.device : null;
+    const running = !!(dev && dev.running);
+    const last = dev && dev.last ? dev.last : null;
+    const lastType = last && last.type ? String(last.type) : '';
+    const connected = lastType === 'connected' || lastType === 'ready';
+    const taskRunning = !!(dev && dev.task_running);
+    const taskActive = taskRunning && String(dev.task_mode || '') === 'tdcs';
+    setHeaderNavDisabled(taskRunning);
+    renderTdcsControlButtons(running, connected, taskActive);
+    if (!tdcsConfigEnabled) {
+      setStatus('当前配置已禁用电刺激模式（tdcs.enabled=false）', 'error');
+      return;
+    }
+    if (!running) {
+      setStatus('设备未连接（请先在设备页连接）', 'error');
+      return;
+    }
+    if (!connected) {
+      setStatus('设备连接未就绪（请等待连接完成或回到设备页排查）', 'error');
+      return;
+    }
+    if (taskActive) {
+      setStatus('电刺激运行中：已锁定“开始/设备/模式”等入口，请点击“停止电刺激”结束。', 'success');
+      return;
+    }
+    setStatus('电刺激页面占位：当前仅保留 start/stop 指令通路；参数与安全校验后续接入。', '');
+  } catch (_) {
+    renderTdcsControlButtons(false, false, false);
+    if (tdcsConfigEnabled) setStatus('后端未响应', 'error');
+  }
 }
 
 function formatLocalTsSeconds(tsSeconds) {
@@ -151,15 +199,10 @@ async function loadAndApplyConfig() {
     cfg = await getConfig();
   } catch (_) {}
   const enabled = !!(cfg && cfg.tdcs && cfg.tdcs.enabled);
+  tdcsConfigEnabled = enabled;
   const showReserved = !(cfg && cfg.tdcs && cfg.tdcs.ui && cfg.tdcs.ui.show_reserved === false);
   setReservedVisible(showReserved);
-  if (!enabled) {
-    setButtonsEnabled(false);
-    setStatus('当前配置已禁用电刺激模式（tdcs.enabled=false）', 'error');
-    return;
-  }
-  setButtonsEnabled(true);
-  setStatus('电刺激页面占位：当前仅保留 start/stop 指令通路；参数与安全校验后续接入。', '');
+  await refreshTdcsStatusHint();
 }
 
 function ensureBound() {
@@ -172,12 +215,13 @@ function ensureBound() {
     startBtn.onclick = async () => {
       if (!pageActive) return;
       startBtn.disabled = true;
+      setHeaderNavDisabled(true);
       try {
         setStatus('正在下发：开启电刺激…', '');
         const res = await modeStart('tdcs');
         const ok = !!(res && res.status === 'success');
         if (ok) {
-          setStatus('已下发：开启电刺激（设备侧执行过程后续接入状态回传）', 'success');
+          setStatus('已下发：开启电刺激（等待设备侧进入运行态…）', 'success');
         } else {
           const msg = res && res.message ? String(res.message) : '开启失败';
           setStatus(`开启失败：${msg}`, 'error');
@@ -185,7 +229,7 @@ function ensureBound() {
       } catch (e) {
         setStatus(`开启失败：${String(e && e.message ? e.message : e)}`, 'error');
       } finally {
-        startBtn.disabled = false;
+        await refreshTdcsStatusHint();
       }
     };
   }
@@ -193,6 +237,7 @@ function ensureBound() {
     stopBtn.onclick = async () => {
       if (!pageActive) return;
       stopBtn.disabled = true;
+      setHeaderNavDisabled(true);
       try {
         setStatus('正在下发：停止电刺激…', '');
         const res = await modeStop('tdcs');
@@ -206,7 +251,7 @@ function ensureBound() {
       } catch (e) {
         setStatus(`停止失败：${String(e && e.message ? e.message : e)}`, 'error');
       } finally {
-        stopBtn.disabled = false;
+        await refreshTdcsStatusHint();
       }
     };
   }
@@ -217,10 +262,14 @@ export async function enterTdcsPage() {
   ensureBound();
   connectTdcsDebugWs();
   await loadAndApplyConfig();
+  if (statusTimer) clearInterval(statusTimer);
+  statusTimer = setInterval(() => { if (pageActive) void refreshTdcsStatusHint(); }, 1000);
 }
 
 export function leaveTdcsPage() {
   pageActive = false;
+  if (statusTimer) clearInterval(statusTimer);
+  statusTimer = null;
   closeWs(debugWs);
   debugWs = null;
 }

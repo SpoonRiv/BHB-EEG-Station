@@ -23,9 +23,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.1.6 滚动查看多通道时仅渲染可视区域，避免滚动导致渲染卡死
 - 2026-05-03: 1.1.7 修复窗口尺寸变化时的可视渲染范围与降采样缓存刷新
 - 2026-05-03: 1.1.8 配置命名区分“后端转发频率”和“前端渲染频率”
+- 2026-05-04: 1.1.9 配置字段更名：mode_channels -> n_channels（与三模式命名一致）
 
 作者: Spoon
-版本: 1.1.8
+版本: 1.1.9
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -603,7 +604,7 @@ export async function enterEegPage() {
 
   try {
     const cfg = await getConfig();
-    channels = cfg && cfg.mode_channels ? Number(cfg.mode_channels) : 8;
+    channels = cfg && cfg.n_channels ? Number(cfg.n_channels) : 8;
     channelNames = cfg && Array.isArray(cfg.channel_names) ? cfg.channel_names : [];
     eegSamplingRateHz = cfg && cfg.sampling_rate_hz ? Number(cfg.sampling_rate_hz) : 250;
     const uiWave = cfg && cfg.ui && cfg.ui.waveform ? cfg.ui.waveform : null;

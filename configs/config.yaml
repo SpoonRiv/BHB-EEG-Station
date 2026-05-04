@@ -1,5 +1,5 @@
 app:
-  ui_version: "1.4.2"
+  ui_version: "1.4.3"
 
 ui:
   waveform:
@@ -36,7 +36,7 @@ bluetooth:
 
 eeg:
   # 预留 8/16 通道版本切换接口：8 或 16
-  mode_channels: 8
+  n_channels: 8
   # 已实现/允许在 UI 中切换的通道模式（未包含的模式在 UI 中会置灰）
   supported_channel_modes: [8]
   sampling_rate_hz: 500
@@ -82,17 +82,29 @@ eeg:
   # 常用通道组合（仅用于下发给 UI 的默认预设；本机自定义预设请保存到 config.local.yaml）
   presets:
     - name: "BHB-脑电头环组合"
-      mode_channels: 8
+      n_channels: 8
       channel_names: ["P3", "PO4", "P7", "PO8", "PO7", "P8", "PO3", "P4"]
       ref_channel_name: "Pz"
   lsl:
     stream_name: "BHB-EEG"
     stream_type: "EEG"
     include_trigger_channel: true
+  protocol:
+    ch8:
+      frame:
+        # 8通道默认协议参数（根据文档 CH8(带tDCS)底层FPGA操作指令及帧格式V1.0.docx 配置，总长 140 bytes）
+        header_len_bytes: 3    # 帧头 2 字节 (0xAA 0xBB) + 帧序号 1 字节
+        bytes_per_sample_per_channel: 3
+        samples_per_frame: 5
+        trigger_len_bytes: 1
+        imu_len_bytes: 12
+        battery_len_bytes: 2
+        tail_len_bytes: 2      # 校验段 1 字节 (SUM) + 帧尾 1 字节 (0xCC)
+    ch16: {}
 
 impedance:
   enabled: true
-  mode_channels: 8
+  n_channels: 8
   frame:
     header: [0x55, 0x66]
     frame_len_bytes_ch8: 46
@@ -115,19 +127,9 @@ impedance:
 
 tdcs:
   enabled: true
+  supported_channel_modes: [8]
   ui:
     show_reserved: true
-
-protocol:
-  # 8通道默认协议参数（根据文档 CH8(带tDCS)底层FPGA操作指令及帧格式V1.0.docx 配置，总长 140 bytes）
-  frame:
-    header_len_bytes: 3    # 帧头 2 字节 (0xAA 0xBB) + 帧序号 1 字节
-    bytes_per_sample_per_channel: 3
-    samples_per_frame: 5
-    trigger_len_bytes: 1
-    imu_len_bytes: 12
-    battery_len_bytes: 2
-    tail_len_bytes: 2      # 校验段 1 字节 (SUM) + 帧尾 1 字节 (0xCC)
 
 server:
   host: "127.0.0.1"

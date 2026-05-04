@@ -25,9 +25,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.3.1 下发阻抗阈值滑条上限配置（slider_max_ohm）
 - 2026-05-04: 1.3.2 下发阻抗阈值滑条步进配置（slider_step_ohm）
 - 2026-05-04: 1.3.3 下发电刺激（tDCS）占位配置（enabled/ui）
+- 2026-05-04: 1.3.4 统一三模式命名：eeg/impedance/tdcs，并重命名 EEG WebSocket Hub 模块
 
 作者: Spoon
-版本: 1.3.3
+版本: 1.3.4
 """
 
 import asyncio
@@ -51,7 +52,7 @@ from core.debug_bus import DebugEventBus
 from core.ble.scanner import scan_devices
 from core.offline.offline_service import BandpassConfig, ExportTarget, OfflineService
 from core.signal.notch_filter import NotchFilter, NotchFilterConfig
-from ws_hub import EegWsHub, EegWsHubConfig
+from ws_hub_eeg import EegWsHub, EegWsHubConfig
 from ws_hub_impedance import ImpedanceWsHub, ImpedanceWsHubConfig
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -110,7 +111,7 @@ class AppState:
             filter_lowcut_default_hz=self.config.offline.filter.lowcut_hz_default,
             filter_highcut_default_hz=self.config.offline.filter.highcut_hz_default,
         )
-        channel_count = int(self.config.eeg.mode_channels) + (1 if self.config.eeg.lsl.include_trigger_channel else 0)
+        channel_count = int(self.config.eeg.n_channels) + (1 if self.config.eeg.lsl.include_trigger_channel else 0)
         self.notch = NotchFilter(
             NotchFilterConfig(
                 sampling_rate_hz=int(self.config.eeg.sampling_rate_hz),
@@ -157,7 +158,7 @@ class AppState:
         raw = self._load_local_raw()
         ui = raw.get("ui", {}) if isinstance(raw, dict) else {}
         sel = ui.get("channel_selection", {}) if isinstance(ui, dict) else {}
-        mode = int(sel.get("mode_channels", 0) or 0) if isinstance(sel, dict) else 0
+        mode = int(sel.get("n_channels", sel.get("mode_channels", 0)) or 0) if isinstance(sel, dict) else 0
         names_raw = sel.get("channel_names", []) if isinstance(sel, dict) else []
         ref = str(sel.get("ref_channel_name", "") or "").strip() if isinstance(sel, dict) else ""
         names: List[str] = []
@@ -167,18 +168,18 @@ class AppState:
                 if s:
                     names.append(s)
         if mode <= 0:
-            mode = int(self.config.eeg.mode_channels)
+            mode = int(self.config.eeg.n_channels)
         if not names:
             names = list(self.config.eeg.channel_names)
         if not ref:
             ref = str(self.config.eeg.ref_channel_name or "").strip()
         return mode, names, ref
 
-    def set_pending_channel_selection(self, mode_channels: int, channel_names: List[str], ref_channel_name: str) -> None:
+    def set_pending_channel_selection(self, n_channels: int, channel_names: List[str], ref_channel_name: str) -> None:
         raw = self._load_local_raw()
         ui = raw.get("ui", {}) if isinstance(raw.get("ui", {}), dict) else {}
         ui["channel_selection"] = {
-            "mode_channels": int(mode_channels),
+            "n_channels": int(n_channels),
             "channel_names": list(channel_names),
             "ref_channel_name": str(ref_channel_name or "").strip(),
         }
@@ -198,7 +199,7 @@ class AppState:
                 if not name:
                     continue
                 try:
-                    mode = int(item.get("mode_channels", 0))
+                    mode = int(item.get("n_channels", item.get("mode_channels", 0)))
                 except Exception:
                     mode = 0
                 ch_raw = item.get("channel_names", []) or []
@@ -213,10 +214,10 @@ class AppState:
                 ref = str(item.get("ref_channel_name", "") or "").strip()
                 if not ref:
                     ref = str(self.config.eeg.ref_channel_name or "").strip()
-                presets.append({"name": name, "mode_channels": mode, "channel_names": ch, "ref_channel_name": ref})
+                presets.append({"name": name, "n_channels": mode, "channel_names": ch, "ref_channel_name": ref})
         return presets
 
-    def upsert_local_channel_preset(self, name: str, mode_channels: int, channel_names: List[str], ref_channel_name: str) -> None:
+    def upsert_local_channel_preset(self, name: str, n_channels: int, channel_names: List[str], ref_channel_name: str) -> None:
         raw = self._load_local_raw()
         ui = raw.get("ui", {}) if isinstance(raw.get("ui", {}), dict) else {}
         presets_raw = ui.get("channel_presets_local", []) if isinstance(ui.get("channel_presets_local", []), list) else []
@@ -230,7 +231,7 @@ class AppState:
             if not n or n == normalized_name:
                 continue
             out.append(item)
-        out.append({"name": normalized_name, "mode_channels": int(mode_channels), "channel_names": list(channel_names), "ref_channel_name": normalized_ref})
+        out.append({"name": normalized_name, "n_channels": int(n_channels), "channel_names": list(channel_names), "ref_channel_name": normalized_ref})
         ui["channel_presets_local"] = out
         raw["ui"] = ui
         self._save_local_raw(raw)
@@ -259,7 +260,7 @@ class AppState:
         mode, names, ref = self.get_pending_channel_selection()
         raw = self._load_local_raw()
         eeg = raw.get("eeg", {}) if isinstance(raw.get("eeg", {}), dict) else {}
-        eeg["mode_channels"] = int(mode)
+        eeg["n_channels"] = int(mode)
         eeg["channel_names"] = list(names)
         eeg["ref_channel_name"] = str(ref or "").strip()
         raw["eeg"] = eeg
@@ -283,7 +284,7 @@ class AppState:
             filter_lowcut_default_hz=self.config.offline.filter.lowcut_hz_default,
             filter_highcut_default_hz=self.config.offline.filter.highcut_hz_default,
         )
-        channel_count = int(self.config.eeg.mode_channels) + (1 if self.config.eeg.lsl.include_trigger_channel else 0)
+        channel_count = int(self.config.eeg.n_channels) + (1 if self.config.eeg.lsl.include_trigger_channel else 0)
         self.notch = NotchFilter(
             NotchFilterConfig(
                 sampling_rate_hz=int(self.config.eeg.sampling_rate_hz),
@@ -440,11 +441,12 @@ async def get_config():
     获取前端渲染所需的基础配置（通道数、通道名等）。
     """
     ui_version = getattr(state.config, "app_ui_version", "1.0.0")
-    imp_mode_channels = int(state.config.impedance.mode_channels)
-    imp_names = list(state.config.eeg.channel_names[:imp_mode_channels])
+    eeg_n_channels = int(state.config.eeg.n_channels)
+    imp_n_channels = int(state.config.impedance.n_channels)
+    imp_names = list(state.config.eeg.channel_names[:imp_n_channels])
     if bool(state.config.impedance.frame.include_bias):
         imp_names.append("BIAS")
-    if bool(state.config.impedance.frame.include_tdcs_if_ch8) and imp_mode_channels == 8:
+    if bool(state.config.impedance.frame.include_tdcs_if_ch8) and imp_n_channels == 8:
         imp_names.append("tDCS")
     return {
         "ui_version": ui_version,
@@ -456,12 +458,12 @@ async def get_config():
                 "global_scale": bool(state.config.ui.waveform.global_scale),
             }
         },
-        "mode_channels": state.config.eeg.mode_channels,
+        "n_channels": eeg_n_channels,
         "channel_names": state.config.eeg.channel_names,
         "sampling_rate_hz": state.config.eeg.sampling_rate_hz,
         "impedance": {
             "enabled": bool(state.config.impedance.enabled),
-            "mode_channels": imp_mode_channels,
+            "n_channels": imp_n_channels,
             "channel_names": imp_names,
             "ui": {
                 "refresh_hz": int(state.config.impedance.ui.refresh_hz),
@@ -473,6 +475,7 @@ async def get_config():
         },
         "tdcs": {
             "enabled": bool(getattr(state.config, "tdcs", None) and state.config.tdcs.enabled),
+            "supported_channel_modes": list(getattr(state.config, "tdcs", None) and state.config.tdcs.supported_channel_modes or []),
             "ui": {
                 "show_reserved": bool(getattr(state.config, "tdcs", None) and state.config.tdcs.ui.show_reserved),
             },
@@ -500,14 +503,14 @@ async def get_config():
 
 
 class ChannelSelectionRequest(BaseModel):
-    mode_channels: int
+    n_channels: int
     channel_names: List[str]
     ref_channel_name: Optional[str] = None
 
 
 class ChannelPresetRequest(BaseModel):
     name: str
-    mode_channels: int
+    n_channels: int
     channel_names: List[str]
     ref_channel_name: Optional[str] = None
 
@@ -541,7 +544,7 @@ async def eeg_channel_options():
             base.append(ref)
         available = _normalize_channel_list(base)
     presets_cfg = [
-        {"scope": "config", "name": p.name, "mode_channels": int(p.mode_channels), "channel_names": list(p.channel_names), "ref_channel_name": str(p.ref_channel_name or "")}
+        {"scope": "config", "name": p.name, "n_channels": int(p.n_channels), "channel_names": list(p.channel_names), "ref_channel_name": str(p.ref_channel_name or "")}
         for p in (state.config.eeg.presets or [])
     ]
     presets_local = [{"scope": "local", **p} for p in state.get_local_channel_presets()]
@@ -551,12 +554,12 @@ async def eeg_channel_options():
         "ref_candidates": _normalize_channel_list(list(state.config.eeg.ref_selectable_channels or [])),
         "presets": presets_cfg + presets_local,
         "effective": {
-            "mode_channels": int(state.config.eeg.mode_channels),
+            "n_channels": int(state.config.eeg.n_channels),
             "channel_names": list(state.config.eeg.channel_names),
             "ref_channel_name": str(state.config.eeg.ref_channel_name or ""),
         },
         "pending": {
-            "mode_channels": int(pending_mode),
+            "n_channels": int(pending_mode),
             "channel_names": list(pending_names),
             "ref_channel_name": str(pending_ref or ""),
         },
@@ -569,7 +572,7 @@ async def eeg_channel_get_selection():
     获取当前“待应用”的通道选择（本机覆盖配置 ui.channel_selection）。
     """
     mode, names, ref = state.get_pending_channel_selection()
-    return {"mode_channels": int(mode), "channel_names": list(names), "ref_channel_name": str(ref or "")}
+    return {"n_channels": int(mode), "channel_names": list(names), "ref_channel_name": str(ref or "")}
 
 
 @app.post("/api/eeg/channel/selection")
@@ -577,13 +580,13 @@ async def eeg_channel_set_selection(req: ChannelSelectionRequest):
     """
     保存“待应用”的通道选择（不影响正在运行的采集；仅用于 UI 记忆与后续应用）。
     """
-    mode = int(req.mode_channels)
+    mode = int(req.n_channels)
     names = _normalize_channel_list(req.channel_names or [])
     ref = str(req.ref_channel_name or "").strip()
     if mode <= 0:
-        raise HTTPException(status_code=400, detail="mode_channels 必须为正整数")
+        raise HTTPException(status_code=400, detail="n_channels 必须为正整数")
     if len(names) > mode:
-        raise HTTPException(status_code=400, detail="channel_names 数量不能超过 mode_channels")
+        raise HTTPException(status_code=400, detail="channel_names 数量不能超过 n_channels")
     available = set(_normalize_channel_list(list(state.config.eeg.montage_1020_channels or [])))
     if available:
         for n in names:
@@ -596,7 +599,7 @@ async def eeg_channel_set_selection(req: ChannelSelectionRequest):
         if available and ref not in available:
             raise HTTPException(status_code=400, detail=f"非法参考电极名：{ref}")
     state.set_pending_channel_selection(mode, names, ref)
-    return {"status": "success", "mode_channels": mode, "channel_names": names, "ref_channel_name": ref}
+    return {"status": "success", "n_channels": mode, "channel_names": names, "ref_channel_name": ref}
 
 
 @app.post("/api/eeg/channel/apply")
@@ -626,19 +629,19 @@ async def eeg_channel_apply():
     if available and ref not in available:
         raise HTTPException(status_code=400, detail=f"非法参考电极名：{ref}")
 
-    if state.controller.is_running() and int(mode) != int(state.config.eeg.mode_channels):
+    if state.controller.is_running() and int(mode) != int(state.config.eeg.n_channels):
         raise HTTPException(status_code=409, detail="设备已连接，切换8/16通道需先断开蓝牙再应用")
 
     state.apply_pending_channel_selection_to_effective_config()
     state.reload_config_for_channels()
 
-    if int(state.config.eeg.mode_channels) == 16:
+    if int(state.config.eeg.n_channels) == 16:
         raise HTTPException(status_code=400, detail="16通道链路尚未开发完成，请保持 8 通道模式")
 
     return {
         "status": "success",
         "effective": {
-            "mode_channels": int(state.config.eeg.mode_channels),
+            "n_channels": int(state.config.eeg.n_channels),
             "channel_names": list(state.config.eeg.channel_names),
             "ref_channel_name": str(state.config.eeg.ref_channel_name or ""),
         },
@@ -653,13 +656,13 @@ async def eeg_channel_preset_upsert(req: ChannelPresetRequest):
     name = str(req.name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="name 不能为空")
-    mode = int(req.mode_channels)
+    mode = int(req.n_channels)
     names = _normalize_channel_list(req.channel_names or [])
     ref = str(req.ref_channel_name or "").strip()
     if mode <= 0:
-        raise HTTPException(status_code=400, detail="mode_channels 必须为正整数")
+        raise HTTPException(status_code=400, detail="n_channels 必须为正整数")
     if len(names) != mode:
-        raise HTTPException(status_code=400, detail=f"channel_names 数量必须等于 mode_channels（{mode}）")
+        raise HTTPException(status_code=400, detail=f"channel_names 数量必须等于 n_channels（{mode}）")
     available = set(_normalize_channel_list(list(state.config.eeg.montage_1020_channels or [])))
     if available:
         for n in names:
@@ -676,7 +679,7 @@ async def eeg_channel_preset_upsert(req: ChannelPresetRequest):
         raise HTTPException(status_code=400, detail=f"参考电极必须在候选列表中：{ref}")
     if available and ref not in available:
         raise HTTPException(status_code=400, detail=f"非法参考电极名：{ref}")
-    state.upsert_local_channel_preset(name=name, mode_channels=mode, channel_names=names, ref_channel_name=ref)
+    state.upsert_local_channel_preset(name=name, n_channels=mode, channel_names=names, ref_channel_name=ref)
     return {"status": "success"}
 
 

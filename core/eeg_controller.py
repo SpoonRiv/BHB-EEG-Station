@@ -11,9 +11,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.2.0 增加电量/IMU 状态缓存透传，供前端展示
 - 2026-05-03: 1.2.1 增加断联状态类型（disconnected），用于前端显示“连接已断开”
 - 2026-05-03: 1.2.2 增加任务运行态标记（task_running），用于运行中锁定导航入口
+- 2026-05-04: 1.2.3 配置字段更名：eeg.mode_channels -> eeg.n_channels（8/16 通道预留）
 
 作者: Spoon
-版本: 1.2.2
+版本: 1.2.3
 """
 
 import multiprocessing
@@ -33,7 +34,7 @@ class EEGController:
 
     - 采集逻辑运行在独立的 multiprocessing.Process 中（避免阻塞主事件循环）
     - 进程通过 LSL 推流，FastAPI 再从 LSL 异步读取并通过 WebSocket 广播给前端
-    - 预留 8/16 通道模式：由 configs/config.yaml 的 eeg.mode_channels 控制
+    - 预留 8/16 通道模式：由 configs/config.yaml 的 eeg.n_channels 控制
     """
 
     def __init__(self, config_path: Optional[str] = None):

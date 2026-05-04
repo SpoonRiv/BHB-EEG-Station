@@ -10,9 +10,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.0.3 仅当蓝牙已连接且通道选择已完成并应用后，才自动跳转到模式页
 - 2026-05-04: 1.0.4 设备名/错误提示移除括号与英文后缀，设备列表展示不再使用括号
 - 2026-05-04: 1.0.5 自动跳转需同时满足：蓝牙连接成功 + 本次会话通道“应用成功”提示出现
+- 2026-05-04: 1.0.6 配置字段更名：mode_channels -> n_channels（与三模式命名一致）
 
 作者: Spoon
-版本: 1.0.5
+版本: 1.0.6
 */
 
 import { bleConnect, bleDevices, bleDisconnect, eegChannelOptions, getStatus } from './api.js';
@@ -122,10 +123,10 @@ export function initDevicePage() {
       const opt = await eegChannelOptions();
       const pending = opt && opt.pending ? opt.pending : null;
       const effective = opt && opt.effective ? opt.effective : null;
-      const pMode = pending ? Number(pending.mode_channels) : 0;
+      const pMode = pending ? Number(pending.n_channels) : 0;
       const pNames = pending && Array.isArray(pending.channel_names) ? pending.channel_names : [];
       const pRef = pending ? String(pending.ref_channel_name || '') : '';
-      const eMode = effective ? Number(effective.mode_channels) : 0;
+      const eMode = effective ? Number(effective.n_channels) : 0;
       const eNames = effective && Array.isArray(effective.channel_names) ? effective.channel_names : [];
       const eRef = effective ? String(effective.ref_channel_name || '') : '';
       const selectedFull = pMode > 0 && pNames.length === pMode && !!pRef;

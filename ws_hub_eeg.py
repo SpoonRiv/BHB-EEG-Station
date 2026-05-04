@@ -8,9 +8,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 修改日志:
 - 2026-05-03: 1.0.0 创建文件
 - 2026-05-03: 1.0.1 广播改为顺序发送全部 chunk；队列满时合并旧 chunk，避免丢包
+- 2026-05-04: 1.0.2 文件更名为 ws_hub_eeg，命名与 impedance/tdcs 保持一致
 
 作者: Spoon
-版本: 1.0.1
+版本: 1.0.2
 """
 
 from __future__ import annotations
@@ -177,3 +178,4 @@ class EegWsHub:
                 return
             except Exception:
                 await asyncio.sleep(0.02)
+

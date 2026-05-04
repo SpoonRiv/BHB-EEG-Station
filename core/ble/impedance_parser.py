@@ -7,9 +7,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 修改日志:
 - 2026-05-04: 1.0.0 新增阻抗帧解析（CH8/CH16，含 BIAS 与可选 tDCS）
+- 2026-05-04: 1.0.1 字段更名：mode_channels -> n_channels（显式区分 8/16 通道）
 
 作者: Spoon
-版本: 1.0.0
+版本: 1.0.1
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ class ImpedanceFrameSpec:
 
     Attributes:
         header: 帧头字节序列，固定为 [0x55, 0x66]。
-        mode_channels: 脑电电极通道数（8 或 16）。
+        n_channels: 脑电电极通道数（8 或 16）。
         frame_len_bytes: 整帧长度（字节）。
         include_bias: 是否解析 BIAS 阻抗（位于帧尾）。
         include_tdcs: 是否解析 tDCS 电极阻抗（仅 CH8 协议帧尾包含）。
@@ -35,7 +36,7 @@ class ImpedanceFrameSpec:
     """
 
     header: Tuple[int, int]
-    mode_channels: int
+    n_channels: int
     frame_len_bytes: int
     include_bias: bool
     include_tdcs: bool
@@ -75,8 +76,8 @@ def parse_impedance_frame(frame: bytes, spec: ImpedanceFrameSpec) -> Tuple[List[
         raise ValueError("invalid header length")
     if frame[0] != (spec.header[0] & 0xFF) or frame[1] != (spec.header[1] & 0xFF):
         raise ValueError("frame header mismatch")
-    if int(spec.mode_channels) not in (8, 16):
-        raise ValueError(f"invalid mode_channels: {spec.mode_channels}")
+    if int(spec.n_channels) not in (8, 16):
+        raise ValueError(f"invalid n_channels: {spec.n_channels}")
 
     gain_real = _read_i16_be(frame, 2)
     gain_imag = _read_i16_be(frame, 4)
@@ -88,7 +89,7 @@ def parse_impedance_frame(frame: bytes, spec: ImpedanceFrameSpec) -> Tuple[List[
 
     channels: List[float] = []
     base = 6
-    for ch in range(int(spec.mode_channels)):
+    for ch in range(int(spec.n_channels)):
         off = base + ch * 4
         real = _read_i16_be(frame, off)
         imag = _read_i16_be(frame, off + 2)
@@ -101,7 +102,7 @@ def parse_impedance_frame(frame: bytes, spec: ImpedanceFrameSpec) -> Tuple[List[
     bias_ohm: Optional[float] = None
     tdcs_ohm: Optional[float] = None
 
-    tail_base = base + int(spec.mode_channels) * 4
+    tail_base = base + int(spec.n_channels) * 4
     if spec.include_bias:
         bias_real = _read_i16_be(frame, tail_base)
         bias_imag = _read_i16_be(frame, tail_base + 2)
@@ -147,4 +148,3 @@ def build_impedance_vector(
     if tdcs_ohm is not None:
         out.append(float(tdcs_ohm))
     return out
-
