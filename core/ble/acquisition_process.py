@@ -18,9 +18,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.1.8 增加阻抗帧解析与阻抗 LSL 推流（供 WebSocket 可视化）
 - 2026-05-04: 1.1.9 统一三模式命名并显式区分 8/16 通道配置字段（n_channels/protocol.ch8/ch16）
 - 2026-05-04: 1.1.10 限制 tDCS 仅在 8 通道模式可用（16 通道规划不包含电刺激）
+- 2026-05-04: 1.1.11 EEG 启动不再发送 pre_stop_eeg（0x02 0x02）
 
 作者: Spoon
-版本: 1.1.10
+版本: 1.1.11
 """
 
 import asyncio
@@ -440,11 +441,6 @@ async def _connect_and_stream(
                                 last_notify_ts = time.time()
                                 no_data_reported = False
                                 start_retry_count = 0
-                                try:
-                                    await _send_cmd(cfg.bluetooth.commands.stop_eeg, action="pre_stop_eeg")
-                                    await asyncio.sleep(0.05)
-                                except Exception:
-                                    pass
                                 await _send_cmd(cfg.bluetooth.commands.start_eeg, action="start_eeg")
                                 last_start_cmd_ts = time.time()
                                 eeg_streaming_enabled = True

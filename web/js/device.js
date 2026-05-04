@@ -11,14 +11,15 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.0.4 设备名/错误提示移除括号与英文后缀，设备列表展示不再使用括号
 - 2026-05-04: 1.0.5 自动跳转需同时满足：蓝牙连接成功 + 本次会话通道“应用成功”提示出现
 - 2026-05-04: 1.0.6 配置字段更名：mode_channels -> n_channels（与三模式命名一致）
+- 2026-05-04: 1.0.7 文件更名适配：topomap.js -> eeg_topomap.js
 
 作者: Spoon
-版本: 1.0.6
+版本: 1.0.7
 */
 
 import { bleConnect, bleDevices, bleDisconnect, eegChannelOptions, getStatus } from './api.js';
 import { navigate } from './router.js';
-import { initTopomapPanel } from './topomap.js';
+import { initTopomapPanel } from './eeg_topomap.js';
 
 function stripTrailingParenSuffix(text) {
   let s = String(text || '').trim();

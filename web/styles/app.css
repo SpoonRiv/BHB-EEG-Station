@@ -30,12 +30,13 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.0.23 阻抗列表拆分为电极与参考电极两组并增加分组标题
 - 2026-05-04: 1.0.24 顶栏版本号改为底部对齐（与大标题基线对齐）
 - 2026-05-04: 1.0.25 调试输出窗口四周留白统一（padding/box-sizing）
+- 2026-05-04: 1.0.26 设备页地形图样式文件更名：topomap.css -> eeg_topomap.css
 
 作者: Spoon
-版本: 1.0.25
+版本: 1.0.26
 */
 
-@import "./topomap.css";
+@import "./eeg_topomap.css";
 
 :root {
   --bg0: #05070c;
