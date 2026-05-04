@@ -21,9 +21,12 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.2.1 增加 10-20 通道选择与常用组合接口（本机覆盖配置，不写入 config.yaml）
 - 2026-05-03: 1.2.2 增加参考电极下拉选择（候选列表/待应用保存/应用到系统）
 - 2026-05-03: 1.2.3 通道预设增加参考电极字段，套用/保存包含参考电极
+- 2026-05-04: 1.3.0 增加阻抗检测数据流：LSL->WebSocket 推送与前端可视化入口
+- 2026-05-04: 1.3.1 下发阻抗阈值滑条上限配置（slider_max_ohm）
+- 2026-05-04: 1.3.2 下发阻抗阈值滑条步进配置（slider_step_ohm）
 
 作者: Spoon
-版本: 1.2.3
+版本: 1.3.2
 """
 
 import asyncio
@@ -48,6 +51,7 @@ from core.ble.scanner import scan_devices
 from core.offline.offline_service import BandpassConfig, ExportTarget, OfflineService
 from core.signal.notch_filter import NotchFilter, NotchFilterConfig
 from ws_hub import EegWsHub, EegWsHubConfig
+from ws_hub_impedance import ImpedanceWsHub, ImpedanceWsHubConfig
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -122,6 +126,25 @@ class AppState:
             )
         )
         self.eeg_ws_hub.set_transform(self._apply_notch_safe)
+
+        imp_name = self.config.impedance.lsl.stream_name
+        imp_type = self.config.impedance.lsl.stream_type
+        imp_buffer_size = int(self.config.impedance.streaming.buffer_size)
+        resolve_timeout_sec = self.config.streaming.lsl_resolve_timeout_sec
+        resolve_retry_interval_sec = self.config.streaming.lsl_resolve_retry_interval_sec
+        self.imp_streamer = LSLStreamer(
+            stream_name=imp_name,
+            stream_type=imp_type,
+            buffer_size=imp_buffer_size,
+            resolve_timeout_sec=resolve_timeout_sec,
+            resolve_retry_interval_sec=resolve_retry_interval_sec,
+        )
+        self.imp_ws_hub = ImpedanceWsHub(
+            ImpedanceWsHubConfig(
+                send_timeout_sec=float(self.config.streaming.ws_send_timeout_sec),
+                queue_size=1,
+            )
+        )
 
     def _load_local_raw(self) -> Dict[str, Any]:
         return load_yaml_file(self.local_override_path)
@@ -300,6 +323,18 @@ class AppState:
             pass
         self.eeg_ws_hub.enqueue(chunk)
 
+    def on_imp_lsl_chunk(self, chunk: List[List[float]]) -> None:
+        """
+        阻抗 LSL 数据回调：仅保留最新一帧并入队等待 WebSocket 广播。
+        """
+        if not chunk:
+            return
+        last = chunk[-1]
+        try:
+            self.imp_ws_hub.enqueue_latest([float(x) for x in last])
+        except Exception:
+            pass
+
 state = AppState()
 
 class BleConnectRequest(BaseModel):
@@ -339,6 +374,7 @@ async def lifespan(app: FastAPI):
     """
     logging.info("Application starting: registering callbacks...")
     state.streamer.add_callback(state.on_lsl_chunk)
+    state.imp_streamer.add_callback(state.on_imp_lsl_chunk)
     if state.config.debug.ui_enabled and not state._debug_forward_started:
         if state.controller.debug_queue is not None:
             state.debug_bus.start_forward_from_mp_queue(state.controller.debug_queue)
@@ -347,6 +383,8 @@ async def lifespan(app: FastAPI):
     logging.info("Application shutting down: cleaning up resources...")
     state.eeg_ws_hub.stop(clear_pending=True)
     state.streamer.stop()
+    state.imp_ws_hub.stop(clear_pending=True)
+    state.imp_streamer.stop()
     await asyncio.to_thread(state.controller.stop_device)
     await state.debug_bus.stop_forward()
 
@@ -401,6 +439,12 @@ async def get_config():
     获取前端渲染所需的基础配置（通道数、通道名等）。
     """
     ui_version = getattr(state.config, "app_ui_version", "1.0.0")
+    imp_mode_channels = int(state.config.impedance.mode_channels)
+    imp_names = list(state.config.eeg.channel_names[:imp_mode_channels])
+    if bool(state.config.impedance.frame.include_bias):
+        imp_names.append("BIAS")
+    if bool(state.config.impedance.frame.include_tdcs_if_ch8) and imp_mode_channels == 8:
+        imp_names.append("tDCS")
     return {
         "ui_version": ui_version,
         "ui": {
@@ -414,6 +458,18 @@ async def get_config():
         "mode_channels": state.config.eeg.mode_channels,
         "channel_names": state.config.eeg.channel_names,
         "sampling_rate_hz": state.config.eeg.sampling_rate_hz,
+        "impedance": {
+            "enabled": bool(state.config.impedance.enabled),
+            "mode_channels": imp_mode_channels,
+            "channel_names": imp_names,
+            "ui": {
+                "refresh_hz": int(state.config.impedance.ui.refresh_hz),
+                "good_max_ohm": int(state.config.impedance.ui.good_max_ohm),
+                "warn_max_ohm": int(state.config.impedance.ui.warn_max_ohm),
+                "slider_max_ohm": int(state.config.impedance.ui.slider_max_ohm),
+                "slider_step_ohm": int(state.config.impedance.ui.slider_step_ohm),
+            },
+        },
         "buffer_size": state.config.streaming.buffer_size,
         "ws_send_fps_hz": state.config.streaming.ws_send_fps_hz,
         "signal": {
@@ -637,6 +693,8 @@ async def get_status():
         "device": state.controller.get_status(),
         "lsl_streaming": bool(getattr(state.streamer, "is_streaming", False)),
         "lsl": state.streamer.get_status() if hasattr(state.streamer, "get_status") else None,
+        "impedance_lsl_streaming": bool(getattr(state.imp_streamer, "is_streaming", False)),
+        "impedance_lsl": state.imp_streamer.get_status() if hasattr(state.imp_streamer, "get_status") else None,
     }
 
 @app.get("/api/stop")
@@ -701,7 +759,10 @@ async def ble_disconnect():
     """
     state.eeg_ws_hub.stop(clear_pending=True)
     state.streamer.stop()
+    state.imp_ws_hub.stop(clear_pending=True)
+    state.imp_streamer.stop()
     state.controller.stop_mode("eeg")
+    state.controller.stop_mode("impedance")
     try:
         state.offline.stop_session()
     except Exception:
@@ -748,6 +809,13 @@ async def start_mode(req: ModeRequest):
                 "offline": {"session": session.to_dict(), "filter_defaults": state.offline.filter_defaults},
             }
         return {"status": "error", "message": "EEG 启动失败", "device": state.controller.get_status()}
+    if req.mode == "impedance":
+        state.controller.select_mode("impedance")
+        ok = state.controller.start_mode("impedance")
+        if ok and bool(state.config.impedance.enabled):
+            state.imp_streamer.start()
+            state.imp_ws_hub.start()
+        return {"status": "success" if ok else "error", "message": "模式已启动" if ok else "模式启动失败", "device": state.controller.get_status()}
     ok = state.controller.start_mode(req.mode)
     return {"status": "success" if ok else "error", "message": "模式已启动" if ok else "模式启动失败", "device": state.controller.get_status()}
 
@@ -772,6 +840,9 @@ async def stop_mode(req: ModeRequest):
             "device": state.controller.get_status(),
             "offline": {"session": session.to_dict() if session else None},
         }
+    if req.mode == "impedance":
+        state.imp_ws_hub.stop(clear_pending=True)
+        state.imp_streamer.stop()
     ok = state.controller.stop_mode(req.mode)
     return {"status": "success" if ok else "error", "message": "模式已停止" if ok else "模式停止失败", "device": state.controller.get_status()}
 
@@ -909,6 +980,20 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         state.eeg_ws_hub.unregister(websocket)
         logging.info("Frontend WebSocket disconnected.")
+
+
+@app.websocket("/ws/impedance")
+async def impedance_ws(websocket: WebSocket):
+    """
+    WebSocket 端点，前端连接以获取实时阻抗数据。
+    """
+    await websocket.accept()
+    state.imp_ws_hub.register(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        state.imp_ws_hub.unregister(websocket)
 
 if __name__ == "__main__":
     import uvicorn

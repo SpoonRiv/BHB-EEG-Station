@@ -13,7 +13,7 @@
 
 ## 无波形快速修复
 
-1. 确认后端在跑：浏览器打开 `http://127.0.0.1:8001/api/status`（或执行 `curl http://127.0.0.1:8001/api/status`）
+1. 确认后端在跑：浏览器打开 `http://127.0.0.1:8001/api/status`
 2. 清理残留后端进程（最常见）：
    - `netstat -ano | findstr :8001`
    - `taskkill /F /PID <PID>`

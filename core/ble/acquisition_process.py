@@ -15,9 +15,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.1.5 EEG 停止后不再输出 EEG_RX 调试事件，避免“停采集仍在滚”
 - 2026-05-03: 1.1.6 停止模式指令失败不再上报“连接失败”，断联时改为上报“连接已断开”
 - 2026-05-03: 1.1.7 stop_mode 无论指令是否成功都上报 mode_stopped，用于 UI 解除运行态锁定
+- 2026-05-04: 1.1.8 增加阻抗帧解析与阻抗 LSL 推流（供 WebSocket 可视化）
 
 作者: Spoon
-版本: 1.1.7
+版本: 1.1.8
 """
 
 import asyncio
@@ -31,6 +32,7 @@ from bleak import BleakClient
 from configs.config_loader import load_config
 from core.ble.device_finder import find_device_by_name
 from core.ble.frame_parser import FrameSpec, parse_frame_to_samples
+from core.ble.impedance_parser import ImpedanceFrameSpec, build_impedance_vector, parse_impedance_frame
 from core.ble.lsl_outlet import LslOutletConfig, LslOutletWriter
 
 
@@ -177,6 +179,27 @@ async def _connect_and_stream(
         )
     )
 
+    imp_mode_channels = int(cfg.impedance.mode_channels)
+    imp_include_tdcs = bool(cfg.impedance.frame.include_tdcs_if_ch8) and imp_mode_channels == 8
+    imp_tail_channels = (1 if bool(cfg.impedance.frame.include_bias) else 0) + (1 if imp_include_tdcs else 0)
+    imp_outlet = LslOutletWriter(
+        LslOutletConfig(
+            stream_name=cfg.impedance.lsl.stream_name,
+            stream_type=cfg.impedance.lsl.stream_type,
+            channel_count=imp_mode_channels + imp_tail_channels,
+            sampling_rate_hz=int(cfg.impedance.lsl.sampling_rate_hz),
+            source_id=f"bhb-imp-{cfg.bluetooth.target_device}",
+        )
+    )
+    imp_spec = ImpedanceFrameSpec(
+        header=(int(cfg.impedance.frame.header[0]) & 0xFF, int(cfg.impedance.frame.header[1]) & 0xFF),
+        mode_channels=imp_mode_channels,
+        frame_len_bytes=int(cfg.impedance.frame.frame_len_bytes_ch8 if imp_mode_channels == 8 else cfg.impedance.frame.frame_len_bytes_ch16),
+        include_bias=bool(cfg.impedance.frame.include_bias),
+        include_tdcs=imp_include_tdcs,
+        gain_scale=float(cfg.impedance.frame.gain_scale),
+    )
+
     address: Optional[str] = (connect_address or "").strip() or cfg.bluetooth.mac_address.strip() or None
     resolved_name = (connect_name or "").strip() or cfg.bluetooth.target_device
     if not address:
@@ -204,8 +227,90 @@ async def _connect_and_stream(
     current_mode: str = "idle"
     eeg_streaming_enabled = False
 
+    imp_buf = bytearray()
+    imp_frame_counter = 0
+    imp_notify_counter = 0
+    imp_last_notify_ts: float = 0.0
+    imp_no_data_reported = False
+    impedance_streaming_enabled = False
+
     def on_notify(_: int, data: bytearray) -> None:
         nonlocal frame_counter, notify_counter, last_notify_ts, no_data_reported, eeg_streaming_enabled
+        nonlocal imp_frame_counter, imp_notify_counter, imp_last_notify_ts, imp_no_data_reported, impedance_streaming_enabled
+
+        if impedance_streaming_enabled:
+            imp_notify_counter += 1
+            imp_last_notify_ts = time.time()
+            imp_no_data_reported = False
+            if debug_queue is not None:
+                try:
+                    if imp_notify_counter % 5 == 0:
+                        debug_queue.put(
+                            {
+                                "tag": "IMP_RX",
+                                "message": "收到阻抗通知数据",
+                                "data": {"len": int(len(data))},
+                            }
+                        )
+                except Exception:
+                    pass
+
+            expected = int(imp_spec.frame_len_bytes)
+            hdr0, hdr1 = int(imp_spec.header[0]) & 0xFF, int(imp_spec.header[1]) & 0xFF
+            if len(data) == expected and len(data) >= 2 and data[0] == hdr0 and data[1] == hdr1:
+                imp_buf.clear()
+                frames = [bytes(data)]
+            else:
+                imp_buf.extend(data)
+                header_bytes = bytes([hdr0, hdr1])
+                frames = []
+                for _ in range(20):
+                    pos = imp_buf.find(header_bytes)
+                    if pos < 0:
+                        if len(imp_buf) > 1:
+                            del imp_buf[:-1]
+                        break
+                    if pos > 0:
+                        del imp_buf[:pos]
+                    if len(imp_buf) < expected:
+                        break
+                    frames.append(bytes(imp_buf[:expected]))
+                    del imp_buf[:expected]
+
+            for fr in frames:
+                try:
+                    ch_ohm, gain_coeff, bias_ohm, tdcs_ohm = parse_impedance_frame(fr, imp_spec)
+                    vec = build_impedance_vector(ch_ohm, bias_ohm, tdcs_ohm)
+                    imp_outlet.push_samples([vec])
+                    imp_frame_counter += 1
+                    if debug_queue is not None and imp_frame_counter % 10 == 0:
+                        try:
+                            vmin = float(min(ch_ohm)) if ch_ohm else 0.0
+                            vmax = float(max(ch_ohm)) if ch_ohm else 0.0
+                            debug_queue.put(
+                                {
+                                    "tag": "IMP_FRAME",
+                                    "message": "阻抗帧解析并推送",
+                                    "data": {
+                                        "channels": int(len(ch_ohm)),
+                                        "min_ohm": vmin,
+                                        "max_ohm": vmax,
+                                        "bias_ohm": float(bias_ohm) if bias_ohm is not None else None,
+                                        "tdcs_ohm": float(tdcs_ohm) if tdcs_ohm is not None else None,
+                                        "gain_coeff": float(gain_coeff),
+                                    },
+                                }
+                            )
+                        except Exception:
+                            pass
+                except Exception as e:
+                    if debug_queue is not None:
+                        try:
+                            debug_queue.put({"tag": "IMP_PARSE", "message": "阻抗帧解析失败", "data": {"error": str(e), "len": int(len(fr))}})
+                        except Exception:
+                            pass
+            return
+
         notify_counter += 1
         last_notify_ts = time.time()
         no_data_reported = False
@@ -265,6 +370,12 @@ async def _connect_and_stream(
                 last_start_cmd_ts = 0.0
                 current_mode = "idle"
                 eeg_streaming_enabled = False
+                impedance_streaming_enabled = False
+                imp_buf.clear()
+                imp_frame_counter = 0
+                imp_notify_counter = 0
+                imp_last_notify_ts = 0.0
+                imp_no_data_reported = False
 
                 async def _send_cmd(cmd: List[int], action: str) -> None:
                     payload = bytearray(cmd)
@@ -315,6 +426,8 @@ async def _connect_and_stream(
                             if mode == "eeg":
                                 current_mode = "eeg"
                                 eeg_streaming_enabled = False
+                                impedance_streaming_enabled = False
+                                imp_buf.clear()
                                 buf.clear()
                                 notify_counter = 0
                                 last_notify_ts = time.time()
@@ -332,12 +445,20 @@ async def _connect_and_stream(
                             elif mode == "impedance":
                                 current_mode = "impedance"
                                 eeg_streaming_enabled = False
+                                impedance_streaming_enabled = False
                                 buf.clear()
+                                imp_buf.clear()
+                                imp_notify_counter = 0
+                                imp_last_notify_ts = time.time()
+                                imp_no_data_reported = False
                                 await _send_cmd(cfg.bluetooth.commands.start_impedance, action="start_impedance")
+                                impedance_streaming_enabled = True
                                 status_queue.put({"type": "mode_started", "mode": "impedance"})
                             elif mode == "tdcs":
                                 current_mode = "tdcs"
                                 eeg_streaming_enabled = False
+                                impedance_streaming_enabled = False
+                                imp_buf.clear()
                                 buf.clear()
                                 await _send_cmd(cfg.bluetooth.commands.start_tdcs, action="start_tdcs")
                                 status_queue.put({"type": "mode_started", "mode": "tdcs"})
@@ -366,6 +487,8 @@ async def _connect_and_stream(
                             elif mode == "impedance":
                                 eeg_streaming_enabled = False
                                 buf.clear()
+                                impedance_streaming_enabled = False
+                                imp_buf.clear()
                                 try:
                                     await _send_cmd(cfg.bluetooth.commands.stop_impedance, action="stop_impedance")
                                 except Exception as e:
@@ -386,6 +509,8 @@ async def _connect_and_stream(
                             elif mode == "tdcs":
                                 eeg_streaming_enabled = False
                                 buf.clear()
+                                impedance_streaming_enabled = False
+                                imp_buf.clear()
                                 try:
                                     await _send_cmd(cfg.bluetooth.commands.stop_tdcs, action="stop_tdcs")
                                 except Exception as e:
@@ -419,6 +544,20 @@ async def _connect_and_stream(
                                     {
                                         "tag": "EEG_NODATA",
                                         "message": "3秒未收到EEG通知数据（可能 notify_handle/write_handle 不匹配，或设备未开始传输）",
+                                        "data": {"notify_handle": int(notify_handle), "write_handle": int(write_handle)},
+                                    }
+                                )
+                            except Exception:
+                                pass
+
+                    if impedance_streaming_enabled and debug_queue is not None and not imp_no_data_reported:
+                        if imp_last_notify_ts > 0 and imp_notify_counter == 0 and (time.time() - imp_last_notify_ts) > 3.0:
+                            imp_no_data_reported = True
+                            try:
+                                debug_queue.put(
+                                    {
+                                        "tag": "IMP_NODATA",
+                                        "message": "3秒未收到阻抗通知数据（可能 notify_handle/write_handle 不匹配，或设备未开始传输）",
                                         "data": {"notify_handle": int(notify_handle), "write_handle": int(write_handle)},
                                     }
                                 )

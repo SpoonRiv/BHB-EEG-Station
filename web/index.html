@@ -316,19 +316,57 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
         </section>
 
         <section class="page" id="page-impedance">
-            <div class="card" style="width: 100%;">
-                <div class="card-header">
-                    <div>
-                        <div class="card-title">阻抗检测</div>
-                        <div class="card-sub">页面占位：后续接入阻抗数据解析与可视化</div>
+            <div class="eeg-layout">
+                <div class="card">
+                    <div class="card-header">
+                        <div>
+                            <div class="card-title">调试输出</div>
+                            <div class="card-sub">仅展示结构化调试事件，不展示网络/蓝牙连接信息</div>
+                        </div>
+                        <div class="row">
+                            <input id="imp-debug-filter" placeholder="过滤关键字" style="width: 220px;" />
+                            <button class="btn" id="imp-debug-clear">清空</button>
+                            <button class="btn" id="imp-debug-pause">暂停输出</button>
+                            <button class="btn primary" id="btn-imp-start">开启阻抗检测</button>
+                            <button class="btn danger" id="btn-imp-stop">停止阻抗检测</button>
+                        </div>
                     </div>
-                    <div class="row">
-                        <button class="btn primary" id="btn-imp-start">开启阻抗检测</button>
-                        <button class="btn danger" id="btn-imp-stop">停止阻抗检测</button>
+                    <div class="card-body" style="height: calc(260px - 54px);">
+                        <div class="debug-log" id="imp-debug-log"></div>
                     </div>
                 </div>
-                <div class="card-body">
-                    <div class="card-sub">当前版本仅实现：连接后可下发阻抗 start/stop 指令；阻抗数据流展示后续开发。</div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <div>
+                            <div class="card-title">阻抗可视化</div>
+                            <div class="card-sub"><span id="imp-sub">数据连接：未连接</span></div>
+                        </div>
+                        <div class="row">
+                            <div class="badge" id="imp-badge">
+                                <div class="badge-dot"></div>
+                                <div id="imp-badge-text">等待数据</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body" style="height: calc(100% - 54px);">
+                        <div class="topomap-layout">
+                            <div class="topomap-canvas">
+                                <div id="imp-topomap-svg" class="topomap-svg impedance-map"></div>
+                            </div>
+                            <div class="topomap-side">
+                                <div class="imp-legend" id="imp-legend"></div>
+                                <div class="field" style="min-height: 0;">
+                                    <div class="label">阻抗列表（Ω）</div>
+                                    <div class="imp-grid-wrap" id="imp-list">
+                                        <div class="imp-grid" id="imp-grid-main"></div>
+                                        <div class="imp-grid imp-grid-extra" id="imp-grid-extra"></div>
+                                    </div>
+                                </div>
+                                <div class="card-sub">通道选择与顺序请在“设备”页地形图中配置并应用到系统</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>

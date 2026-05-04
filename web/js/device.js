@@ -7,12 +7,13 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-02: 1.0.0 新增设备选择页
 - 2026-05-03: 1.0.1 增加 10-20 通道选择地形图面板初始化
 - 2026-05-03: 1.0.2 断联与停止采集时显示“已断开”，避免误报“连接失败”
+- 2026-05-04: 1.0.3 仅当蓝牙已连接且通道选择已完成并应用后，才自动跳转到模式页
 
 作者: Spoon
-版本: 1.0.2
+版本: 1.0.3
 */
 
-import { bleConnect, bleDevices, bleDisconnect, getStatus } from './api.js';
+import { bleConnect, bleDevices, bleDisconnect, eegChannelOptions, getStatus } from './api.js';
 import { navigate } from './router.js';
 import { initTopomapPanel } from './topomap.js';
 
@@ -56,6 +57,37 @@ export function initDevicePage() {
 
   setDeviceStatus('', '状态：未连接（请先扫描并选择设备）');
   selectEl.disabled = true;
+  let autoNavigated = false;
+  let lastChannelCheckAtMs = 0;
+  let lastChannelReady = false;
+
+  async function checkChannelReady() {
+    const now = Date.now();
+    if (now - lastChannelCheckAtMs < 1200) return lastChannelReady;
+    lastChannelCheckAtMs = now;
+    try {
+      const opt = await eegChannelOptions();
+      const pending = opt && opt.pending ? opt.pending : null;
+      const effective = opt && opt.effective ? opt.effective : null;
+      const pMode = pending ? Number(pending.mode_channels) : 0;
+      const pNames = pending && Array.isArray(pending.channel_names) ? pending.channel_names : [];
+      const pRef = pending ? String(pending.ref_channel_name || '') : '';
+      const eMode = effective ? Number(effective.mode_channels) : 0;
+      const eNames = effective && Array.isArray(effective.channel_names) ? effective.channel_names : [];
+      const eRef = effective ? String(effective.ref_channel_name || '') : '';
+      const selectedFull = pMode > 0 && pNames.length === pMode && !!pRef;
+      const applied = selectedFull
+        && eMode === pMode
+        && eNames.length === pNames.length
+        && eNames.every((x, i) => String(x) === String(pNames[i]))
+        && String(eRef) === String(pRef);
+      lastChannelReady = !!applied;
+      return lastChannelReady;
+    } catch (_) {
+      lastChannelReady = false;
+      return false;
+    }
+  }
 
   btnScan.addEventListener('click', async () => {
     btnScan.disabled = true;
@@ -89,8 +121,13 @@ export function initDevicePage() {
     try {
       const res = await bleConnect(address, name);
       if (res && res.status === 'success') {
-        setDeviceStatus('success', '状态：已连接（可进入模式选择）');
-        await navigate('#mode');
+        setDeviceStatus('success', '状态：已连接（请先确认通道选择并点击“应用到系统”）');
+        autoNavigated = false;
+        const ok = await checkChannelReady();
+        if (ok) {
+          autoNavigated = true;
+          await navigate('#mode');
+        }
       } else {
         setDeviceStatus('error', `状态：连接失败（${(res && res.message) ? res.message : '未知错误'}）`);
       }
@@ -125,10 +162,25 @@ export function initDevicePage() {
       const t = last && last.type ? String(last.type) : 'idle';
       const name = last && last.name ? String(last.name) : '';
       const msg = last && last.message ? String(last.message) : '';
-      if (t === 'connected' || t === 'ready') setDeviceStatus('success', `状态：已连接 ${name}`);
+      if (t === 'connected' || t === 'ready') {
+        const ok = await checkChannelReady();
+        if (ok) {
+          setDeviceStatus('success', `状态：已连接 ${name}（通道已应用）`);
+          if (!autoNavigated && (location.hash === '#device' || !location.hash)) {
+            autoNavigated = true;
+            await navigate('#mode');
+          }
+        } else {
+          setDeviceStatus('success', `状态：已连接 ${name}（请先选择通道并点击“应用到系统”）`);
+          autoNavigated = false;
+        }
+      }
       else if (t === 'connecting') setDeviceStatus('', `状态：连接中 ${name}`);
       else if (t === 'error') setDeviceStatus('error', `状态：失败 ${name}${msg ? `（${msg}）` : ''}`);
-      else if (t === 'disconnected' || t === 'stopped') setDeviceStatus('', `状态：已断开 ${name || ''}`.trim());
+      else if (t === 'disconnected' || t === 'stopped') {
+        autoNavigated = false;
+        setDeviceStatus('', `状态：已断开 ${name || ''}`.trim());
+      }
       else setDeviceStatus('', '状态：未连接（请先扫描并选择设备）');
     } catch (_) {}
   }

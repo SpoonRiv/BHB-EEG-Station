@@ -17,9 +17,14 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.1.7 支持本机覆盖配置与通道预设（10-20通道列表/常用组合/通道模式）
 - 2026-05-03: 1.1.8 增加参考电极候选配置（供 UI 下拉选择）
 - 2026-05-03: 1.1.9 通道预设增加参考电极字段（ref_channel_name）
+- 2026-05-04: 1.1.10 增加阻抗检测配置（协议/LSL/UI阈值）
+- 2026-05-04: 1.1.11 调整阻抗默认刷新频率与 buffer_size（更低频）
+- 2026-05-04: 1.1.12 阻抗阈值默认改为 5000/20000，并增加阈值滑条上限配置
+- 2026-05-04: 1.1.13 阻抗阈值滑条步进改为可配置（slider_step_ohm）
+- 2026-05-04: 1.1.14 阻抗阈值滑条默认上限调整为 25000
 
 作者: Spoon
-版本: 1.1.9
+版本: 1.1.14
 """
 
 import os
@@ -176,11 +181,53 @@ class UiConfig:
 
 
 @dataclass(frozen=True)
+class ImpedanceFrameConfig:
+    header: List[int]
+    frame_len_bytes_ch8: int
+    frame_len_bytes_ch16: int
+    include_bias: bool
+    include_tdcs_if_ch8: bool
+    gain_scale: float
+
+
+@dataclass(frozen=True)
+class ImpedanceLslConfig:
+    stream_name: str
+    stream_type: str
+    sampling_rate_hz: int
+
+
+@dataclass(frozen=True)
+class ImpedanceStreamingConfig:
+    buffer_size: int
+
+
+@dataclass(frozen=True)
+class ImpedanceUiConfig:
+    refresh_hz: int
+    good_max_ohm: int
+    warn_max_ohm: int
+    slider_max_ohm: int
+    slider_step_ohm: int
+
+
+@dataclass(frozen=True)
+class ImpedanceConfig:
+    enabled: bool
+    mode_channels: int
+    frame: ImpedanceFrameConfig
+    lsl: ImpedanceLslConfig
+    streaming: ImpedanceStreamingConfig
+    ui: ImpedanceUiConfig
+
+
+@dataclass(frozen=True)
 class AppConfig:
     app_ui_version: str
     ui: UiConfig
     bluetooth: BluetoothConfig
     eeg: EegConfig
+    impedance: ImpedanceConfig
     protocol: ProtocolConfig
     server: ServerConfig
     streaming: StreamingConfig
@@ -213,6 +260,12 @@ def load_config(config_path: str) -> AppConfig:
 
     protocol_raw = raw.get("protocol", {})
     frame_raw = protocol_raw.get("frame", {})
+
+    impedance_raw = raw.get("impedance", {}) or {}
+    impedance_frame_raw = impedance_raw.get("frame", {}) or {}
+    impedance_lsl_raw = impedance_raw.get("lsl", {}) or {}
+    impedance_streaming_raw = impedance_raw.get("streaming", {}) or {}
+    impedance_ui_raw = impedance_raw.get("ui", {}) or {}
 
     server_raw = raw.get("server", {})
     streaming_raw = raw.get("streaming", {})
@@ -403,6 +456,55 @@ def load_config(config_path: str) -> AppConfig:
         presets=presets,
     )
 
+    impedance_mode_channels = int(impedance_raw.get("mode_channels", mode_channels))
+    if impedance_mode_channels <= 0:
+        impedance_mode_channels = mode_channels
+    header_cfg = _as_u8_list(impedance_frame_raw.get("header", [0x55, 0x66]))
+    if len(header_cfg) != 2:
+        header_cfg = [0x55, 0x66]
+    frame_len_ch8 = int(impedance_frame_raw.get("frame_len_bytes_ch8", 46))
+    frame_len_ch16 = int(impedance_frame_raw.get("frame_len_bytes_ch16", 74))
+    if frame_len_ch8 <= 0:
+        frame_len_ch8 = 46
+    if frame_len_ch16 <= 0:
+        frame_len_ch16 = 74
+    gain_scale = float(impedance_frame_raw.get("gain_scale", 10000.0))
+    if gain_scale <= 0:
+        gain_scale = 10000.0
+    imp_buffer_size = max(1, int(impedance_streaming_raw.get("buffer_size", 5)))
+    imp_refresh_hz = max(1, int(impedance_ui_raw.get("refresh_hz", 1)))
+    good_max_ohm = max(1, int(impedance_ui_raw.get("good_max_ohm", 5000)))
+    warn_max_ohm = max(good_max_ohm + 1, int(impedance_ui_raw.get("warn_max_ohm", 20000)))
+    slider_max_ohm = max(warn_max_ohm + 1, int(impedance_ui_raw.get("slider_max_ohm", 25000)))
+    slider_step_ohm = max(1, int(impedance_ui_raw.get("slider_step_ohm", 100)))
+    impedance = ImpedanceConfig(
+        enabled=bool(impedance_raw.get("enabled", True)),
+        mode_channels=impedance_mode_channels,
+        frame=ImpedanceFrameConfig(
+            header=header_cfg,
+            frame_len_bytes_ch8=frame_len_ch8,
+            frame_len_bytes_ch16=frame_len_ch16,
+            include_bias=bool(impedance_frame_raw.get("include_bias", True)),
+            include_tdcs_if_ch8=bool(impedance_frame_raw.get("include_tdcs_if_ch8", True)),
+            gain_scale=gain_scale,
+        ),
+        lsl=ImpedanceLslConfig(
+            stream_name=str(impedance_lsl_raw.get("stream_name", "BHB-IMP")),
+            stream_type=str(impedance_lsl_raw.get("stream_type", "Impedance")),
+            sampling_rate_hz=int(impedance_lsl_raw.get("sampling_rate_hz", 0)),
+        ),
+        streaming=ImpedanceStreamingConfig(
+            buffer_size=imp_buffer_size,
+        ),
+        ui=ImpedanceUiConfig(
+            refresh_hz=imp_refresh_hz,
+            good_max_ohm=good_max_ohm,
+            warn_max_ohm=warn_max_ohm,
+            slider_max_ohm=slider_max_ohm,
+            slider_step_ohm=slider_step_ohm,
+        ),
+    )
+
     protocol = ProtocolConfig(
         frame=FrameProtocolConfig(
             header_len_bytes=int(frame_raw.get("header_len_bytes", 3)),
@@ -475,6 +577,7 @@ def load_config(config_path: str) -> AppConfig:
         ui=ui,
         bluetooth=bluetooth,
         eeg=eeg,
+        impedance=impedance,
         protocol=protocol,
         server=server,
         streaming=streaming,

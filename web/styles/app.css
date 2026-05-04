@@ -16,9 +16,15 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.9 设备页增加 10-20 通道选择地形图样式
 - 2026-05-03: 1.0.10 调整设备页左右列宽，给通道选择区更多空间
 - 2026-05-03: 1.0.11 设备页布局优化与模式页视觉升级（列宽、字号、三卡片配图与间距等）
+- 2026-05-04: 1.0.12 阻抗阈值改为双滑块区间，并增加滑条样式
+- 2026-05-04: 1.0.13 阻抗阈值支持数值输入，阈值区间按钮三等分铺满
+- 2026-05-04: 1.0.14 阻抗阈值移除数值输入，保留双滑块交互
+- 2026-05-04: 1.0.15 阻抗列表去掉位置/预留文案并压缩高度，右侧不再需要内部滚动条
+- 2026-05-04: 1.0.16 阻抗列表网格列数可变：8通道2列/16通道4列
+- 2026-05-04: 1.0.17 阻抗列表状态标签移到通道名右侧显示
 
 作者: Spoon
-版本: 1.0.11
+版本: 1.0.17
 */
 
 @import "./topomap.css";
@@ -512,6 +518,266 @@ select option {
 }
 
 .echarts-instance { width: 100%; height: 100%; }
+
+.imp-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.imp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.2px;
+  border: 1px solid rgba(120, 170, 210, 0.16);
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--text);
+}
+
+[data-theme="light"] .imp-pill {
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.imp-pill.good { border-color: rgba(47, 229, 139, 0.22); background: rgba(47, 229, 139, 0.08); }
+.imp-pill.warn { border-color: rgba(255, 204, 102, 0.22); background: rgba(255, 204, 102, 0.08); }
+.imp-pill.bad { border-color: rgba(255, 77, 109, 0.22); background: rgba(255, 77, 109, 0.08); }
+.imp-pill.unknown { border-color: rgba(120, 170, 210, 0.16); background: rgba(120, 170, 210, 0.06); }
+
+.imp-th {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(120, 170, 210, 0.16);
+  background: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .imp-th {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.imp-th-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.imp-th-title {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0.2px;
+  margin-right: 2px;
+}
+
+.imp-th-pills {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.imp-th-pills .imp-pill {
+  width: 100%;
+  justify-content: center;
+  text-align: center;
+}
+
+.imp-range {
+  position: relative;
+  height: 28px;
+}
+
+.imp-range-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 6px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  border: 1px solid rgba(120, 170, 210, 0.16);
+  background: rgba(0, 0, 0, 0.10);
+  overflow: hidden;
+}
+
+.imp-range-mark {
+  position: absolute;
+  top: -1px;
+  width: 2px;
+  height: calc(100% + 2px);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+  pointer-events: none;
+}
+
+[data-theme="light"] .imp-range-mark {
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.imp-range input[type="range"] {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 28px;
+  margin: 0;
+  background: transparent;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.imp-range input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  background: transparent;
+  border: none;
+}
+
+.imp-range input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid rgba(120, 170, 210, 0.26);
+  background: rgba(20, 30, 45, 0.92);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="light"] .imp-range input[type="range"]::-webkit-slider-thumb {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.imp-range input[type="range"]::-moz-range-track {
+  height: 6px;
+  background: transparent;
+  border: none;
+}
+
+.imp-range input[type="range"]::-moz-range-thumb {
+  pointer-events: auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid rgba(120, 170, 210, 0.26);
+  background: rgba(20, 30, 45, 0.92);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="light"] .imp-range input[type="range"]::-moz-range-thumb {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.imp-grid-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+  padding-right: 0;
+}
+
+.imp-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--imp-grid-cols, 4), minmax(0, 1fr));
+  gap: 8px;
+}
+
+.imp-grid-extra {
+  --imp-grid-cols: 2;
+}
+
+
+.imp-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(120, 170, 210, 0.16);
+  background: rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+  min-height: 56px;
+}
+
+[data-theme="light"] .imp-cell {
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.imp-cell:hover {
+  transform: translateY(-1px);
+  border-color: rgba(49, 215, 255, 0.28);
+}
+
+.imp-cell.imp-selected {
+  border-color: rgba(49, 215, 255, 0.72);
+  box-shadow: 0 0 0 1px rgba(49, 215, 255, 0.10) inset;
+}
+
+.imp-cell.disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.imp-cell.disabled:hover {
+  transform: none;
+  border-color: rgba(120, 170, 210, 0.16);
+}
+
+.imp-cell.imp-good { border-color: rgba(47, 229, 139, 0.18); }
+.imp-cell.imp-warn { border-color: rgba(255, 204, 102, 0.18); }
+.imp-cell.imp-bad { border-color: rgba(255, 77, 109, 0.18); }
+
+.imp-cell-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.imp-cell-name {
+  font-weight: 950;
+  letter-spacing: 0.3px;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.imp-cell-value {
+  font-weight: 950;
+  font-size: 14px;
+}
+
+.imp-cell-state {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 170, 210, 0.14);
+  background: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .imp-cell-state {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.imp-cell.imp-good .imp-cell-state { color: rgba(47, 229, 139, 0.95); border-color: rgba(47, 229, 139, 0.22); background: rgba(47, 229, 139, 0.08); }
+.imp-cell.imp-warn .imp-cell-state { color: rgba(255, 204, 102, 0.95); border-color: rgba(255, 204, 102, 0.22); background: rgba(255, 204, 102, 0.08); }
+.imp-cell.imp-bad .imp-cell-state { color: rgba(255, 77, 109, 0.95); border-color: rgba(255, 77, 109, 0.22); background: rgba(255, 77, 109, 0.08); }
 
 @media (max-width: 980px) {
   .page-grid { grid-template-columns: 1fr; }

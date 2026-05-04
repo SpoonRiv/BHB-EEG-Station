@@ -11,15 +11,17 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.4 增加离线存储页面路由
 - 2026-05-03: 1.0.5 断联与停止采集时显示“连接已断开”，避免误报“连接失败”
 - 2026-05-03: 1.0.6 任务运行中锁定右上角导航按钮，禁止返回设备/模式页面
+- 2026-05-04: 1.0.7 接入阻抗页面模块（WS 数据与可视化）
 
 作者: Spoon
-版本: 1.0.6
+版本: 1.0.7
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
 import { initDevicePage } from './device.js';
 import { initModePage } from './mode.js';
 import { enterEegPage, leaveEegPage } from './eeg.js';
+import { enterImpedancePage, leaveImpedancePage } from './impedance.js';
 import { enterOfflinePage, leaveOfflinePage } from './offline.js';
 import { registerRoute, startRouter, navigate } from './router.js';
 import { setConnBadge } from './ui.js';
@@ -135,31 +137,8 @@ async function initVersionLabel() {
 }
 
 function bindPlaceholderButtons() {
-  const impStart = document.getElementById('btn-imp-start');
-  const impStop = document.getElementById('btn-imp-stop');
   const tdcsStart = document.getElementById('btn-tdcs-start');
   const tdcsStop = document.getElementById('btn-tdcs-stop');
-
-  if (impStart) {
-    impStart.onclick = async () => {
-      impStart.disabled = true;
-      try {
-        await modeStart('impedance');
-      } catch (_) {} finally {
-        impStart.disabled = false;
-      }
-    };
-  }
-  if (impStop) {
-    impStop.onclick = async () => {
-      impStop.disabled = true;
-      try {
-        await modeStop('impedance');
-      } catch (_) {} finally {
-        impStop.disabled = false;
-      }
-    };
-  }
   if (tdcsStart) {
     tdcsStart.onclick = async () => {
       tdcsStart.disabled = true;
@@ -187,7 +166,7 @@ function initRoutes() {
   registerRoute('#mode', { pageId: 'page-mode' });
   registerRoute('#eeg', { pageId: 'page-eeg', onEnter: enterEegPage, onLeave: leaveEegPage });
   registerRoute('#offline', { pageId: 'page-offline', onEnter: enterOfflinePage, onLeave: leaveOfflinePage });
-  registerRoute('#impedance', { pageId: 'page-impedance' });
+  registerRoute('#impedance', { pageId: 'page-impedance', onEnter: enterImpedancePage, onLeave: leaveImpedancePage });
   registerRoute('#tdcs', { pageId: 'page-tdcs' });
 }
 
