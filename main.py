@@ -26,9 +26,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.3.2 下发阻抗阈值滑条步进配置（slider_step_ohm）
 - 2026-05-04: 1.3.3 下发电刺激（tDCS）占位配置（enabled/ui）
 - 2026-05-04: 1.3.4 统一三模式命名：eeg/impedance/tdcs，并重命名 EEG WebSocket Hub 模块
+- 2026-05-07: 1.3.5 下发前端 WS 背压配置并将离线写入队列上限接入配置，降低长时间运行卡顿风险
+- 2026-05-08: 1.3.6 下发动态 y 轴分档/更新频率配置并下调默认渲染频率，降低 ECharts 布局与重绘压力
 
 作者: Spoon
-版本: 1.3.4
+版本: 1.3.6
 """
 
 import asyncio
@@ -110,6 +112,8 @@ class AppState:
             filter_order_default=self.config.offline.filter.order,
             filter_lowcut_default_hz=self.config.offline.filter.lowcut_hz_default,
             filter_highcut_default_hz=self.config.offline.filter.highcut_hz_default,
+            writer_queue_max_chunks=self.config.offline.writer_queue_max_chunks,
+            writer_queue_full_policy=self.config.offline.writer_queue_full_policy,
         )
         channel_count = int(self.config.eeg.n_channels) + (1 if self.config.eeg.lsl.include_trigger_channel else 0)
         self.notch = NotchFilter(
@@ -283,6 +287,8 @@ class AppState:
             filter_order_default=self.config.offline.filter.order,
             filter_lowcut_default_hz=self.config.offline.filter.lowcut_hz_default,
             filter_highcut_default_hz=self.config.offline.filter.highcut_hz_default,
+            writer_queue_max_chunks=self.config.offline.writer_queue_max_chunks,
+            writer_queue_full_policy=self.config.offline.writer_queue_full_policy,
         )
         channel_count = int(self.config.eeg.n_channels) + (1 if self.config.eeg.lsl.include_trigger_channel else 0)
         self.notch = NotchFilter(
@@ -456,6 +462,9 @@ async def get_config():
                 "render_fps_hz": int(state.config.ui.waveform.render_fps_hz),
                 "max_render_points_per_channel": int(state.config.ui.waveform.max_render_points_per_channel),
                 "global_scale": bool(state.config.ui.waveform.global_scale),
+                "max_pending_ws_chunks": int(getattr(state.config.ui.waveform, "max_pending_ws_chunks", 2)),
+                "y_axis_step": float(getattr(state.config.ui.waveform, "y_axis_step", 50.0)),
+                "y_axis_update_hz": float(getattr(state.config.ui.waveform, "y_axis_update_hz", 2.0)),
             }
         },
         "n_channels": eeg_n_channels,

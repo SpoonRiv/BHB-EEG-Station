@@ -1,16 +1,22 @@
 app:
-  ui_version: "1.4.4"
+  ui_version: "1.4.5"
 
 ui:
   waveform:
     # 前端显示窗口时长（秒）。仅影响展示，不影响采集与离线存储。
     time_window_sec: 2.0
     # 前端波形渲染刷新频率（Hz）。仅影响展示，不影响采集与离线存储。
-    render_fps_hz: 25
+    render_fps_hz: 15
     # 单通道最大渲染点数（超过则进行降采样渲染，确保不丢数据但降低渲染负载）。
     max_render_points_per_channel: 800
     # 是否所有通道共用同一 y 轴范围（true=统一缩放，false=各通道独立）。
     global_scale: true
+    # 前端 WS 待处理队列上限（只用于展示背压：积压时覆盖旧包以保持“尽量实时”的显示）。
+    max_pending_ws_chunks: 2
+    # 动态 y 轴“分档”步长（<=0 表示不分档，连续变化）。单位与波形数值一致（通常为 uV 或计数）。
+    y_axis_step: 50
+    # 动态 y 轴更新频率（Hz）。降低该值可减少 yAxis 重算/重绘开销。
+    y_axis_update_hz: 2
 
 bluetooth:
   device_names:
@@ -137,7 +143,7 @@ server:
 
 streaming:
   # 后端 WebSocket 转发到前端的发送频率（Hz），用于节流，降低前端收包与解析负载
-  ws_send_fps_hz: 25
+  ws_send_fps_hz: 15
   # 每次推送的采样点数；若为 0，则自动按 sampling_rate_hz / ws_send_fps_hz 计算
   buffer_size: 0
   # WebSocket 广播队列：满时合并旧 chunk（扩大单次 payload），避免积压且不丢数据
@@ -160,6 +166,10 @@ signal:
 
 offline:
   root_dir: "offlinedata"
+  # 离线写入队列上限（按 chunk 计数）。用于限制内存积压；满时行为由 writer_queue_full_policy 决定。
+  writer_queue_max_chunks: 50
+  # 离线写入队列满时策略：merge=合并旧 chunk（尽量不丢样本）；drop_oldest=丢最旧；drop_newest=丢最新。
+  writer_queue_full_policy: "merge"
   export:
     physical_unit: "uV"
     uv_per_count: 0.0833

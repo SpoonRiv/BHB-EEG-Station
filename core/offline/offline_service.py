@@ -11,9 +11,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.2 修复 EDF header 字段：pyedflib 需要 sex 键而非 gender
 - 2026-05-03: 1.0.3 增加 50Hz 工频陷波：导出 raw/filtered 均先陷波再（可选）带通
 - 2026-05-03: 1.0.4 导出链路统一使用“陷波+可选带通”流式处理，确保 raw/filtered 均执行 50Hz 陷波
+- 2026-05-07: 1.0.5 离线写入队列支持上限与满时策略，并将 chunk 转换移至后台线程避免阻塞事件循环
 
 作者: Spoon
-版本: 1.0.4
+版本: 1.0.5
 """
 
 from __future__ import annotations
@@ -116,9 +117,11 @@ class _ChunkBinaryWriter:
         - 后台线程按入队顺序写入，保证样本顺序不乱。
     """
 
-    def __init__(self, file_path: str):
+    def __init__(self, file_path: str, max_pending_chunks: int, queue_full_policy: str):
         self._file_path = file_path
-        self._q: "queue.Queue[Optional[np.ndarray]]" = queue.Queue()
+        self._max_pending_chunks = max(1, int(max_pending_chunks))
+        self._queue_full_policy = str(queue_full_policy or "merge").strip().lower()
+        self._q: "queue.Queue[Optional[_ChunkWriteItem]]" = queue.Queue(maxsize=self._max_pending_chunks)
         self._thread: Optional[threading.Thread] = None
         self._stop_requested = False
         self._started = False
@@ -131,10 +134,26 @@ class _ChunkBinaryWriter:
         self._thread = threading.Thread(target=self._run, name="offline-writer", daemon=True)
         self._thread.start()
 
-    def append(self, arr: np.ndarray) -> None:
+    def append_chunk(self, chunk: List[List[float]], expected_ch: int) -> None:
         if not self._started or self._stop_requested:
             return
-        self._q.put(arr)
+        item = _ChunkWriteItem(chunk=chunk, expected_ch=max(0, int(expected_ch)))
+        for _ in range(5):
+            try:
+                self._q.put_nowait(item)
+                return
+            except queue.Full:
+                if self._queue_full_policy == "drop_newest":
+                    return
+                try:
+                    old = self._q.get_nowait()
+                except queue.Empty:
+                    old = None
+                if old is None:
+                    continue
+                if self._queue_full_policy == "drop_oldest":
+                    continue
+                item = _ChunkWriteItem(chunk=(old.chunk + item.chunk), expected_ch=item.expected_ch)
 
     def stop(self) -> None:
         if not self._started or self._stop_requested:
@@ -152,9 +171,26 @@ class _ChunkBinaryWriter:
                     item = self._q.get()
                     if item is None:
                         return
-                    f.write(item.tobytes(order="C"))
+                    try:
+                        arr = np.asarray(item.chunk, dtype=np.float32)
+                    except Exception:
+                        continue
+                    if arr.ndim != 2:
+                        continue
+                    expected_ch = int(item.expected_ch)
+                    if expected_ch > 0 and arr.shape[1] < expected_ch:
+                        continue
+                    if expected_ch > 0 and arr.shape[1] != expected_ch:
+                        arr = arr[:, :expected_ch]
+                    f.write(arr.tobytes(order="C"))
         except Exception:
             return
+
+
+@dataclass(frozen=True)
+class _ChunkWriteItem:
+    chunk: List[List[float]]
+    expected_ch: int
 
 
 def _safe_filename(name: str, default_stem: str) -> str:
@@ -217,6 +253,8 @@ class OfflineService:
         filter_order_default: int,
         filter_lowcut_default_hz: float,
         filter_highcut_default_hz: float,
+        writer_queue_max_chunks: int,
+        writer_queue_full_policy: str,
     ):
         self._project_root_dir = str(project_root_dir)
         self._root_dir = str(root_dir or "offlinedata")
@@ -231,6 +269,8 @@ class OfflineService:
         self._filter_order_default = max(1, int(filter_order_default))
         self._filter_lowcut_default_hz = float(filter_lowcut_default_hz)
         self._filter_highcut_default_hz = float(filter_highcut_default_hz)
+        self._writer_queue_max_chunks = max(1, int(writer_queue_max_chunks))
+        self._writer_queue_full_policy = str(writer_queue_full_policy or "merge").strip().lower()
 
         self._active: Optional[OfflineSessionInfo] = None
         self._raw_path: Optional[str] = None
@@ -302,7 +342,11 @@ class OfflineService:
             self._raw_path = raw_path
             self._meta_path = meta_path
 
-            writer = _ChunkBinaryWriter(raw_path)
+            writer = _ChunkBinaryWriter(
+                raw_path,
+                max_pending_chunks=self._writer_queue_max_chunks,
+                queue_full_policy=self._writer_queue_full_policy,
+            )
             writer.start()
             self._writer = writer
             self._active = info
@@ -320,30 +364,34 @@ class OfflineService:
             if self._active is None or self._writer is None:
                 return
             expected_ch = len(self._active.channel_names)
+            writer = self._writer
+            info = self._active
 
-        arr = np.asarray(chunk, dtype=np.float32)
-        if arr.ndim != 2:
+        if not isinstance(chunk, list) or not chunk:
             return
-        if expected_ch > 0 and arr.shape[1] < expected_ch:
+        first = chunk[0]
+        if not isinstance(first, list) or (expected_ch > 0 and len(first) < expected_ch):
             return
-        if expected_ch > 0 and arr.shape[1] != expected_ch:
-            arr = arr[:, :expected_ch]
+        sample_count = len(chunk)
 
         with self._lock:
             if self._active is None or self._writer is None:
                 return
             self._active = OfflineSessionInfo(
-                session_id=self._active.session_id,
-                session_dir=self._active.session_dir,
-                started_at_iso=self._active.started_at_iso,
-                stopped_at_iso=self._active.stopped_at_iso,
-                sampling_rate_hz=self._active.sampling_rate_hz,
-                channel_names=self._active.channel_names,
-                total_samples=int(self._active.total_samples + int(arr.shape[0])),
-                physical_unit=self._active.physical_unit,
-                uv_per_count=self._active.uv_per_count,
+                session_id=info.session_id,
+                session_dir=info.session_dir,
+                started_at_iso=info.started_at_iso,
+                stopped_at_iso=info.stopped_at_iso,
+                sampling_rate_hz=info.sampling_rate_hz,
+                channel_names=info.channel_names,
+                total_samples=int(info.total_samples + int(sample_count)),
+                physical_unit=info.physical_unit,
+                uv_per_count=info.uv_per_count,
             )
-            self._writer.append(arr)
+        try:
+            writer.append_chunk(chunk, expected_ch=expected_ch)
+        except Exception:
+            return
 
     def stop_session(self) -> Optional[OfflineSessionInfo]:
         """

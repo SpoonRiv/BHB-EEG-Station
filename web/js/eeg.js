@@ -24,9 +24,12 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.1.7 修复窗口尺寸变化时的可视渲染范围与降采样缓存刷新
 - 2026-05-03: 1.1.8 配置命名区分“后端转发频率”和“前端渲染频率”
 - 2026-05-04: 1.1.9 配置字段更名：mode_channels -> n_channels（与三模式命名一致）
+- 2026-05-07: 1.1.10 修复长时间运行卡顿：离开页面释放图表实例；WS 数据增加背压并启用懒更新渲染
+- 2026-05-07: 1.1.11 调试面板渲染加入限帧与批量刷新，避免高频调试事件导致主线程满载卡顿
+- 2026-05-08: 1.1.12 动态 y 轴分档+限频更新，降低 Layout/Pre-paint；并按配置降低波形刷新频率
 
 作者: Spoon
-版本: 1.1.9
+版本: 1.1.12
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -45,6 +48,13 @@ let eegWindowSec = 2.0;
 let eegRenderFps = 25;
 let eegMaxRenderPointsPerChannel = 800;
 let eegGlobalScale = true;
+let eegYAxisStep = 50;
+let eegYAxisUpdateHz = 2;
+let eegLastYAxisUpdateAtMs = 0;
+let eegPendingMin = Infinity;
+let eegPendingMax = -Infinity;
+let eegLastAppliedYAxisMin = null;
+let eegLastAppliedYAxisMax = null;
 
 let eegRings = [];
 let eegDataDirty = false;
@@ -62,11 +72,17 @@ let eegScrollCheckRequested = false;
 let eegGridScrollHandler = null;
 let eegResizeHandler = null;
 let eegResizeListenerAttached = false;
+let eegWsMaxPendingChunks = 2;
+let eegPendingEegChunks = [];
 
 let debugLines = [];
 let debugFilterText = '';
 let debugPaused = false;
 let debugBufferedLines = [];
+let debugDirty = false;
+let debugRenderLoopActive = false;
+let debugLastRenderAtMs = 0;
+let debugRenderFps = 8;
 let themeListenerAttached = false;
 let themeChangeHandler = null;
 let eegPageActive = false;
@@ -195,14 +211,38 @@ function renderDebug() {
   }
 }
 
+function debugRenderLoop() {
+  if (!eegPageActive) {
+    debugRenderLoopActive = false;
+    return;
+  }
+  const now = performance.now();
+  const intervalMs = 1000 / Math.max(1, Number(debugRenderFps) || 8);
+  if (debugDirty && (now - debugLastRenderAtMs) >= intervalMs) {
+    debugDirty = false;
+    debugLastRenderAtMs = now;
+    renderDebug();
+  }
+  requestAnimationFrame(debugRenderLoop);
+}
+
+function scheduleDebugRender() {
+  debugDirty = true;
+  if (!debugRenderLoopActive) {
+    debugRenderLoopActive = true;
+    debugLastRenderAtMs = 0;
+    requestAnimationFrame(debugRenderLoop);
+  }
+}
+
 function initCharts() {
   const grid = document.getElementById('charts-grid');
   if (!grid) return;
   eegGridEl = grid;
   const isLight = (document.documentElement.getAttribute('data-theme') || 'light') === 'light';
 
+  disposeCharts();
   grid.innerHTML = '';
-  charts = [];
   eegRings = Array.from({ length: channels }, () => new FloatRingBuffer(maxPoints));
   eegChartContainers = [];
   eegVisibleMask = Array.from({ length: channels }, () => true);
@@ -270,6 +310,15 @@ function initCharts() {
   }
 
   scheduleVisibleUpdate(true);
+}
+
+function disposeCharts() {
+  for (const ch of charts) {
+    if (!ch) continue;
+    try { ch.dispose(); } catch (_) {}
+  }
+  charts = [];
+  eegChartContainers = [];
 }
 
 function applyThemeToCharts(theme) {
@@ -411,8 +460,22 @@ function scheduleVisibleUpdate(forceAll = false) {
 }
 
 function renderCharts() {
-  const yAxisMin = globalYMin === Infinity ? null : Math.floor(globalYMin);
-  const yAxisMax = globalYMax === -Infinity ? null : Math.ceil(globalYMax);
+  let yAxisMin = globalYMin === Infinity ? null : Math.floor(globalYMin);
+  let yAxisMax = globalYMax === -Infinity ? null : Math.ceil(globalYMax);
+  const step = Number(eegYAxisStep);
+  if (Number.isFinite(step) && step > 0 && yAxisMin !== null && yAxisMax !== null) {
+    yAxisMin = Math.floor(yAxisMin / step) * step;
+    yAxisMax = Math.ceil(yAxisMax / step) * step;
+    if (yAxisMin === yAxisMax) {
+      yAxisMin = yAxisMin - step;
+      yAxisMax = yAxisMax + step;
+    }
+  }
+  const applyYAxis = eegGlobalScale && (yAxisMin !== eegLastAppliedYAxisMin || yAxisMax !== eegLastAppliedYAxisMax);
+  if (applyYAxis) {
+    eegLastAppliedYAxisMin = yAxisMin;
+    eegLastAppliedYAxisMax = yAxisMax;
+  }
 
   for (let i = 0; i < channels; i++) {
     if (eegVisibleMask.length === channels && !eegVisibleMask[i]) continue;
@@ -423,9 +486,32 @@ function renderCharts() {
     const points = buildSeriesPoints(ring, eegSamplingRateHz, tgt);
     ch.setOption({
       xAxis: { min: -eegWindowSec, max: 0 },
-      yAxis: eegGlobalScale ? { min: yAxisMin, max: yAxisMax } : { min: null, max: null },
+      ...(eegGlobalScale ? (applyYAxis ? { yAxis: { min: yAxisMin, max: yAxisMax } } : {}) : { yAxis: { min: null, max: null } }),
       series: [{ data: points }],
-    }, false, false);
+    }, false, true);
+  }
+}
+
+function enqueuePendingEegChunk(chunk) {
+  if (!chunk) return;
+  const maxN = Math.max(1, Number(eegWsMaxPendingChunks) | 0);
+  if (eegPendingEegChunks.length >= maxN) {
+    eegPendingEegChunks[eegPendingEegChunks.length - 1] = chunk;
+    return;
+  }
+  eegPendingEegChunks.push(chunk);
+}
+
+function consumePendingEegChunks(maxChunks) {
+  const n = Math.max(0, Number(maxChunks) | 0);
+  if (n <= 0) return;
+  if (eegPendingEegChunks.length <= 0) return;
+  const take = Math.min(n, eegPendingEegChunks.length);
+  const start = eegPendingEegChunks.length - take;
+  const chunks = eegPendingEegChunks.slice(start);
+  eegPendingEegChunks = [];
+  for (const c of chunks) {
+    handleEEGData(c);
   }
 }
 
@@ -434,6 +520,7 @@ function eegRenderLoop() {
     eegRenderLoopActive = false;
     return;
   }
+  consumePendingEegChunks(1);
   const now = performance.now();
   const intervalMs = 1000 / Math.max(5, Number(eegRenderFps) || 25);
   if (eegDataDirty && (now - eegLastRenderAtMs) >= intervalMs) {
@@ -465,15 +552,25 @@ function handleEEGData(chunk) {
   }
 
   if (currentChunkMin < Infinity && currentChunkMax > -Infinity) {
-    const margin = (currentChunkMax - currentChunkMin) * 0.1;
-    const targetMin = currentChunkMin - margin;
-    const targetMax = currentChunkMax + margin;
-    if (globalYMin === Infinity) {
-      globalYMin = targetMin;
-      globalYMax = targetMax;
-    } else {
-      globalYMin = globalYMin * 0.9 + targetMin * 0.1;
-      globalYMax = globalYMax * 0.9 + targetMax * 0.1;
+    if (currentChunkMin < eegPendingMin) eegPendingMin = currentChunkMin;
+    if (currentChunkMax > eegPendingMax) eegPendingMax = currentChunkMax;
+    const now = performance.now();
+    const hz = Math.max(0.2, Number(eegYAxisUpdateHz) || 2);
+    const intervalMs = 1000 / hz;
+    if ((now - eegLastYAxisUpdateAtMs) >= intervalMs) {
+      eegLastYAxisUpdateAtMs = now;
+      const margin = (eegPendingMax - eegPendingMin) * 0.1;
+      const targetMin = eegPendingMin - margin;
+      const targetMax = eegPendingMax + margin;
+      if (globalYMin === Infinity) {
+        globalYMin = targetMin;
+        globalYMax = targetMax;
+      } else {
+        globalYMin = globalYMin * 0.9 + targetMin * 0.1;
+        globalYMax = globalYMax * 0.9 + targetMax * 0.1;
+      }
+      eegPendingMin = Infinity;
+      eegPendingMax = -Infinity;
     }
   }
 
@@ -495,7 +592,10 @@ function connectEegWs() {
   wsEeg.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data);
-      if (msg.type === 'eeg_data') handleEEGData(msg.data);
+      if (msg.type === 'eeg_data') {
+        lastEegDataAtMs = Date.now();
+        enqueuePendingEegChunk(msg.data);
+      }
     } catch (_) {}
   };
   wsEeg.onerror = () => {
@@ -524,9 +624,7 @@ function connectDebugWs() {
       if (msg.type === 'debug_init' && Array.isArray(msg.events)) {
         debugLines = msg.events.map(formatDebugEvent);
         if (debugLines.length > 2000) debugLines = debugLines.slice(-2000);
-        if (!debugPaused) {
-          renderDebug();
-        }
+        if (!debugPaused) scheduleDebugRender();
         return;
       }
       if (msg.type === 'debug_event' && msg.event) {
@@ -537,7 +635,7 @@ function connectDebugWs() {
         } else {
           debugLines.push(line);
           if (debugLines.length > 2000) debugLines = debugLines.slice(-2000);
-          renderDebug();
+          scheduleDebugRender();
         }
       }
     } catch (_) {}
@@ -561,7 +659,7 @@ async function bootstrapDebug() {
     clearBtn.onclick = () => {
       debugLines = [];
       debugBufferedLines = [];
-      renderDebug();
+      scheduleDebugRender();
     };
   }
   if (pauseBtn) {
@@ -575,14 +673,14 @@ async function bootstrapDebug() {
           debugBufferedLines = [];
           if (debugLines.length > 2000) debugLines = debugLines.slice(-2000);
         }
-        renderDebug();
+        scheduleDebugRender();
       }
     };
   }
   if (filter) {
     filter.oninput = (e) => {
       debugFilterText = e.target.value || '';
-      renderDebug();
+      scheduleDebugRender();
     };
   }
 }
@@ -595,6 +693,9 @@ export async function enterEegPage() {
   eegWsState = 'disconnected';
   eegStatusHint = '';
   eegSessionLocked = false;
+  eegPendingEegChunks = [];
+  debugDirty = false;
+  debugRenderLoopActive = false;
   const startBtn = document.getElementById('btn-eeg-start');
   const stopBtn = document.getElementById('btn-eeg-stop');
   if (startBtn) startBtn.disabled = false;
@@ -614,7 +715,17 @@ export async function enterEegPage() {
       ? Number(uiWave.max_render_points_per_channel)
       : 800;
     eegGlobalScale = uiWave && typeof uiWave.global_scale === 'boolean' ? !!uiWave.global_scale : true;
+    eegWsMaxPendingChunks = uiWave && typeof uiWave.max_pending_ws_chunks === 'number'
+      ? Number(uiWave.max_pending_ws_chunks)
+      : 2;
+    eegYAxisStep = uiWave && typeof uiWave.y_axis_step === 'number' ? Number(uiWave.y_axis_step) : 50;
+    eegYAxisUpdateHz = uiWave && typeof uiWave.y_axis_update_hz === 'number' ? Number(uiWave.y_axis_update_hz) : 2;
     maxPoints = Math.max(50, Math.floor(Math.max(1, eegSamplingRateHz) * Math.max(0.2, eegWindowSec)));
+    eegLastYAxisUpdateAtMs = 0;
+    eegPendingMin = Infinity;
+    eegPendingMax = -Infinity;
+    eegLastAppliedYAxisMin = null;
+    eegLastAppliedYAxisMax = null;
     const notchEl = document.getElementById('eeg-notch-hint');
     if (notchEl) {
       const notch = cfg && cfg.signal && cfg.signal.notch ? cfg.signal.notch : null;
@@ -738,10 +849,16 @@ export async function enterEegPage() {
 export async function leaveEegPage() {
   eegPageActive = false;
   eegRenderLoopActive = false;
+  debugRenderLoopActive = false;
   if (eegGridEl && eegGridScrollHandler) {
     try { eegGridEl.removeEventListener('scroll', eegGridScrollHandler); } catch (_) {}
   }
   eegGridEl = null;
+  if (eegResizeListenerAttached && eegResizeHandler) {
+    try { window.removeEventListener('resize', eegResizeHandler); } catch (_) {}
+    eegResizeListenerAttached = false;
+    eegResizeHandler = null;
+  }
   if (eegReconnectTimer) { try { clearTimeout(eegReconnectTimer); } catch (_) {} eegReconnectTimer = null; }
   if (debugReconnectTimer) { try { clearTimeout(debugReconnectTimer); } catch (_) {} debugReconnectTimer = null; }
   if (eegStatusTimer) { try { clearInterval(eegStatusTimer); } catch (_) {} eegStatusTimer = null; }
@@ -753,4 +870,6 @@ export async function leaveEegPage() {
     themeListenerAttached = false;
     themeChangeHandler = null;
   }
+  eegPendingEegChunks = [];
+  disposeCharts();
 }

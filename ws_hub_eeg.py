@@ -9,9 +9,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.0 创建文件
 - 2026-05-03: 1.0.1 广播改为顺序发送全部 chunk；队列满时合并旧 chunk，避免丢包
 - 2026-05-04: 1.0.2 文件更名为 ws_hub_eeg，命名与 impedance/tdcs 保持一致
+- 2026-05-07: 1.0.3 发送前变换（如陷波）移至线程执行，降低事件循环阻塞与长时间卡顿
 
 作者: Spoon
-版本: 1.0.2
+版本: 1.0.3
 """
 
 from __future__ import annotations
@@ -156,7 +157,7 @@ class EegWsHub:
                 send_chunk = item
                 if self._transform is not None:
                     try:
-                        send_chunk = self._transform(item)
+                        send_chunk = await asyncio.to_thread(self._transform, item)
                     except Exception:
                         send_chunk = item
 
@@ -178,4 +179,3 @@ class EegWsHub:
                 return
             except Exception:
                 await asyncio.sleep(0.02)
-

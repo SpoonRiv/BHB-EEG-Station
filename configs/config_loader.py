@@ -24,9 +24,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.1.14 阻抗阈值滑条默认上限调整为 25000
 - 2026-05-04: 1.1.15 增加电刺激（tDCS）配置段占位（enabled/ui）
 - 2026-05-04: 1.1.16 统一三模式命名（eeg/impedance/tdcs），并显式区分 8/16 通道配置字段
+- 2026-05-07: 1.1.17 增加前端 WS 待处理上限与离线写入队列上限配置，降低长时间运行卡顿风险
+- 2026-05-08: 1.1.18 增加动态 y 轴分档与更新频率配置，并下调默认渲染/转发频率以降低长时间渲染压力
 
 作者: Spoon
-版本: 1.1.16
+版本: 1.1.18
 """
 
 import os
@@ -182,6 +184,8 @@ class OfflineConfig:
     root_dir: str
     export: OfflineExportConfig
     filter: OfflineFilterConfig
+    writer_queue_max_chunks: int
+    writer_queue_full_policy: str
 
 
 @dataclass(frozen=True)
@@ -190,6 +194,9 @@ class WaveformUiConfig:
     render_fps_hz: int
     max_render_points_per_channel: int
     global_scale: bool
+    max_pending_ws_chunks: int
+    y_axis_step: float
+    y_axis_update_hz: float
 
 
 @dataclass(frozen=True)
@@ -425,6 +432,21 @@ def load_config(config_path: str) -> AppConfig:
     if max_render_points_per_channel > 5000:
         max_render_points_per_channel = 5000
     global_scale = bool(waveform_ui_raw.get("global_scale", True))
+    max_pending_ws_chunks = int(waveform_ui_raw.get("max_pending_ws_chunks", 2))
+    if max_pending_ws_chunks < 1:
+        max_pending_ws_chunks = 1
+    if max_pending_ws_chunks > 20:
+        max_pending_ws_chunks = 20
+    y_axis_step = float(waveform_ui_raw.get("y_axis_step", 50.0))
+    if not (y_axis_step == y_axis_step):
+        y_axis_step = 50.0
+    y_axis_update_hz = float(waveform_ui_raw.get("y_axis_update_hz", 2.0))
+    if not (y_axis_update_hz == y_axis_update_hz):
+        y_axis_update_hz = 2.0
+    if y_axis_update_hz < 0.2:
+        y_axis_update_hz = 0.2
+    if y_axis_update_hz > 20.0:
+        y_axis_update_hz = 20.0
 
     def _as_u8_list(items: Any) -> List[int]:
         if not isinstance(items, list):
@@ -628,6 +650,14 @@ def load_config(config_path: str) -> AppConfig:
 
     export_raw = offline_raw.get("export", {}) or {}
     filter_raw = offline_raw.get("filter", {}) or {}
+    writer_queue_max_chunks = int(offline_raw.get("writer_queue_max_chunks", 50))
+    if writer_queue_max_chunks < 1:
+        writer_queue_max_chunks = 1
+    if writer_queue_max_chunks > 1000:
+        writer_queue_max_chunks = 1000
+    writer_queue_full_policy = str(offline_raw.get("writer_queue_full_policy", "merge") or "merge").strip().lower()
+    if writer_queue_full_policy not in ("merge", "drop_oldest", "drop_newest"):
+        writer_queue_full_policy = "merge"
     offline = OfflineConfig(
         root_dir=str(offline_raw.get("root_dir", "offlinedata") or "offlinedata"),
         export=OfflineExportConfig(
@@ -640,6 +670,8 @@ def load_config(config_path: str) -> AppConfig:
             lowcut_hz_default=float(filter_raw.get("lowcut_hz_default", 3.0)),
             highcut_hz_default=float(filter_raw.get("highcut_hz_default", 50.0)),
         ),
+        writer_queue_max_chunks=writer_queue_max_chunks,
+        writer_queue_full_policy=writer_queue_full_policy,
     )
 
     ui = UiConfig(
@@ -648,6 +680,9 @@ def load_config(config_path: str) -> AppConfig:
             render_fps_hz=render_fps_hz,
             max_render_points_per_channel=max_render_points_per_channel,
             global_scale=global_scale,
+            max_pending_ws_chunks=max_pending_ws_chunks,
+            y_axis_step=y_axis_step,
+            y_axis_update_hz=y_axis_update_hz,
         )
     )
 
