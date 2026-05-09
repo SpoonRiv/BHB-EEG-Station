@@ -10,9 +10,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.0.3 按 task_running/task_mode 刷新按钮状态：运行中禁用“开始”并启用“停止”，并与顶部导航锁定一致
 - 2026-05-04: 1.0.4 点击 start/stop 时立即临时禁用顶部导航按钮，避免状态轮询延迟导致误操作
 - 2026-05-04: 1.0.5 页面内状态轮询同步顶部导航锁定（以 task_running 为准），停止后无需等待全局轮询即可解锁
+- 2026-05-09: 1.0.6 增加电量徽标渲染与 tDCS 监测数据展示（TDCS_FRAME）
+- 2026-05-09: 1.0.7 去掉“设备未连接”提示框样式，页面改为数据/控制双栏分框
 
 作者: Spoon
-版本: 1.0.5
+版本: 1.0.7
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -35,6 +37,37 @@ function setStatus(text, kind) {
   if (kind === 'success') box.classList.add('success');
   if (kind === 'error') box.classList.add('error');
   box.textContent = text || '';
+}
+
+function renderBatteryBadge(battery, running) {
+  const badge = document.getElementById('tdcs-battery-badge');
+  const textEl = document.getElementById('tdcs-battery-text');
+  if (!badge || !textEl) return;
+
+  badge.classList.remove('active', 'warn', 'error');
+
+  if (!running) {
+    textEl.textContent = '电量：--';
+    return;
+  }
+
+  const v = battery && typeof battery.value === 'number' ? battery.value : null;
+  if (v === null || !Number.isFinite(v)) {
+    textEl.textContent = '电量：获取中';
+    badge.classList.add('warn');
+    return;
+  }
+
+  const isPercent = Number.isInteger(v) && v >= 0 && v <= 100;
+  if (isPercent) {
+    textEl.textContent = `电量：${v}%`;
+    if (v >= 50) badge.classList.add('active');
+    else if (v >= 20) badge.classList.add('warn');
+    else badge.classList.add('error');
+    return;
+  }
+
+  textEl.textContent = `电量：${v}`;
 }
 
 function setReservedVisible(visible) {
@@ -70,6 +103,7 @@ async function refreshTdcsStatusHint() {
     const taskActive = taskRunning && String(dev.task_mode || '') === 'tdcs';
     setHeaderNavDisabled(taskRunning);
     renderTdcsControlButtons(running, connected, taskActive);
+    renderBatteryBadge(dev && dev.battery ? dev.battery : null, running);
     if (!tdcsConfigEnabled) {
       setStatus('当前配置已禁用电刺激模式（tdcs.enabled=false）', 'error');
       return;
@@ -147,6 +181,40 @@ function connectTdcsDebugWs() {
         return;
       }
       if (msg.type === 'debug_event' && msg.event) {
+        if (msg.event.tag === 'TDCS_FRAME' && msg.event.data) {
+          const d = msg.event.data;
+          
+          const outCurrUa = document.getElementById('tdcs-out-curr-ua');
+          if (outCurrUa) outCurrUa.innerHTML = `${Number(d.out_curr_uA).toFixed(2)} <span style="font-size: 12px; font-weight: normal;">uA</span>`;
+          
+          const hvUv = document.getElementById('tdcs-hv-uv');
+          if (hvUv) hvUv.innerHTML = `${Number(d.hv_uV).toFixed(2)} <span style="font-size: 12px; font-weight: normal;">uV</span>`;
+          
+          const outCurrRaw = document.getElementById('tdcs-out-curr-raw');
+          if (outCurrRaw) outCurrRaw.textContent = d.out_curr_raw;
+          
+          const hvRaw = document.getElementById('tdcs-hv-raw');
+          if (hvRaw) hvRaw.textContent = d.hv_raw;
+          
+          const stateWorking = document.getElementById('tdcs-state-working');
+          if (stateWorking) {
+            stateWorking.className = 'badge ' + (d.is_working ? 'active' : 'warn');
+            stateWorking.querySelector('div:last-child').textContent = `CCS工作状态：${d.is_working ? '工作中' : '停止工作'}`;
+          }
+          
+          const stateOpen = document.getElementById('tdcs-state-open');
+          if (stateOpen) {
+            stateOpen.className = 'badge ' + (d.open_circuit ? 'error' : 'active');
+            stateOpen.querySelector('div:last-child').textContent = `负载开路故障：${d.open_circuit ? '开路故障' : '无故障'}`;
+          }
+          
+          const stateOver = document.getElementById('tdcs-state-over');
+          if (stateOver) {
+            stateOver.className = 'badge ' + (d.over_current ? 'error' : 'active');
+            stateOver.querySelector('div:last-child').textContent = `负载过流故障：${d.over_current ? '过流故障' : '无故障'}`;
+          }
+        }
+        
         const line = formatDebugEvent(msg.event);
         if (debugPaused) {
           debugBufferedLines.push(line);

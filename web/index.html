@@ -34,9 +34,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.2.15 调试输出窗口自适应头部高度，避免按钮换行导致留白不一致
 - 2026-05-04: 1.2.16 调试输出窗口改为自适应卡片高度，统一灰色窗口四周留白
 - 2026-05-09: 1.2.17 (Fengye) 增加 SSVEP 刺激模式的页面结构
+- 2026-05-09: 1.2.18 电刺激页面增加监测数据展示与电量徽标
+- 2026-05-09: 1.2.19 电刺激页面去掉状态提示框样式，数据/控制面板用两个框区分
 
 作者: Spoon
-版本: 1.2.17
+版本: 1.2.19
 -->
 <html lang="zh-CN">
 <head>
@@ -418,12 +420,77 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             <div class="card-title">电刺激（tDCS）</div>
                             <div class="card-sub">页面占位：后续增加参数、流程与安全校验</div>
                         </div>
+                        <div class="row">
+                            <div class="badge" id="tdcs-battery-badge">
+                                <div class="badge-dot"></div>
+                                <div id="tdcs-battery-text">电量：--</div>
+                            </div>
+                        </div>
                     </div>
                     <div class="card-body">
                         <div class="stack">
-                            <div class="hint-strip" id="tdcs-status"></div>
-                            <div class="card-sub">当前版本仅实现：连接后可下发 tDCS start/stop 指令；参数与执行过程后续开发。</div>
-                            <div id="tdcs-reserved">
+                            <div class="card-sub" id="tdcs-status" style="margin-bottom: 6px;"></div>
+                            
+                            <div class="tdcs-panel-layout" style="display: flex; gap: 20px;">
+                                <div class="status-box" style="flex: 1; padding: 12px;">
+                                <div class="tdcs-data-panel" style="display: flex; flex-direction: column; gap: 16px;">
+                                    <div class="field">
+                                        <div class="label" style="font-weight: bold; margin-bottom: 8px;">监测数据</div>
+                                        <div class="row" style="gap: 16px;">
+                                            <div class="status-box" style="flex: 1; border-left: 4px solid #1890ff;">
+                                                <div style="font-size: 12px; color: var(--text-secondary);">实际输出电流 (计算值)</div>
+                                                <div style="font-size: 20px; font-weight: bold; margin-top: 4px;" id="tdcs-out-curr-ua">-- <span style="font-size: 12px; font-weight: normal;">uA</span></div>
+                                            </div>
+                                            <div class="status-box" style="flex: 1; border-left: 4px solid #52c41a;">
+                                                <div style="font-size: 12px; color: var(--text-secondary);">高压电源电压 (计算值)</div>
+                                                <div style="font-size: 20px; font-weight: bold; margin-top: 4px;" id="tdcs-hv-uv">-- <span style="font-size: 12px; font-weight: normal;">uV</span></div>
+                                            </div>
+                                        </div>
+                                        <div class="row" style="gap: 16px; margin-top: 8px;">
+                                            <div class="status-box" style="flex: 1; border-left: 4px solid var(--border-color); background: transparent;">
+                                                <div style="font-size: 12px; color: var(--text-secondary);">输出电流测量值 (原始值)</div>
+                                                <div style="font-size: 14px; margin-top: 4px;" id="tdcs-out-curr-raw">--</div>
+                                            </div>
+                                            <div class="status-box" style="flex: 1; border-left: 4px solid var(--border-color); background: transparent;">
+                                                <div style="font-size: 12px; color: var(--text-secondary);">高压电压测量值 (原始值)</div>
+                                                <div style="font-size: 14px; margin-top: 4px;" id="tdcs-hv-raw">--</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="field">
+                                        <div class="label" style="font-weight: bold; margin-bottom: 8px;">状态信息</div>
+                                        <div class="row" style="gap: 12px;">
+                                            <div class="badge" id="tdcs-state-working" style="flex: 1; justify-content: center; padding: 8px;">
+                                                <div class="badge-dot"></div>
+                                                <div>CCS工作状态：未知</div>
+                                            </div>
+                                            <div class="badge" id="tdcs-state-open" style="flex: 1; justify-content: center; padding: 8px;">
+                                                <div class="badge-dot"></div>
+                                                <div>负载开路故障：未知</div>
+                                            </div>
+                                            <div class="badge" id="tdcs-state-over" style="flex: 1; justify-content: center; padding: 8px;">
+                                                <div class="badge-dot"></div>
+                                                <div>负载过流故障：未知</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                </div>
+                                
+                                <div class="status-box" style="flex: 1; padding: 12px;">
+                                <div class="tdcs-ctrl-panel">
+                                    <div class="field">
+                                        <div class="label" style="font-weight: bold; margin-bottom: 8px;">控制面板 (预留)</div>
+                                        <div class="status-box" style="height: 100%; min-height: 200px; display: flex; align-items: center; justify-content: center; color: var(--text-secondary);">
+                                            后续接入一二级指令控制按钮与参数配置
+                                        </div>
+                                    </div>
+                                </div>
+                                </div>
+                            </div>
+                            
+                            <div id="tdcs-reserved" style="display: none;">
                                 <div class="card-sub">参数区（预留）：电流/时长/升降沿/电极信息/安全阈值等后续在此处接入。</div>
                             </div>
                         </div>

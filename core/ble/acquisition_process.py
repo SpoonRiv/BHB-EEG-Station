@@ -19,9 +19,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.1.9 统一三模式命名并显式区分 8/16 通道配置字段（n_channels/protocol.ch8/ch16）
 - 2026-05-04: 1.1.10 限制 tDCS 仅在 8 通道模式可用（16 通道规划不包含电刺激）
 - 2026-05-04: 1.1.11 EEG 启动不再发送 pre_stop_eeg（0x02 0x02）
+- 2026-05-09: 1.1.12 增加 tDCS 通知帧解析与调试事件（TDCS_RX/TDCS_FRAME/TDCS_NODATA）
 
 作者: Spoon
-版本: 1.1.11
+版本: 1.1.12
 """
 
 import asyncio
@@ -242,9 +243,16 @@ async def _connect_and_stream(
     imp_no_data_reported = False
     impedance_streaming_enabled = False
 
+    tdcs_buf = bytearray()
+    tdcs_notify_counter = 0
+    tdcs_last_notify_ts: float = 0.0
+    tdcs_no_data_reported = False
+    tdcs_streaming_enabled = False
+
     def on_notify(_: int, data: bytearray) -> None:
         nonlocal frame_counter, notify_counter, last_notify_ts, no_data_reported, eeg_streaming_enabled
         nonlocal imp_frame_counter, imp_notify_counter, imp_last_notify_ts, imp_no_data_reported, impedance_streaming_enabled
+        nonlocal tdcs_buf, tdcs_notify_counter, tdcs_last_notify_ts, tdcs_no_data_reported, tdcs_streaming_enabled
 
         if impedance_streaming_enabled:
             imp_notify_counter += 1
@@ -319,6 +327,92 @@ async def _connect_and_stream(
                             pass
             return
 
+        if tdcs_streaming_enabled:
+            tdcs_notify_counter += 1
+            tdcs_last_notify_ts = time.time()
+            tdcs_no_data_reported = False
+            
+            if debug_queue is not None:
+                try:
+                    if tdcs_notify_counter % 5 == 0:
+                        debug_queue.put(
+                            {
+                                "tag": "TDCS_RX",
+                                "message": "收到tDCS通知数据",
+                                "data": {"len": int(len(data))},
+                            }
+                        )
+                except Exception:
+                    pass
+                    
+            expected = 10
+            hdr0, hdr1 = 0xEB, 0x90
+            
+            if len(data) == expected and len(data) >= 2 and data[0] == hdr0 and data[1] == hdr1:
+                tdcs_buf.clear()
+                frames = [bytes(data)]
+            else:
+                tdcs_buf.extend(data)
+                header_bytes = bytes([hdr0, hdr1])
+                frames = []
+                for _ in range(20):
+                    pos = tdcs_buf.find(header_bytes)
+                    if pos < 0:
+                        if len(tdcs_buf) > 1:
+                            del tdcs_buf[:-1]
+                        break
+                    if pos > 0:
+                        del tdcs_buf[:pos]
+                    if len(tdcs_buf) < expected:
+                        break
+                    frames.append(bytes(tdcs_buf[:expected]))
+                    del tdcs_buf[:expected]
+                    
+            for fr in frames:
+                try:
+                    out_curr_raw = int.from_bytes(fr[2:5], byteorder="big", signed=False)
+                    out_curr_uA = out_curr_raw * 0.3125 / 40.0 - 444.0
+                    
+                    hv_raw = int.from_bytes(fr[5:8], byteorder="big", signed=False)
+                    hv_uV = hv_raw * 195.3125
+                    
+                    status_byte = int(fr[8])
+                    is_working = bool(status_byte & 0x04)
+                    open_circuit = bool(status_byte & 0x02)
+                    over_current = bool(status_byte & 0x01)
+                    
+                    battery = int(fr[9])
+                    if battery >= 0 and battery <= 100:
+                        status_queue.put({"type": "battery", "value": battery})
+                        
+                    if debug_queue is not None:
+                        try:
+                            debug_queue.put(
+                                {
+                                    "tag": "TDCS_FRAME",
+                                    "message": "tDCS 监测数据解析",
+                                    "data": {
+                                        "out_curr_raw": out_curr_raw,
+                                        "out_curr_uA": out_curr_uA,
+                                        "hv_raw": hv_raw,
+                                        "hv_uV": hv_uV,
+                                        "is_working": is_working,
+                                        "open_circuit": open_circuit,
+                                        "over_current": over_current,
+                                        "battery": battery,
+                                    },
+                                }
+                            )
+                        except Exception:
+                            pass
+                except Exception as e:
+                    if debug_queue is not None:
+                        try:
+                            debug_queue.put({"tag": "TDCS_PARSE", "message": "tDCS 帧解析失败", "data": {"error": str(e), "len": int(len(fr))}})
+                        except Exception:
+                            pass
+            return
+
         notify_counter += 1
         last_notify_ts = time.time()
         no_data_reported = False
@@ -384,6 +478,11 @@ async def _connect_and_stream(
                 imp_notify_counter = 0
                 imp_last_notify_ts = 0.0
                 imp_no_data_reported = False
+                tdcs_streaming_enabled = False
+                tdcs_buf.clear()
+                tdcs_notify_counter = 0
+                tdcs_last_notify_ts = 0.0
+                tdcs_no_data_reported = False
 
                 async def _send_cmd(cmd: List[int], action: str) -> None:
                     payload = bytearray(cmd)
@@ -464,9 +563,15 @@ async def _connect_and_stream(
                                 current_mode = "tdcs"
                                 eeg_streaming_enabled = False
                                 impedance_streaming_enabled = False
+                                tdcs_streaming_enabled = False
                                 imp_buf.clear()
                                 buf.clear()
+                                tdcs_buf.clear()
+                                tdcs_notify_counter = 0
+                                tdcs_last_notify_ts = time.time()
+                                tdcs_no_data_reported = False
                                 await _send_cmd(cfg.bluetooth.commands.start_tdcs, action="start_tdcs")
+                                tdcs_streaming_enabled = True
                                 status_queue.put({"type": "mode_started", "mode": "tdcs"})
                         elif msg_type == "stop_mode":
                             mode = str(cmd_msg.get("mode", ""))
@@ -517,6 +622,8 @@ async def _connect_and_stream(
                                 buf.clear()
                                 impedance_streaming_enabled = False
                                 imp_buf.clear()
+                                tdcs_streaming_enabled = False
+                                tdcs_buf.clear()
                                 try:
                                     await _send_cmd(cfg.bluetooth.commands.stop_tdcs, action="stop_tdcs")
                                 except Exception as e:
@@ -564,6 +671,20 @@ async def _connect_and_stream(
                                     {
                                         "tag": "IMP_NODATA",
                                         "message": "3秒未收到阻抗通知数据（可能 notify_handle/write_handle 不匹配，或设备未开始传输）",
+                                        "data": {"notify_handle": int(notify_handle), "write_handle": int(write_handle)},
+                                    }
+                                )
+                            except Exception:
+                                pass
+
+                    if tdcs_streaming_enabled and debug_queue is not None and not tdcs_no_data_reported:
+                        if tdcs_last_notify_ts > 0 and tdcs_notify_counter == 0 and (time.time() - tdcs_last_notify_ts) > 3.0:
+                            tdcs_no_data_reported = True
+                            try:
+                                debug_queue.put(
+                                    {
+                                        "tag": "TDCS_NODATA",
+                                        "message": "3秒未收到tDCS通知数据（可能 notify_handle/write_handle 不匹配，或设备未开始传输）",
                                         "data": {"notify_handle": int(notify_handle), "write_handle": int(write_handle)},
                                     }
                                 )
