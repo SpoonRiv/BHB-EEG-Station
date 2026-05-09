@@ -28,9 +28,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.3.4 统一三模式命名：eeg/impedance/tdcs，并重命名 EEG WebSocket Hub 模块
 - 2026-05-07: 1.3.5 下发前端 WS 背压配置并将离线写入队列上限接入配置，降低长时间运行卡顿风险
 - 2026-05-08: 1.3.6 下发动态 y 轴分档/更新频率配置并下调默认渲染频率，降低 ECharts 布局与重绘压力
+- 2026-05-09: 1.3.7 (Fengye)增加 SSVEP 模式：独立进程启动/停止刺激程序并暴露状态字段
+- 2026-05-09: 1.3.8 修复 SSVEP 刺激模块导入路径，避免启动时报错
 
 作者: Spoon
-版本: 1.3.6
+版本: 1.3.8
 """
 
 import asyncio
@@ -56,7 +58,7 @@ from core.offline.offline_service import BandpassConfig, ExportTarget, OfflineSe
 from core.signal.notch_filter import NotchFilter, NotchFilterConfig
 from ws_hub_eeg import EegWsHub, EegWsHubConfig
 from ws_hub_impedance import ImpedanceWsHub, ImpedanceWsHubConfig
-from stim_V1 import start_ssvep_experiment
+from core.ssvep.stim_v1 import start_ssvep_experiment
 import multiprocessing
 import threading
 # import socketio

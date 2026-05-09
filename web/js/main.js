@@ -16,10 +16,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.0.9 连接状态文案规范：仅“未连接”与“连接失败：设备名”
 - 2026-05-04: 1.0.10 拆分电刺激页面模块（tdcs.js），路由进入时初始化占位逻辑
 - 2026-05-04: 1.0.10 非连接状态时顶部指示灯显示为红色
-- 2026-05-09: 1.0.11 新增SSVEP刺激模式
+- 2026-05-09: 1.0.11 (Fengye) 新增SSVEP刺激模式
 
 作者: Spoon , Fengye
-版本: 1.0.10
+版本: 1.0.11
 */
 
 import { getConfig, getStatus } from './api.js';

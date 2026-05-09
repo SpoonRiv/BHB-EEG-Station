@@ -8,9 +8,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.1 增加离线导出接口封装
 - 2026-05-03: 1.0.2 增加离线会话查询接口封装
 - 2026-05-03: 1.0.3 增加 10-20 通道选择与常用组合接口封装
+- 2026-05-09: 1.0.4 (Alice)补充模式 start/stop 的兼容封装（postModeStart/postModeStop）
 
 作者: Spoon
-版本: 1.0.3
+版本: 1.0.4
 */
 
 async function fetchJson(url, options) {

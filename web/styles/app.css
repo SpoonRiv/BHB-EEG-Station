@@ -31,9 +31,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.0.24 顶栏版本号改为底部对齐（与大标题基线对齐）
 - 2026-05-04: 1.0.25 调试输出窗口四周留白统一（padding/box-sizing）
 - 2026-05-04: 1.0.26 设备页地形图样式文件更名：topomap.css -> eeg_topomap.css
+- 2026-05-09: 1.0.27 (Fengye) 增加 SSVEP 刺激模式的样式支持
 
 作者: Spoon
-版本: 1.0.26
+版本: 1.0.27
 */
 
 @import "./eeg_topomap.css";

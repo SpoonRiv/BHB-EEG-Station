@@ -1,21 +1,52 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Copyright (c) 2026 BUAA BHB. All rights reserved.
+
+文件功能: SSVEP 刺激实验脚本（PsychoPy 刺激 + LSL 拉流 + FBCCA 识别）
+
+修改日志:
+- 2026-05-09: 1.0.0 创建文件
+
+作者: Fengye
+版本: 1.0.0
+"""
+
 from __future__ import absolute_import, division
-import multiprocessing
-import time
+
 import asyncio
-from scipy.signal import cheby1, cheb1ord, resample
-import pandas as pd
-from numpy import (sin, pi, )
+import multiprocessing
 import os  # handy system and path functions
-import fbcca
-import numpy as np
-from pylsl import StreamInfo, StreamOutlet ,resolve_stream,StreamInlet
-# from ble_receive_eeg import start_ble_receiver
-import warnings
 import socket
+import time
+import warnings
+
+import numpy as np
+import pandas as pd
+import pylsl
+from numpy import pi, sin
+from pylsl import StreamInlet, StreamInfo, StreamOutlet
+from scipy.signal import cheb1ord, cheby1, resample
+
+from core.signal import fbcca
+
 warnings.filterwarnings("ignore")
-from psychopy import gui, visual, core, data, logging
-from psychopy.constants import (NOT_STARTED, STARTED, FINISHED)
-from psychopy.hardware import keyboard
+
+try:
+    from psychopy import core, data, gui, logging, visual
+    from psychopy.constants import FINISHED, NOT_STARTED, STARTED
+    from psychopy.hardware import keyboard
+except ModuleNotFoundError:
+    core = None
+    data = None
+    gui = None
+    logging = None
+    visual = None
+    FINISHED = None
+    NOT_STARTED = None
+    STARTED = None
+    keyboard = None
+
 
 '''
 V0.02 检测阻抗
@@ -29,33 +60,38 @@ V1 为了测试trigger功能是否为上位机问题,将使用线程启动脑电
 修改为独立运行脑电接收数据,为了传递trigger开始信息,使用socket进行程序间通信.
 '''
 
+
 class client:
     def __init__(self, port):
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client_socket.connect(('127.0.0.1', port))
-    def send_trigger(self,command):
+
+    def send_trigger(self, command):
         byte_command = command.encode('utf-8')
         self.client_socket.sendall(byte_command)
         print(byte_command)
+
     def close_client(self):
         self.client_socket.close()
 
+
 def received_data(queue, save_path):
     while True:
-        streams = resolve_stream('type', 'EEG')
-        inlet = StreamInlet(streams[0],max_chunklen=10)
+        if hasattr(pylsl, "resolve_stream"):
+            streams = pylsl.resolve_stream("type", "EEG")
+        else:
+            streams = pylsl.resolve_byprop("type", "EEG", timeout=1.0)
+        inlet = StreamInlet(streams[0], max_chunklen=10)
         eeg_data = []
         word = queue.get()
         print("time: {}, 开始记录数据: {}".format(time.time(), word))
         if word.startswith("start"):
             print(1)
             while True:
-                sample , timestamps= inlet.pull_sample()
+                sample, timestamps = inlet.pull_sample()
                 eeg_data.append(sample)
-                # print(timestamps)
                 if not queue.empty():
                     end_word = queue.get()
-                    # print(222222222222222)
                     if end_word == "end":
                         break
             eeg_data = np.array(eeg_data)
@@ -65,10 +101,12 @@ def received_data(queue, save_path):
             print("存储脑电程序退出")
             break
 
+
 def quit_function():
-    # trigger_client.send_trigger('del')
     time.sleep(1)
-    core.quit()
+    if core is not None:
+        core.quit()
+
 
 def decorator(func):
     def wrapper(*args, **kwargs):
@@ -84,6 +122,8 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
     """
     被 main.py 调用的入口函数
     """
+    if gui is None or visual is None or core is None:
+        raise RuntimeError("SSVEP 依赖 psychopy 未安装：请先在当前环境安装 psychopy 后再启动该模式")
     import os
     import multiprocessing
     import time
@@ -126,14 +166,8 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
     # Data file name stem = absolute path + name; later add .psyexp, .csv, .log, etc
     filename = _thisDir + os.sep + u'data/%s_%s_%s' % (expInfo['participant'], expName, expInfo['date'])
 
-    # save a log file for detail verbose info
-    # logFile = logging.LogFile(filename + '.log', level=logging.EXP)
-    # logging.console.setLevel(logging.WARNING)  # this outputs to the screen, not a file
-
     endExpNow = False  # flag for 'escape' or other condition => quit the exp
     frameTolerance = 0.001  # how close to onset before 'same' frame
-
-    # Start Code - component code to be run before the window creation
 
     # Setup the Window
     win = visual.Window(
@@ -167,8 +201,6 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
     # instr Begin Experiment
     Freq = np.array([8.00, 9.00, 10.00, 11.00, 12.00, 13.00, 14.00, 15.00])
     Phas = np.array([0, 0.15, 0.3, 0.45, 0.60, 0.75, 0.9, 0])
-    # Freq = np.array([9.00, 9.00, 9.00, 9.00, 9.00, 9.00, 9.00, 9.00])*9.0/9.0
-    # Phas = np.array([0, 0, 0, 0, 0, 0, 0, 0])
 
     varpy = [600, 90]
 
@@ -179,21 +211,18 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
     x2 = screen_long * 2 / 4 - screen_long / 2
     x3 = screen_long * 3 / 4 - screen_long / 2
     x4 = screen_long * 4 / 4 - screen_long / 2
-    # x5 = screen_long * 2 / 8 - screen_long / 2
 
     y0 = screen_width * 0 / 4 - screen_width / 2
     y1 = screen_width * 1 / 4 - screen_width / 2
     y2 = screen_width * 2 / 4 - screen_width / 2
     y3 = screen_width * 3 / 4 - screen_width / 2
     y4 = screen_width * 4 / 4 - screen_width / 2
-    # y5 = screen_width * 6 / 8 - screen_width / 2
 
     mylocation = [
         [(x0 + x1) / 2, (y3 + y4) / 2],  ##上升
         [x2, (y3 + y4) / 2],  ##前进
         [(x0 + x1) / 2, (y0 + y1) / 2],  ##起飞
         [(x0 + x1) / 2, y2],  ##左转
-        # [x5, y5],                        ##悬停
         [(x3 + x4) / 2, y2],  ##右转
         [(x3 + x4) / 2, (y0 + y1) / 2],  ##降落
         [x2, (y0 + y1) / 2],  ##后退
@@ -202,7 +231,7 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
 
     size_w = 300
     size_h = 300
-    order_lst = ['\n+\n8Hz', '\n+\n9Hz', '\n+\n10Hz', '\n+\n11Hz', '\n+\n12Hz', '\n+\n13Hz', '\n+\n14Hz', '\n+\n15Hz']#['上升', '前进', '起飞', '左转', '右转', '降落', '后退', '下降']
+    order_lst = ['\n+\n8Hz', '\n+\n9Hz', '\n+\n10Hz', '\n+\n11Hz', '\n+\n12Hz', '\n+\n13Hz', '\n+\n14Hz', '\n+\n15Hz']
     # Initialize components for Routine "cue"
     cueClock = core.Clock()
     command_0 = visual.TextStim(win=win, name='text',
@@ -399,21 +428,6 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
                                     languageStyle='LTR',
                                     depth=-3.0)
 
-    # polygon_trial_4 = visual.Rect(
-    #     win=win, name='polygon_trial_4', units='pix',
-    #     width=[1.0, 1.0][0], height=[1.0, 1.0][1],
-    #     ori=0, pos=[0, 0],
-    #     lineWidth=1, lineColor=[1, 1, 1], lineColorSpace='rgb',
-    #     fillColor=1.0, fillColorSpace='rgb',
-    #     opacity=1, depth=-4.0, interpolate=True)
-    # order_trial_4 = visual.TextStim(win=win, name='text',
-    #                                 text='悬停',
-    #                                 font='Arial',
-    #                                 units='pix', pos=(0, 0), height=50, wrapWidth=None, ori=0,
-    #                                 color='white', colorSpace='rgb', opacity=1,
-    #                                 languageStyle='LTR',
-    #                                 depth=-4.0)
-
     polygon_trial_4 = visual.Rect(
         win=win, name='polygon_trial_4', units='pix',
         width=[1.0, 1.0][0], height=[1.0, 1.0][1],
@@ -499,12 +513,7 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
     continueRoutine = True
     n=0
 
-    # tello = Tello()
-
-    # decorator(tello.connect)()
-    # decorator(tello.set_speed)(10)  # 设置 tello 速度
-
-    # -------Run Routininstre ""-------
+    # -------Run Routine "instr"-------
     while continueRoutine:
 
         # get current time
@@ -545,11 +554,6 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
                 # a response ends the routine
                 continueRoutine = False
 
-        # check for quit (typically the Esc key)
-        # if endExpNow or defaultKeyboard.getKeys(keyList=["escape"]):
-        #     core.quit()
-        #     decorator(tello.land)()
- 
             # check if all components have finished
         if not continueRoutine:  # a component has requested a forced-end of Routine
             break
@@ -596,12 +600,6 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
                                  color='white', colorSpace='rgb', opacity=1,
                                  languageStyle='LTR',
                                  depth=0.0)
-        # if ifbegin:
-        #     time.sleep(5)
-        #     ser.write(b'4')
-        # ifbegin=True
-        # currentLoop = trials
-        # abbreviate parameter names if possible (e.g. rgb = thisTrial.rgb)
         if thisTrial != None:
             for paramName in thisTrial:
                 exec('{} = thisTrial[paramName]'.format(paramName))
@@ -641,20 +639,11 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
         order_7.setPos((mylocation[7][0], mylocation[7][1]))
         polygon_7.setSize((size_w, size_h))
 
-        # polygon_8.setPos((mylocation[8][0], mylocation[8][1]))
-        # order_8.setPos((mylocation[8][0], mylocation[8][1]))
-        # polygon_8.setSize((size_w, size_h))
-
-        # peiyu code cue
-        # selecList = [polygon_0, polygon_1, polygon_2, polygon_3, polygon_4, polygon_5, polygon_6, polygon_7, polygon_8]
         selecList = [polygon_0, polygon_1, polygon_2, polygon_3, polygon_4, polygon_5, polygon_6, polygon_7]
         selecList[loop_id % 8].setFillColor([1.000, 1.000, 1.000])  # rgb
         loop_id += 1
         selecList[loop_id % 8].setFillColor([255.000, 0, 0])  # rgb
 
-        # peiyu code cue End
-        # keep track of which components have finished
-        # cueComponents = [polygon_0, polygon_1, polygon_2, polygon_3, polygon_4, polygon_5, polygon_6, polygon_7, polygon_8]
         cueComponents = [polygon_0, polygon_1, polygon_2, polygon_3, polygon_4, polygon_5, polygon_6, polygon_7]
 
         for thisComponent in cueComponents:
@@ -670,21 +659,16 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
         cueClock.reset(-_timeToFirstFrame)  # t0 is time of first possible flip
         frameN = -1
         continueRoutine = True
-        # n=0
         # -------Run Routine "cue"-------
         while continueRoutine and routineTimer.getTime() > 0:
-            # ------------ NEW ADD
-
             # get current time
             t = cueClock.getTime()
             tThisFlip = win.getFutureFlipTime(clock=cueClock)
             tThisFlipGlobal = win.getFutureFlipTime(clock=None)
             frameN = frameN + 1  # number of completed frames (so 0 is the first frame)
-            # update/draw components on each frame
 
             # *polygon_0* updates
             if polygon_0.status == NOT_STARTED and tThisFlip >= 0.0 - frameTolerance:
-                # keep track of start time/frame for later
                 polygon_0.frameNStart = frameN  # exact frame index
                 polygon_0.tStart = t  # local t and not account for scr refresh
                 polygon_0.tStartRefresh = tThisFlipGlobal  # on global time
@@ -692,34 +676,23 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
                 polygon_0.setAutoDraw(True)
                 restim.setAutoDraw(True)
                 print(polygon_0.status)
-                # print('frameN1:%d'%frameN)
             if polygon_0.status == STARTED:
-                # print('frameN2:%d' % frameN)
-                # is it time to stop? (based on global clock, using actual start)
                 if tThisFlipGlobal > polygon_0.tStartRefresh + 1.0 - frameTolerance:
-                    # keep track of stop time/frame for later
                     polygon_0.tStop = t  # not accounting for scr refresh
                     polygon_0.frameNStop = frameN  # exact frame index
                     win.timeOnFlip(polygon_0, 'tStopRefresh')  # time at next scr refresh
                     polygon_0.setAutoDraw(False)
-                    # restim.setAutoDraw(False)
                     print('frameN3:%d' % frameN)
 
             # *polygon_1* updates
             if polygon_1.status == NOT_STARTED and tThisFlip >= 0.0 - frameTolerance:
-                # print('frameN4:%d' % frameN)
-                # keep track of start time/frame for later
                 polygon_1.frameNStart = frameN  # exact frame index
                 polygon_1.tStart = t  # local t and not account for scr refresh
                 polygon_1.tStartRefresh = tThisFlipGlobal  # on global time
                 win.timeOnFlip(polygon_1, 'tStartRefresh')  # time at next scr refresh
                 polygon_1.setAutoDraw(True)
             if polygon_1.status == STARTED:
-                # print('frameN5:%d' % frameN)
-                # is it time to stop? (based on global clock, using actual start)
                 if tThisFlipGlobal > polygon_1.tStartRefresh + 1.0 - frameTolerance:
-                    # print('frameN6:%d' % frameN)
-                    # keep track of stop time/frame for later
                     polygon_1.tStop = t  # not accounting for scr refresh
                     polygon_1.frameNStop = frameN  # exact frame index
                     win.timeOnFlip(polygon_1, 'tStopRefresh')  # time at next scr refresh
@@ -727,19 +700,13 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
 
             # *polygon_2* updates
             if polygon_2.status == NOT_STARTED and tThisFlip >= 0.0 - frameTolerance:
-                # print('frameN7:%d' % frameN)
-                # keep track of start time/frame for later
                 polygon_2.frameNStart = frameN  # exact frame index
                 polygon_2.tStart = t  # local t and not account for scr refresh
                 polygon_2.tStartRefresh = tThisFlipGlobal  # on global time
                 win.timeOnFlip(polygon_2, 'tStartRefresh')  # time at next scr refresh
                 polygon_2.setAutoDraw(True)
             if polygon_2.status == STARTED:
-                # print('frameN8:%d' % frameN)
-                # is it time to stop? (based on global clock, using actual start)
                 if tThisFlipGlobal > polygon_2.tStartRefresh + 1.0 - frameTolerance:
-                    # print('frameN9:%d' % frameN)
-                    # keep track of stop time/frame for later
                     polygon_2.tStop = t  # not accounting for scr refresh
                     polygon_2.frameNStop = frameN  # exact frame index
                     win.timeOnFlip(polygon_2, 'tStopRefresh')  # time at next scr refresh
@@ -747,16 +714,13 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
 
             # *polygon_3* updates
             if polygon_3.status == NOT_STARTED and tThisFlip >= 0.0 - frameTolerance:
-                # keep track of start time/frame for later
                 polygon_3.frameNStart = frameN  # exact frame index
                 polygon_3.tStart = t  # local t and not account for scr refresh
                 polygon_3.tStartRefresh = tThisFlipGlobal  # on global time
                 win.timeOnFlip(polygon_3, 'tStartRefresh')  # time at next scr refresh
                 polygon_3.setAutoDraw(True)
             if polygon_3.status == STARTED:
-                # is it time to stop? (based on global clock, using actual start)
                 if tThisFlipGlobal > polygon_3.tStartRefresh + 1.0 - frameTolerance:
-                    # keep track of stop time/frame for later
                     polygon_3.tStop = t  # not accounting for scr refresh
                     polygon_3.frameNStop = frameN  # exact frame index
                     win.timeOnFlip(polygon_3, 'tStopRefresh')  # time at next scr refresh
@@ -764,16 +728,13 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
 
             # *polygon_4* updates
             if polygon_4.status == NOT_STARTED and tThisFlip >= 0.0 - frameTolerance:
-                # keep track of start time/frame for later
                 polygon_4.frameNStart = frameN  # exact frame index
                 polygon_4.tStart = t  # local t and not account for scr refresh
                 polygon_4.tStartRefresh = tThisFlipGlobal  # on global time
                 win.timeOnFlip(polygon_4, 'tStartRefresh')  # time at next scr refresh
                 polygon_4.setAutoDraw(True)
             if polygon_4.status == STARTED:
-                # is it time to stop? (based on global clock, using actual start)
                 if tThisFlipGlobal > polygon_4.tStartRefresh + 1.0 - frameTolerance:
-                    # keep track of stop time/frame for later
                     polygon_4.tStop = t  # not accounting for scr refresh
                     polygon_4.frameNStop = frameN  # exact frame index
                     win.timeOnFlip(polygon_4, 'tStopRefresh')  # time at next scr refresh
@@ -781,16 +742,13 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
 
             # *polygon_5* updates
             if polygon_5.status == NOT_STARTED and tThisFlip >= 0.0 - frameTolerance:
-                # keep track of start time/frame for later
                 polygon_5.frameNStart = frameN  # exact frame index
                 polygon_5.tStart = t  # local t and not account for scr refresh
                 polygon_5.tStartRefresh = tThisFlipGlobal  # on global time
                 win.timeOnFlip(polygon_5, 'tStartRefresh')  # time at next scr refresh
                 polygon_5.setAutoDraw(True)
             if polygon_5.status == STARTED:
-                # is it time to stop? (based on global clock, using actual start)
                 if tThisFlipGlobal > polygon_5.tStartRefresh + 1.0 - frameTolerance:
-                    # keep track of stop time/frame for later
                     polygon_5.tStop = t  # not accounting for scr refresh
                     polygon_5.frameNStop = frameN  # exact frame index
                     win.timeOnFlip(polygon_5, 'tStopRefresh')  # time at next scr refresh
@@ -798,16 +756,13 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
 
             # *polygon_6* updates
             if polygon_6.status == NOT_STARTED and tThisFlip >= 0.0 - frameTolerance:
-                # keep track of start time/frame for later
                 polygon_6.frameNStart = frameN  # exact frame index
                 polygon_6.tStart = t  # local t and not account for scr refresh
                 polygon_6.tStartRefresh = tThisFlipGlobal  # on global time
                 win.timeOnFlip(polygon_6, 'tStartRefresh')  # time at next scr refresh
                 polygon_6.setAutoDraw(True)
             if polygon_6.status == STARTED:
-                # is it time to stop? (based on global clock, using actual start)
                 if tThisFlipGlobal > polygon_6.tStartRefresh + 1.0 - frameTolerance:
-                    # keep track of stop time/frame for later
                     polygon_6.tStop = t  # not accounting for scr refresh
                     polygon_6.frameNStop = frameN  # exact frame index
                     win.timeOnFlip(polygon_6, 'tStopRefresh')  # time at next scr refresh
@@ -815,16 +770,13 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
 
             # *polygon_7* updates
             if polygon_7.status == NOT_STARTED and tThisFlip >= 0.0 - frameTolerance:
-                # keep track of start time/frame for later
                 polygon_7.frameNStart = frameN  # exact frame index
                 polygon_7.tStart = t  # local t and not account for scr refresh
                 polygon_7.tStartRefresh = tThisFlipGlobal  # on global time
                 win.timeOnFlip(polygon_7, 'tStartRefresh')  # time at next scr refresh
                 polygon_7.setAutoDraw(True)
             if polygon_7.status == STARTED:
-                # is it time to stop? (based on global clock, using actual start)
                 if tThisFlipGlobal > polygon_7.tStartRefresh + 1.0 - frameTolerance:
-                    # keep track of stop time/frame for later
                     polygon_7.tStop = t  # not accounting for scr refresh
                     polygon_7.frameNStop = frameN  # exact frame index
                     win.timeOnFlip(polygon_7, 'tStopRefresh')  # time at next scr refresh
@@ -846,13 +798,6 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
             # refresh the screen
             if continueRoutine:  # don't flip if this routine is over or we'll get a blank screen
                 win.flip()
-                # if ifbegin:
-                #     time.sleep(7)
-                #     ser.write(b'8')
-                #     if result==1:
-                #         ser.write(b'0')
-                #         time.sleep(7)
-                #         ser.write(b'8')
                 ifbegin=True
                 currentLoop = trials
         i0=0
@@ -895,19 +840,9 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
         order_trial_7.setPos((mylocation[7][0], mylocation[7][1]))
         polygon_trial_7.setSize((size_w, size_h))
 
-        # polygon_trial_8.setPos((mylocation[8][0], mylocation[8][1]))
-        # order_trial_8.setPos((mylocation[8][0], mylocation[8][1]))
-        # polygon_trial_8.setSize((size_w, size_h))
-
-        # seleclist2 = [polygon_trial_0, polygon_trial_1, polygon_trial_2, polygon_trial_3, polygon_trial_4, polygon_trial_5,
-        #               polygon_trial_6,
-        #               polygon_trial_7, polygon_trial_8]
         seleclist2 = [polygon_trial_0, polygon_trial_1, polygon_trial_2, polygon_trial_3, polygon_trial_4,
                       polygon_trial_5,
                       polygon_trial_6, polygon_trial_7]
-        # keep track of which components have finished
-        # trialComponents = [polygon_trial_0, polygon_trial_1, polygon_trial_2, polygon_trial_3, polygon_trial_4,
-        #                    polygon_trial_5, polygon_trial_6, polygon_trial_7, polygon_trial_8]
         trialComponents = [polygon_trial_0, polygon_trial_1, polygon_trial_2, polygon_trial_3, polygon_trial_4,
                            polygon_trial_5, polygon_trial_6, polygon_trial_7]
         for thisComponent in trialComponents:
@@ -923,12 +858,10 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
         trialClock.reset(-_timeToFirstFrame)  # t0 is time of first possible flip
         frameN = -1
         continueRoutine = True
-        # trigger_client.send_trigger('start')
         if text:
             queue_name="start-"+str(next_target)+'-'+str(k)
         else:
             queue_name="start-"+str(n)
-        # queue_name='start-3'
         queue.put(queue_name)
         n+=1
         begin_time = time.time()
@@ -946,7 +879,6 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
 
             # *polygon_trial_0* updates
             if polygon_trial_0.status == NOT_STARTED and tThisFlip >= 0.0 - frameTolerance:
-                # keep track of start time/frame for later
                 polygon_trial_0.frameNStart = frameN  # exact frame index
                 polygon_trial_0.tStart = t  # local t and not account for scr refresh
                 polygon_trial_0.tStartRefresh = tThisFlipGlobal  # on global time
@@ -954,9 +886,7 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
                 polygon_trial_0.setAutoDraw(True)
                 order_trial_0.setAutoDraw(True)
             if polygon_trial_0.status == STARTED:
-                # is it time to stop? (based on global clock, using actual start)
                 if tThisFlipGlobal > polygon_trial_0.tStartRefresh + trial_dura - frameTolerance:
-                    # keep track of stop time/frame for later
                     polygon_trial_0.tStop = t  # not accounting for scr refresh
                     polygon_trial_0.frameNStop = frameN  # exact frame index
                     win.timeOnFlip(polygon_trial_0, 'tStopRefresh')  # time at next scr refresh
@@ -967,7 +897,6 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
 
             # *polygon_trial_1* updates
             if polygon_trial_1.status == NOT_STARTED and tThisFlip >= 0.0 - frameTolerance:
-                # keep track of start time/frame for later
                 polygon_trial_1.frameNStart = frameN  # exact frame index
                 polygon_trial_1.tStart = t  # local t and not account for scr refresh
                 polygon_trial_1.tStartRefresh = tThisFlipGlobal  # on global time
@@ -975,9 +904,7 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
                 polygon_trial_1.setAutoDraw(True)
                 order_trial_1.setAutoDraw(True)
             if polygon_trial_1.status == STARTED:
-                # is it time to stop? (based on global clock, using actual start)
                 if tThisFlipGlobal > polygon_trial_1.tStartRefresh + trial_dura - frameTolerance:
-                    # keep track of stop time/frame for later
                     polygon_trial_1.tStop = t  # not accounting for scr refresh
                     polygon_trial_1.frameNStop = frameN  # exact frame index
                     win.timeOnFlip(polygon_trial_1, 'tStopRefresh')  # time at next scr refresh
@@ -988,7 +915,6 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
 
             # *polygon_trial_2* updates
             if polygon_trial_2.status == NOT_STARTED and tThisFlip >= 0.0 - frameTolerance:
-                # keep track of start time/frame for later
                 polygon_trial_2.frameNStart = frameN  # exact frame index
                 polygon_trial_2.tStart = t  # local t and not account for scr refresh
                 polygon_trial_2.tStartRefresh = tThisFlipGlobal  # on global time
@@ -996,9 +922,7 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
                 polygon_trial_2.setAutoDraw(True)
                 order_trial_2.setAutoDraw(True)
             if polygon_trial_2.status == STARTED:
-                # is it time to stop? (based on global clock, using actual start)
                 if tThisFlipGlobal > polygon_trial_2.tStartRefresh + trial_dura - frameTolerance:
-                    # keep track of stop time/frame for later
                     polygon_trial_2.tStop = t  # not accounting for scr refresh
                     polygon_trial_2.frameNStop = frameN  # exact frame index
                     win.timeOnFlip(polygon_trial_2, 'tStopRefresh')  # time at next scr refresh
@@ -1009,7 +933,6 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
 
             # *polygon_trial_3* updates
             if polygon_trial_3.status == NOT_STARTED and tThisFlip >= 0.0 - frameTolerance:
-                # keep track of start time/frame for later
                 polygon_trial_3.frameNStart = frameN  # exact frame index
                 polygon_trial_3.tStart = t  # local t and not account for scr refresh
                 polygon_trial_3.tStartRefresh = tThisFlipGlobal  # on global time
@@ -1017,9 +940,7 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
                 polygon_trial_3.setAutoDraw(True)
                 order_trial_3.setAutoDraw(True)
             if polygon_trial_3.status == STARTED:
-                # is it time to stop? (based on global clock, using actual start)
                 if tThisFlipGlobal > polygon_trial_3.tStartRefresh + trial_dura - frameTolerance:
-                    # keep track of stop time/frame for later
                     polygon_trial_3.tStop = t  # not accounting for scr refresh
                     polygon_trial_3.frameNStop = frameN  # exact frame index
                     win.timeOnFlip(polygon_trial_3, 'tStopRefresh')  # time at next scr refresh
@@ -1030,7 +951,6 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
 
             # *polygon_trial_4* updates
             if polygon_trial_4.status == NOT_STARTED and tThisFlip >= 0.0 - frameTolerance:
-                # keep track of start time/frame for later
                 polygon_trial_4.frameNStart = frameN  # exact frame index
                 polygon_trial_4.tStart = t  # local t and not account for scr refresh
                 polygon_trial_4.tStartRefresh = tThisFlipGlobal  # on global time
@@ -1038,9 +958,7 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
                 polygon_trial_4.setAutoDraw(True)
                 order_trial_4.setAutoDraw(True)
             if polygon_trial_4.status == STARTED:
-                # is it time to stop? (based on global clock, using actual start)
                 if tThisFlipGlobal > polygon_trial_4.tStartRefresh + trial_dura - frameTolerance:
-                    # keep track of stop time/frame for later
                     polygon_trial_4.tStop = t  # not accounting for scr refresh
                     polygon_trial_4.frameNStop = frameN  # exact frame index
                     win.timeOnFlip(polygon_trial_4, 'tStopRefresh')  # time at next scr refresh
@@ -1051,7 +969,6 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
 
             # *polygon_trial_5* updates
             if polygon_trial_5.status == NOT_STARTED and tThisFlip >= 0.0 - frameTolerance:
-                # keep track of start time/frame for later
                 polygon_trial_5.frameNStart = frameN  # exact frame index
                 polygon_trial_5.tStart = t  # local t and not account for scr refresh
                 polygon_trial_5.tStartRefresh = tThisFlipGlobal  # on global time
@@ -1059,9 +976,7 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
                 polygon_trial_5.setAutoDraw(True)
                 order_trial_5.setAutoDraw(True)
             if polygon_trial_5.status == STARTED:
-                # is it time to stop? (based on global clock, using actual start)
                 if tThisFlipGlobal > polygon_trial_5.tStartRefresh + trial_dura - frameTolerance:
-                    # keep track of stop time/frame for later
                     polygon_trial_5.tStop = t  # not accounting for scr refresh
                     polygon_trial_5.frameNStop = frameN  # exact frame index
                     win.timeOnFlip(polygon_trial_5, 'tStopRefresh')  # time at next scr refresh
@@ -1072,7 +987,6 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
 
             # *polygon_trial_6* updates
             if polygon_trial_6.status == NOT_STARTED and tThisFlip >= 0.0 - frameTolerance:
-                # keep track of start time/frame for later
                 polygon_trial_6.frameNStart = frameN  # exact frame index
                 polygon_trial_6.tStart = t  # local t and not account for scr refresh
                 polygon_trial_6.tStartRefresh = tThisFlipGlobal  # on global time
@@ -1080,9 +994,7 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
                 polygon_trial_6.setAutoDraw(True)
                 order_trial_6.setAutoDraw(True)
             if polygon_trial_6.status == STARTED:
-                # is it time to stop? (based on global clock, using actual start)
                 if tThisFlipGlobal > polygon_trial_6.tStartRefresh + trial_dura - frameTolerance:
-                    # keep track of stop time/frame for later
                     polygon_trial_6.tStop = t  # not accounting for scr refresh
                     polygon_trial_6.frameNStop = frameN  # exact frame index
                     win.timeOnFlip(polygon_trial_6, 'tStopRefresh')  # time at next scr refresh
@@ -1093,7 +1005,6 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
 
             # *polygon_trial_7* updates
             if polygon_trial_7.status == NOT_STARTED and tThisFlip >= 0.0 - frameTolerance:
-                # keep track of start time/frame for later
                 polygon_trial_7.frameNStart = frameN  # exact frame index
                 polygon_trial_7.tStart = t  # local t and not account for scr refresh
                 polygon_trial_7.tStartRefresh = tThisFlipGlobal  # on global time
@@ -1101,9 +1012,7 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
                 polygon_trial_7.setAutoDraw(True)
                 order_trial_7.setAutoDraw(True)
             if polygon_trial_7.status == STARTED:
-                # is it time to stop? (based on global clock, using actual start)
                 if tThisFlipGlobal > polygon_trial_7.tStartRefresh + trial_dura - frameTolerance:
-                    # keep track of stop time/frame for later
                     polygon_trial_7.tStop = t  # not accounting for scr refresh
                     polygon_trial_7.frameNStop = frameN  # exact frame index
                     win.timeOnFlip(polygon_trial_7, 'tStopRefresh')  # time at next scr refresh
@@ -1113,7 +1022,6 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
                 polygon_trial_7.setFillColor([1, 1, 1], log=False)
 
             Amp = (sin(2 * pi * Freq * frameN / 60 + Phas) - 0.5) * 2
-            # print(i0,Amp)
             i0+=1
             for idx in range(8):
                 seleclist2[idx].setFillColor([Amp[idx]])
@@ -1132,14 +1040,13 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
             # refresh the screen
             if continueRoutine:  # don't flip if this routine is over or we'll get a blank screen
                 if flag:
-                    # trigger_client.send_trigger('start')
                     flag = False
                     print(t_start - trialClock.getTime())
                 win.flip()
         queue.put("end")
-        # trigger_client.send_trigger('end')
         print("show trial spend time: ", time.time() - begin_time)
         time.sleep(3)  # 暂停一秒，让存储程序写入脑电数据到硬盘
+
         def resample_eeg_data(x, resample_fs):
             """
             重新采样 eeg 数据
@@ -1149,19 +1056,15 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
             for channel in range(x.shape[0]):
                 resample_list.append(resample(x[channel], resample_fs))
             return np.array(resample_list)
-        # read_path=queue_name+'.csv'
-        # print(read_path)
+
         read_path=queue_name+'.csv'
         np_array = pd.read_csv(os.path.join(save_path, read_path)).to_numpy()
-        # 数据格式处理，然后丢入fbcca中分析
-
 
         data_len = np_array.shape[0]
 
         # 取后面四秒的数据进行计算
         print("识别数据形状:{}".format(np_array.shape))
-        np_array = np_array[data_len - stim_t * 500: data_len, 0:8] # 小舟2:8 自己的2:7
-        # np_array = np_array[data_len - stim_t * 500: data_len, [0,3,4,7]]
+        np_array = np_array[data_len - stim_t * 500: data_len, 0:8]
 
         print("识别数据形状:{}".format(np_array.shape))
         np_array = np_array.transpose(1, 0)
@@ -1169,18 +1072,9 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
         np_array = resample_eeg_data(np_array, 250 * stim_t)
         print("识别数据形状:{}".format(np_array.shape))
 
-        # for j in range(np_array.shape[1]):
-        #     np_array[j] -= np.mean(np_array[j]);
-
         result = fbcca.fbcca_classify(np_array, stim_t*250)
 
         print(result)
-
-        # if text:
-        #     next_target+=1
-        #     if next_target==8:
-        #         next_target=0
-        #         k+=1
 
         if text:
             k+=1
@@ -1189,50 +1083,18 @@ def start_ssvep_experiment(save_dir_base="D:\\ssvep\\eeg_data"):
                 k = 0
                 if next_target == 8:
                     next_target = 0
-            
 
-        order_lst = ['8Hz', '9Hz', '10Hz', '11Hz', '12Hz', '13Hz', '14Hz', '15Hz'] #['上升', '前进', '起飞', '左转', '右转', '降落', '后退', '下降']
-        # if result == 1:
-        #     decorator(tello.move_up)(50)
-        # elif result == 2:
-        #     decorator(tello.move_forward)(50)
-        # elif result == 3:
-        #     decorator(tello.takeoff)()
-        # elif result == 4:
-        #     decorator(tello.move_left)(50)
-        # elif result == 5:
-        #     decorator(tello.move_right)(50)
-        # elif result == 6:
-        #     decorator(tello.land)()
-        # elif result == 7:
-        #     decorator(tello.move_back)(50)
-        # elif result == 8:
-        #     decorator(tello.move_down)(50)
-        # print("result:", result, order_lst[result - 1])
-        # time.sleep(2)
-        
-        # result += 1
-        # order_lst = ['反复握拳', '比1', '比2', '比3', '比4', '比5', '握拳', '特殊3']
-        # order2action = {1:b'0', 2:b'1',3:b'2',4:b'3',5:b'4',6:b'5',7:b'6',8:b'7'}
-        # action = order2action[result]
-        # ser.write(action)
-
-        # -------Ending Routine "trial"-------
+        order_lst = ['8Hz', '9Hz', '10Hz', '11Hz', '12Hz', '13Hz', '14Hz', '15Hz']
 
         for thisComponent in trialComponents:
             if hasattr(thisComponent, "setAutoDraw"):
                 thisComponent.setAutoDraw(False)
 
-        # the Routine "trial" was not non-slip safe, so reset the non-slip timer
         routineTimer.reset()
 
-    # completed 100 repeats of 'trials'
-
-    # Flip one final time so any remaining win.callOnFlip()
-    # and win.timeOnFlip() tasks get executed before quitting
     win.flip()
 
-    # these shouldn't be strictly necessary (should auto-save)
     logging.flush()
     win.close()
     quit_function()
+

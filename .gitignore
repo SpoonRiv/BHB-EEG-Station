@@ -46,7 +46,6 @@ raw_float32.bin
 
 # Local reference & project rules (runtime should not depend on these)
 ref/
-.trae/rules/
 
 # Node (if web build tooling is introduced)
 node_modules/

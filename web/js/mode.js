@@ -8,9 +8,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.1 移除底部弹窗提示，统一改为按钮状态/页面导航反馈
 - 2026-05-04: 1.0.2 按配置启用/禁用电刺激入口（tdcs.enabled）
 - 2026-05-04: 1.0.3 按通道模式禁用电刺激入口（tdcs.supported_channel_modes + n_channels）
+- 2026-05-09: 1.0.4 (Fengye) 增加 SSVEP 模式卡片及入口事件
 
 作者: Spoon
-版本: 1.0.3
+版本: 1.0.4
 */
 
 import { getConfig, modeSelect } from './api.js';
