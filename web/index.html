@@ -199,6 +199,16 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                                 <div class="mode-desc">电刺激（tDCS）功能占位：当前版本仅提供页面入口与 start/stop 指令下发；后续将增加电流/时长/升降沿等参数配置与安全校验，并支持通过配置开关启用/隐藏。</div>
                             </div>
                         </button>
+                        <button type="button" class="mode-card" id="mode-ssvep">
+                            <div class="mode-hero-wrap">
+                                <!-- 建议准备一张 ssvep_mode.png 放在 image 目录下 -->
+                                <img class="mode-hero" src="image/ssvep_mode.png" alt="SSVEP 刺激模式" />
+                            </div>
+                            <div class="mode-meta">
+                                <div class="mode-title">SSVEP 刺激</div>
+                                <div class="mode-desc">视觉诱发电位实验：开启后将启动独立的 PsychoPy 刺激程序。程序会按照预设频率（8-15Hz）闪烁，并自动记录 LSL 脑电数据及进行 FBCCA 实时识别。</div>
+                            </div>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -414,6 +424,55 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             <div class="card-sub">当前版本仅实现：连接后可下发 tDCS start/stop 指令；参数与执行过程后续开发。</div>
                             <div id="tdcs-reserved">
                                 <div class="card-sub">参数区（预留）：电流/时长/升降沿/电极信息/安全阈值等后续在此处接入。</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <section class="page" id="page-ssvep">
+            <div class="eeg-layout">
+                <!-- 左侧：调试输出（用于查看算法识别结果和实验状态） -->
+                <div class="card" style="height: 100%; display: flex; flex-direction: column;">
+                    <div class="card-header">
+                        <div>
+                            <div class="card-title">实验日志</div>
+                            <div class="card-sub">展示 SSVEP 识别结果与刺激程序状态</div>
+                        </div>
+                        <div class="row">
+                            <input id="ssvep-debug-filter" placeholder="过滤关键字" style="width: 220px;" />
+                            <button class="btn" id="ssvep-debug-clear">清空</button>
+                            <button class="btn" id="ssvep-debug-pause">暂停输出</button>
+                            <button class="btn primary" id="btn-ssvep-start">启动刺激实验</button>
+                            <button class="btn danger" id="btn-ssvep-stop">强行停止</button>
+                        </div>
+                    </div>
+                    <div class="card-body" style="flex: 1; min-height: 0;">
+                        <div class="debug-log" id="ssvep-debug-log"></div>
+                    </div>
+                </div>
+
+                <!-- 右侧：状态显示与说明 -->
+                <div class="card">
+                    <div class="card-header">
+                        <div>
+                            <div class="card-title">SSVEP 实验说明</div>
+                            <div class="card-sub">基于 PsychoPy 的视觉刺激程序</div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="stack">
+                            <div class="hint-strip" id="ssvep-status">等待启动...</div>
+                            <div class="tips-stack">
+                                <div class="card-sub">1. 启动前请确保蓝牙设备已连接。</div>
+                                <div class="card-sub">2. 点击“启动”后，系统将弹出全屏刺激窗口。</div>
+                                <div class="card-sub">3. 实验数据将自动保存至后端配置的离线目录。</div>
+                                <div class="card-sub">4. 识别结果会实时反馈在左侧“实验日志”中。</div>
+                            </div>
+                            <div class="status-box" style="margin-top: 20px;">
+                                <strong>当前状态：</strong>
+                                <span id="ssvep-run-state">未运行</span>
                             </div>
                         </div>
                     </div>

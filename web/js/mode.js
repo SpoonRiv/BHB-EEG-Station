@@ -27,6 +27,14 @@ export function initModePage() {
   const eeg = document.getElementById('mode-eeg');
   const imp = document.getElementById('mode-impedance');
   const tdcs = document.getElementById('mode-tdcs');
+  const cardSsvep = document.getElementById('mode-ssvep');
+   if (cardSsvep) {
+    cardSsvep.onclick = () => {
+      // 可以在跳转前先调用后端接口选择模式
+      // await postModeSelect('ssvep'); 
+      navigate('#ssvep');
+    };
+  }
   if (!eeg || !imp || !tdcs) return;
 
   void (async () => {

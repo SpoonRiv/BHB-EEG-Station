@@ -131,3 +131,21 @@ export async function eegChannelPresetDeleteLocal(name) {
     body: JSON.stringify({ name: name || '' }),
   });
 }
+
+export async function postModeStart(mode) {
+  const res = await fetch('/api/mode/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode })
+  });
+  return res.json();
+}
+
+export async function postModeStop(mode) {
+  const res = await fetch('/api/mode/stop', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode })
+  });
+  return res.json();
+}

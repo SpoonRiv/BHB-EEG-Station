@@ -56,6 +56,10 @@ from core.offline.offline_service import BandpassConfig, ExportTarget, OfflineSe
 from core.signal.notch_filter import NotchFilter, NotchFilterConfig
 from ws_hub_eeg import EegWsHub, EegWsHubConfig
 from ws_hub_impedance import ImpedanceWsHub, ImpedanceWsHubConfig
+from stim_V1 import start_ssvep_experiment
+import multiprocessing
+import threading
+# import socketio
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -151,6 +155,7 @@ class AppState:
                 queue_size=1,
             )
         )
+        self.ssvep_process: Optional[multiprocessing.Process] = None
 
     def _load_local_raw(self) -> Dict[str, Any]:
         return load_yaml_file(self.local_override_path)
@@ -508,6 +513,10 @@ async def get_config():
                 "quality_factor": float(state.config.signal.notch.quality_factor),
             },
         },
+        "ssvep": {
+        "enabled": True,
+        "name": "SSVEP刺激模式"
+        },
     }
 
 
@@ -708,12 +717,16 @@ async def get_status():
     """
     获取采集状态（用于前端连接指示与设备名展示）。
     """
+    ssvep_running = False
+    if state.ssvep_process and state.ssvep_process.is_alive():
+        ssvep_running = True
     return {
         "device": state.controller.get_status(),
         "lsl_streaming": bool(getattr(state.streamer, "is_streaming", False)),
         "lsl": state.streamer.get_status() if hasattr(state.streamer, "get_status") else None,
         "impedance_lsl_streaming": bool(getattr(state.imp_streamer, "is_streaming", False)),
         "impedance_lsl": state.imp_streamer.get_status() if hasattr(state.imp_streamer, "get_status") else None,
+        "ssvep_running": ssvep_running,
     }
 
 @app.get("/api/stop")
@@ -836,6 +849,31 @@ async def start_mode(req: ModeRequest):
             state.imp_ws_hub.start()
         return {"status": "success" if ok else "error", "message": "模式已启动" if ok else "模式启动失败", "device": state.controller.get_status()}
     ok = state.controller.start_mode(req.mode)
+
+    if req.mode == "ssvep":
+        # 1. 确保蓝牙已连接
+        # if not state.controller.is_running():
+        #     return {"status": "error", "message": "设备未连接"}
+        
+        # 2. 检查是否已经在运行
+        if state.ssvep_process and state.ssvep_process.is_alive():
+            return {"status": "error", "message": "SSVEP 已经在运行中"}
+
+        # 3. 启动进程 (PsychoPy 必须在独立进程运行以防阻塞 FastAPI)
+        # 注意：不要在主线程运行 GUI
+        state.ssvep_process = multiprocessing.Process(
+            target=start_ssvep_experiment,
+            args=(state.config.offline.root_dir,), # 使用配置文件的路径
+            daemon=False
+        )
+        state.ssvep_process.start()
+        
+
+        return {
+            "status": "success", 
+            "message": "SSVEP 刺激程序已启动",
+            "device": state.controller.get_status()
+        }
     return {"status": "success" if ok else "error", "message": "模式已启动" if ok else "模式启动失败", "device": state.controller.get_status()}
 
 
@@ -863,6 +901,14 @@ async def stop_mode(req: ModeRequest):
         state.imp_ws_hub.stop(clear_pending=True)
         state.imp_streamer.stop()
     ok = state.controller.stop_mode(req.mode)
+    if req.mode == "ssvep":
+        if state.ssvep_process and state.ssvep_process.is_alive():
+            # 强制结束进程（PsychoPy 窗口会关闭）
+            state.ssvep_process.terminate()
+            state.ssvep_process.join()
+            state.ssvep_process = None
+            return {"status": "success", "message": "SSVEP 刺激程序已强行停止"}
+        return {"status": "error", "message": "没有正在运行的 SSVEP 程序"}
     return {"status": "success" if ok else "error", "message": "模式已停止" if ok else "模式停止失败", "device": state.controller.get_status()}
 
 

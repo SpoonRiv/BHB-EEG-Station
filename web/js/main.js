@@ -16,8 +16,9 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.0.9 连接状态文案规范：仅“未连接”与“连接失败：设备名”
 - 2026-05-04: 1.0.10 拆分电刺激页面模块（tdcs.js），路由进入时初始化占位逻辑
 - 2026-05-04: 1.0.10 非连接状态时顶部指示灯显示为红色
+- 2026-05-09: 1.0.11 新增SSVEP刺激模式
 
-作者: Spoon
+作者: Spoon , Fengye
 版本: 1.0.10
 */
 
@@ -30,6 +31,7 @@ import { enterOfflinePage, leaveOfflinePage } from './offline.js';
 import { enterTdcsPage, leaveTdcsPage } from './tdcs.js';
 import { registerRoute, startRouter, navigate } from './router.js';
 import { setConnBadge } from './ui.js';
+import { enterSsvepPage, leaveSsvepPage, initSsvepPage } from './ssvep.js';
 
 let statusTimer = null;
 let navLocked = false;
@@ -107,6 +109,22 @@ async function refreshStatusOnce() {
       applyConnBadge(data.device);
       applyNavLock(data.device);
     }
+
+   const btnStart = document.getElementById('btn-ssvep-start');
+    if (btnStart && btnStart.disabled && data.ssvep_running === false) {
+        console.log("轮询检测到 SSVEP 已停止，恢复按钮");
+        btnStart.disabled = false;
+        btnStart.innerText = "启动刺激实验";
+        
+        const runStateText = document.getElementById('ssvep-run-state');
+        if (runStateText) runStateText.innerText = "未运行";
+        
+        const statusStrip = document.getElementById('ssvep-status');
+        if (statusStrip) {
+            statusStrip.innerText = "等待启动...";
+            statusStrip.className = "hint-strip";
+        }
+    }
   } catch (_) {
     setConnBadge('error', '后端未响应');
   }
@@ -179,11 +197,14 @@ function initRoutes() {
   registerRoute('#offline', { pageId: 'page-offline', onEnter: enterOfflinePage, onLeave: leaveOfflinePage });
   registerRoute('#impedance', { pageId: 'page-impedance', onEnter: enterImpedancePage, onLeave: leaveImpedancePage });
   registerRoute('#tdcs', { pageId: 'page-tdcs', onEnter: enterTdcsPage, onLeave: leaveTdcsPage });
+  registerRoute('#ssvep', { pageId: 'page-ssvep', onEnter: enterSsvepPage, onLeave: leaveSsvepPage });
 }
+
 
 function init() {
   initDevicePage();
   initModePage();
+  initSsvepPage(); // 初始化 SSVEP 页面事件
   initRoutes();
   bindHeaderNav();
   initThemeToggle();
