@@ -12,9 +12,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.2.1 增加断联状态类型（disconnected），用于前端显示“连接已断开”
 - 2026-05-03: 1.2.2 增加任务运行态标记（task_running），用于运行中锁定导航入口
 - 2026-05-04: 1.2.3 配置字段更名：eeg.mode_channels -> eeg.n_channels（8/16 通道预留）
+- 2026-05-12: 1.2.4 增加两级控制指令下发接口（供 tDCS 控制面板使用）
 
 作者: Spoon
-版本: 1.2.3
+版本: 1.2.4
 """
 
 import multiprocessing
@@ -189,6 +190,31 @@ class EEGController:
             return False
         self.command_queue.put({"type": "stop_mode", "mode": str(mode)})
         self.current_mode = "idle"
+        return True
+
+    def send_two_level_command(self, l1: int, l2: int, data: Optional[list[int]] = None) -> bool:
+        """
+        下发两级控制指令（一级指令 + 二级指令 + 附加数据）。
+
+        说明：
+        - 指令格式参考协议文档： [L1, L2, DATA...]
+        - 本函数仅负责将指令投递到采集进程，由采集进程完成 BLE 写入与调试事件上报
+
+        Args:
+            l1: 一级指令（0-255）
+            l2: 二级指令（0-255）
+            data: 附加数据字节列表（可选，元素 0-255）
+
+        Returns:
+            bool: 是否成功投递到采集进程
+        """
+        if not self.command_queue or not self.is_running():
+            return False
+        cmd: list[int] = [int(l1) & 0xFF, int(l2) & 0xFF]
+        if data:
+            for x in data:
+                cmd.append(int(x) & 0xFF)
+        self.command_queue.put({"type": "send_cmd", "cmd": cmd})
         return True
 
     def _drain_status_queue(self) -> None:

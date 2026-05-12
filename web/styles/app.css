@@ -32,9 +32,16 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.0.25 调试输出窗口四周留白统一（padding/box-sizing）
 - 2026-05-04: 1.0.26 设备页地形图样式文件更名：topomap.css -> eeg_topomap.css
 - 2026-05-09: 1.0.27 (Fengye) 增加 SSVEP 刺激模式的样式支持
+- 2026-05-12: 1.0.28 增加 tDCS 控制面板与布局样式，并将状态提示改为无框文本（参考阻抗检测风格）
+- 2026-05-12: 1.0.29 tDCS 控制面板改为仅展示操作按钮（不展示指令细节），并优化左右比例减少留白/滚动
+- 2026-05-12: 1.0.30 tDCS 操作按钮改为不拉伸宽度与短文案样式，尺寸参考“开启电刺激”
+- 2026-05-12: 1.0.31 修复 tDCS 操作卡片拉伸导致留白，并限制栅格最小宽度避免内容溢出外层框
+- 2026-05-12: 1.0.32 tDCS 操作按钮统一宽度并将输入框右置；两列卡片高度对齐并限制说明行数保持边框平齐
+- 2026-05-12: 1.0.33 tDCS 状态信息三枚徽标改为不拉伸宽度并略缩窄，避免占满整行
+- 2026-05-12: 1.0.34 tDCS 面板布局更宽松并让网格填满容器高度，减少底部留白
 
 作者: Spoon
-版本: 1.0.27
+版本: 1.0.34
 */
 
 @import "./eeg_topomap.css";
@@ -879,4 +886,308 @@ select option {
   .page-grid { grid-template-columns: 1fr; }
   .mode-grid { grid-template-columns: 1fr; }
   .page#page-mode .card-body { padding: 22px; }
+}
+
+.tdcs-main-body {
+  height: calc(100% - 54px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.tdcs-main-stack {
+  flex: 1;
+  min-height: 0;
+}
+
+.tdcs-grid {
+  display: grid;
+  grid-template-columns: 0.85fr 1.15fr;
+  gap: 18px;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+}
+
+@media (max-width: 980px) {
+  .tdcs-grid { grid-template-columns: 1fr; }
+}
+
+.tdcs-status-text {
+  width: 100%;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-line;
+  display: none;
+}
+
+.tdcs-status-text.success {
+  display: block;
+  color: rgba(47, 229, 139, 0.95);
+}
+
+.tdcs-status-text.error {
+  display: block;
+  color: rgba(255, 77, 109, 0.95);
+}
+
+.tdcs-status-text:not(.success):not(.error) {
+  display: block;
+  color: var(--muted);
+}
+
+.tdcs-section {
+  border-radius: 14px;
+  border: 1px solid rgba(140, 170, 210, 0.18);
+  background: rgba(0, 0, 0, 0.06);
+  padding: 14px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+[data-theme="light"] .tdcs-section {
+  background: rgba(255, 255, 255, 0.60);
+}
+
+.tdcs-section-title {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 750;
+  letter-spacing: 0.2px;
+  margin-bottom: 10px;
+}
+
+.tdcs-section-title-small {
+  margin-top: 12px;
+}
+
+.tdcs-metric-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+@media (max-width: 980px) {
+  .tdcs-metric-grid { grid-template-columns: 1fr; }
+}
+
+.tdcs-metric {
+  border-radius: 14px;
+  border: 1px solid rgba(140, 170, 210, 0.16);
+  padding: 12px 12px;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .tdcs-metric {
+  background: rgba(255, 255, 255, 0.60);
+}
+
+.tdcs-metric-blue {
+  border-color: rgba(49, 215, 255, 0.26);
+  box-shadow: 0 0 0 1px rgba(49, 215, 255, 0.07) inset;
+}
+
+.tdcs-metric-green {
+  border-color: rgba(47, 229, 139, 0.26);
+  box-shadow: 0 0 0 1px rgba(47, 229, 139, 0.07) inset;
+}
+
+.tdcs-metric-neutral {
+  border-color: rgba(140, 170, 210, 0.14);
+}
+
+.tdcs-metric-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tdcs-metric-value {
+  font-size: 22px;
+  font-weight: 800;
+  margin-top: 6px;
+  color: var(--text);
+}
+
+.tdcs-metric-value-raw {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.tdcs-unit {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted);
+  margin-left: 4px;
+}
+
+.tdcs-state-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 980px) {
+  .tdcs-state-grid { grid-template-columns: 1fr; }
+}
+
+.tdcs-state-badge {
+  justify-content: center;
+  justify-self: center;
+  align-self: center;
+  width: max-content;
+  max-width: 100%;
+  padding: 7px 10px;
+}
+
+.tdcs-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tdcs-ops-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: stretch;
+  grid-auto-rows: 1fr;
+}
+
+@media (max-width: 980px) {
+  .tdcs-ops-grid { grid-template-columns: 1fr; }
+}
+
+.tdcs-op-card {
+  border-radius: 14px;
+  border: 1px solid rgba(140, 170, 210, 0.14);
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  height: 100%;
+}
+
+[data-theme="light"] .tdcs-op-card {
+  background: rgba(255, 255, 255, 0.60);
+}
+
+.tdcs-op-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.tdcs-op-desc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.tdcs-op-btn {
+  width: 120px;
+  flex: 0 0 auto;
+  text-align: center;
+}
+
+.tdcs-op-right {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tdcs-op-input {
+  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.tdcs-custom {
+  border-radius: 14px;
+  border: 1px solid rgba(140, 170, 210, 0.16);
+  background: rgba(0, 0, 0, 0.06);
+  padding: 12px;
+}
+
+[data-theme="light"] .tdcs-custom {
+  background: rgba(255, 255, 255, 0.60);
+}
+
+.tdcs-custom-row {
+  align-items: stretch;
+}
+
+.tdcs-custom-input {
+  width: 160px;
+}
+
+.tdcs-cmd-group {
+  border-radius: 14px;
+  border: 1px solid rgba(140, 170, 210, 0.16);
+  background: rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+}
+
+[data-theme="light"] .tdcs-cmd-group {
+  background: rgba(255, 255, 255, 0.50);
+}
+
+.tdcs-cmd-group-title {
+  list-style: none;
+  cursor: pointer;
+  padding: 10px 12px;
+  font-weight: 750;
+  color: var(--text);
+  border-bottom: 1px solid rgba(140, 170, 210, 0.10);
+}
+
+.tdcs-cmd-group-title::-webkit-details-marker {
+  display: none;
+}
+
+.tdcs-cmd-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  padding: 12px;
+}
+
+.tdcs-cmd-cell {
+  border-radius: 14px;
+  border: 1px solid rgba(140, 170, 210, 0.14);
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.06);
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+[data-theme="light"] .tdcs-cmd-cell {
+  background: rgba(255, 255, 255, 0.60);
+}
+
+.tdcs-cmd-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tdcs-cmd-input-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tdcs-cmd-input {
+  width: 100%;
 }

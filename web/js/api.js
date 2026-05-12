@@ -9,9 +9,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.2 增加离线会话查询接口封装
 - 2026-05-03: 1.0.3 增加 10-20 通道选择与常用组合接口封装
 - 2026-05-09: 1.0.4 (Alice)补充模式 start/stop 的兼容封装（postModeStart/postModeStop）
+- 2026-05-12: 1.0.5 增加两级指令控制面板接口封装（指令列表/下发指令）
 
 作者: Spoon
-版本: 1.0.4
+版本: 1.0.5
 */
 
 async function fetchJson(url, options) {
@@ -149,4 +150,16 @@ export async function postModeStop(mode) {
     body: JSON.stringify({ mode })
   });
   return res.json();
+}
+
+export async function getTwoLevelCommands() {
+  return fetchJson('/api/control/commands');
+}
+
+export async function sendTwoLevelCommand(l1, l2, data) {
+  return fetchJson('/api/control/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ l1, l2, data: data || null }),
+  });
 }

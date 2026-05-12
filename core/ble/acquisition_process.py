@@ -20,9 +20,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.1.10 限制 tDCS 仅在 8 通道模式可用（16 通道规划不包含电刺激）
 - 2026-05-04: 1.1.11 EEG 启动不再发送 pre_stop_eeg（0x02 0x02）
 - 2026-05-09: 1.1.12 增加 tDCS 通知帧解析与调试事件（TDCS_RX/TDCS_FRAME/TDCS_NODATA）
+- 2026-05-12: 1.1.13 支持下发任意两级控制指令（控制面板），并抽取指令元数据模块复用
 
 作者: Spoon
-版本: 1.1.12
+版本: 1.1.13
 """
 
 import asyncio
@@ -34,117 +35,11 @@ from typing import Any, Dict, List, Optional
 from bleak import BleakClient
 
 from configs.config_loader import load_config
+from core.ble.commands import interpret_two_level_cmd
 from core.ble.device_finder import find_device_by_name
 from core.ble.frame_parser import FrameSpec, parse_frame_to_samples
 from core.ble.impedance_parser import ImpedanceFrameSpec, build_impedance_vector, parse_impedance_frame
 from core.ble.lsl_outlet import LslOutletConfig, LslOutletWriter
-
-
-_L1_CMD_META: Dict[int, Dict[str, str]] = {
-    0x00: {"name": "Get Information", "desc": "获取信息"},
-    0x01: {"name": "Get Configuration", "desc": "获取配置"},
-    0x02: {"name": "ADC Control", "desc": "脑电数据传输控制"},
-    0x03: {"name": "Impedance Control", "desc": "阻抗检测控制"},
-    0x04: {"name": "IMU Control", "desc": "IMU 数据控制"},
-    0x05: {"name": "Battery Control", "desc": "电量监测控制"},
-    0x06: {"name": "Trigger Source", "desc": "触发源选择"},
-    0xFF: {"name": "Trigger Control", "desc": "触发控制（蓝牙程控）"},
-    0x07: {"name": "tDCS Control", "desc": "tDCS 控制"},
-}
-
-_L2_CMD_META: Dict[int, Dict[int, Dict[str, str]]] = {
-    0x02: {
-        0x00: {"name": "Get Information", "desc": "获取信息"},
-        0x01: {"name": "Start Transfer", "desc": "开始传输脑电数据"},
-        0x02: {"name": "Stop Transfer", "desc": "停止传输脑电数据"},
-        0x03: {"name": "Get Configuration Specific", "desc": "读取指定配置"},
-        0x04: {"name": "Get Configuration All", "desc": "读取全部配置"},
-        0x05: {"name": "Set Configuration Specific", "desc": "写入指定配置"},
-        0x06: {"name": "Set Configuration All", "desc": "写入全部配置"},
-    },
-    0x03: {
-        0x00: {"name": "Get Information", "desc": "获取信息"},
-        0x01: {"name": "Start Impedance", "desc": "开始传输阻抗数据"},
-        0x02: {"name": "Stop Impedance", "desc": "停止传输阻抗数据"},
-        0x03: {"name": "Get Configuration Specific", "desc": "读取指定配置"},
-        0x04: {"name": "Set Configuration Specific", "desc": "写入指定配置"},
-    },
-    0x04: {
-        0x00: {"name": "Get Information", "desc": "获取信息"},
-        0x01: {"name": "Start IMU", "desc": "开始传输 IMU 数据"},
-        0x02: {"name": "Stop IMU", "desc": "停止传输 IMU 数据"},
-        0x03: {"name": "Get Configuration Specific", "desc": "读取指定配置"},
-        0x04: {"name": "Set Configuration Specific", "desc": "写入指定配置"},
-    },
-    0x05: {
-        0x00: {"name": "Get Information", "desc": "获取信息"},
-        0x01: {"name": "Start Battery Monitor", "desc": "开始电量监测"},
-        0x02: {"name": "Stop Battery Monitor", "desc": "停止电量监测"},
-        0x03: {"name": "Get Configuration Specific", "desc": "读取指定配置"},
-        0x04: {"name": "Set Configuration Specific", "desc": "写入指定配置"},
-    },
-    0x06: {
-        0x01: {"name": "BLE Trigger", "desc": "蓝牙程控触发"},
-        0x02: {"name": "External TTL UART Trigger", "desc": "外部 TTL（UART 控制）触发"},
-        0x03: {"name": "External TTL Level Trigger", "desc": "外部 TTL（电平控制）触发"},
-    },
-    0xFF: {
-        0x01: {"name": "Set Trigger", "desc": "设置 Trigger"},
-        0x02: {"name": "Clear Trigger", "desc": "清除 Trigger"},
-    },
-    0x07: {
-        0x01: {"name": "Start tDCS", "desc": "启动 tDCS 工作"},
-        0x02: {"name": "Stop tDCS", "desc": "停止 tDCS 工作"},
-        0x10: {"name": "Set Current", "desc": "设置 tDCS 输出电流值（数字量）"},
-        0x15: {"name": "Enable HV", "desc": "使能高压电路工作"},
-        0x16: {"name": "Disable HV", "desc": "禁止高压电路工作"},
-        0x20: {"name": "Set Ramp Up", "desc": "设置输出电流缓升时间（数字量）"},
-        0x21: {"name": "Set Hold", "desc": "设置输出电流稳定工作时间（数字量）"},
-        0x22: {"name": "Set Ramp Down", "desc": "设置输出电流缓降时间（数字量）"},
-        0x23: {"name": "Set Alarm Threshold", "desc": "设置输出电流报警阈值（数字量）"},
-    },
-}
-
-
-def interpret_two_level_cmd(cmd: List[int]) -> Dict[str, str]:
-    """
-    解析两级控制指令（一级指令 + 二级指令），用于日志展示。
-
-    Args:
-        cmd: 指令字节列表，通常至少包含 2 个字节：[L1, L2, ...]
-
-    Returns:
-        Dict[str, str]: 结构化解释字段（用于调试日志 data）。
-    """
-    l1 = int(cmd[0]) & 0xFF if len(cmd) >= 1 else None
-    l2 = int(cmd[1]) & 0xFF if len(cmd) >= 2 else None
-
-    out: Dict[str, str] = {}
-    if l1 is None:
-        return out
-
-    out["cmd_l1_hex"] = f"0x{l1:02X}"
-    l1_meta = _L1_CMD_META.get(l1)
-    if l1_meta:
-        out["cmd_l1_name"] = l1_meta["name"]
-        out["cmd_l1_desc"] = l1_meta["desc"]
-    else:
-        out["cmd_l1_name"] = "Unknown"
-        out["cmd_l1_desc"] = "未知一级指令"
-
-    if l2 is None:
-        return out
-
-    out["cmd_l2_hex"] = f"0x{l2:02X}"
-    l2_meta = _L2_CMD_META.get(l1, {}).get(l2)
-    if l2_meta:
-        out["cmd_l2_name"] = l2_meta["name"]
-        out["cmd_l2_desc"] = l2_meta["desc"]
-    else:
-        out["cmd_l2_name"] = "Unknown"
-        out["cmd_l2_desc"] = "未知二级指令"
-
-    return out
 
 
 async def _connect_and_stream(
@@ -573,6 +468,30 @@ async def _connect_and_stream(
                                 await _send_cmd(cfg.bluetooth.commands.start_tdcs, action="start_tdcs")
                                 tdcs_streaming_enabled = True
                                 status_queue.put({"type": "mode_started", "mode": "tdcs"})
+                        elif msg_type == "send_cmd":
+                            raw = cmd_msg.get("cmd", [])
+                            cmd: List[int] = []
+                            if isinstance(raw, list):
+                                for x in raw:
+                                    try:
+                                        v = int(x) & 0xFF
+                                    except Exception:
+                                        continue
+                                    cmd.append(v)
+                            if len(cmd) < 2:
+                                if debug_queue is not None:
+                                    try:
+                                        debug_queue.put(
+                                            {
+                                                "tag": "CMD_TX",
+                                                "message": "忽略非法控制指令：长度不足 2 字节",
+                                                "data": {"raw": raw},
+                                            }
+                                        )
+                                    except Exception:
+                                        pass
+                                continue
+                            await _send_cmd(cmd, action="panel_send_cmd")
                         elif msg_type == "stop_mode":
                             mode = str(cmd_msg.get("mode", ""))
                             if mode == "eeg":

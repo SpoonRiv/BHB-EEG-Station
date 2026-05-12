@@ -31,9 +31,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-09: 1.3.7 (Fengye)增加 SSVEP 模式：独立进程启动/停止刺激程序并暴露状态字段
 - 2026-05-09: 1.3.8 修复 SSVEP 刺激模块导入路径，避免启动时报错
 - 2026-05-12: 1.3.9 延迟导入 SSVEP 依赖，避免子进程启动时加载重模块导致 BLE 连接超时
+- 2026-05-12: 1.3.10 增加两级指令控制面板 API（下发指令与指令列表），用于 tDCS 页面按钮化控制
+- 2026-05-12: 1.3.11 控制面板指令列表补充 help 字段（用于 UI 展示按钮说明）
 
 作者: Spoon
-版本: 1.3.9
+版本: 1.3.11
 """
 
 import asyncio
@@ -54,6 +56,7 @@ from configs.local_overrides import get_local_override_path, load_yaml_file, wri
 from core.eeg_controller import EEGController
 from core.lsl_streamer import LSLStreamer
 from core.debug_bus import DebugEventBus
+from core.ble.commands import L1_COMMANDS, L2_COMMANDS
 from core.ble.scanner import scan_devices
 from core.offline.offline_service import BandpassConfig, ExportTarget, OfflineService
 from core.signal.notch_filter import NotchFilter, NotchFilterConfig
@@ -359,6 +362,12 @@ class BleConnectRequest(BaseModel):
 
 class ModeRequest(BaseModel):
     mode: str
+
+
+class TwoLevelCommandRequest(BaseModel):
+    l1: int
+    l2: int
+    data: Optional[List[int]] = None
 
 
 class OfflineExportTargetRequest(BaseModel):
@@ -805,6 +814,72 @@ async def ble_disconnect():
     if success:
         return {"status": "success", "message": "蓝牙已断开。", "device": state.controller.get_status()}
     return {"status": "error", "message": "断开失败。", "device": state.controller.get_status()}
+
+
+@app.get("/api/control/commands")
+async def get_two_level_commands():
+    """
+    获取协议中定义的两级指令列表（用于前端控制面板生成按钮与输入项）。
+    """
+    l1_list: List[Dict[str, Any]] = []
+    for l1 in sorted(L1_COMMANDS.keys()):
+        m1 = L1_COMMANDS[l1]
+        l2_items = []
+        for l2 in sorted(L2_COMMANDS.get(l1, {}).keys()):
+            m2 = L2_COMMANDS[l1][l2]
+            l2_items.append(
+                {
+                    "l2": int(l2),
+                    "l2_hex": f"0x{int(l2) & 0xFF:02X}",
+                    "name": m2.name,
+                    "desc": m2.desc,
+                    "help": str(getattr(m2, "help", "") or ""),
+                    "payload_spec": str(m2.payload_spec or "none"),
+                }
+            )
+        l1_list.append(
+            {
+                "l1": int(l1),
+                "l1_hex": f"0x{int(l1) & 0xFF:02X}",
+                "name": m1.name,
+                "desc": m1.desc,
+                "payload_spec": str(m1.payload_spec or "none"),
+                "children": l2_items,
+            }
+        )
+    return {"commands": l1_list}
+
+
+@app.post("/api/control/send")
+async def send_two_level_command(req: TwoLevelCommandRequest):
+    """
+    下发两级控制指令（一级 + 二级 + 附加数据）。
+    """
+    l1 = int(req.l1) & 0xFF
+    l2 = int(req.l2) & 0xFF
+    data: List[int] = []
+    if req.data is not None:
+        if not isinstance(req.data, list):
+            raise HTTPException(status_code=400, detail="data 必须为整数列表")
+        for x in req.data:
+            try:
+                v = int(x)
+            except Exception:
+                raise HTTPException(status_code=400, detail="data 必须为整数列表")
+            if v < 0 or v > 255:
+                raise HTTPException(status_code=400, detail="data 元素必须在 0-255 范围内")
+            data.append(v & 0xFF)
+    if len(data) > 64:
+        raise HTTPException(status_code=400, detail="data 长度不能超过 64 字节")
+    ok = state.controller.send_two_level_command(l1=l1, l2=l2, data=data)
+    if not ok:
+        return {"status": "error", "message": "设备未连接或采集进程未运行，无法下发指令", "device": state.controller.get_status()}
+    return {
+        "status": "success",
+        "message": "指令已投递到采集进程（请在调试输出中查看 CMD_TX）",
+        "cmd": [l1, l2, *data],
+        "device": state.controller.get_status(),
+    }
 
 
 @app.post("/api/mode/select")

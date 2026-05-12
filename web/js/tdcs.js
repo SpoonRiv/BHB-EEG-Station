@@ -12,12 +12,16 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.0.5 页面内状态轮询同步顶部导航锁定（以 task_running 为准），停止后无需等待全局轮询即可解锁
 - 2026-05-09: 1.0.6 增加电量徽标渲染与 tDCS 监测数据展示（TDCS_FRAME）
 - 2026-05-09: 1.0.7 去掉“设备未连接”提示框样式，页面改为数据/控制双栏分框
+- 2026-05-12: 1.0.8 接入两级指令控制面板（动态生成按钮并下发到采集进程）
+- 2026-05-12: 1.0.9 状态提示改为无框文本并在空内容时隐藏（参考阻抗检测风格）
+- 2026-05-12: 1.0.10 tDCS 页面不再展示“设备未连接”提示文案（保持页面简洁）
 
 作者: Spoon
-版本: 1.0.7
+版本: 1.0.10
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
+import { initTdcsControlPanel } from './tdcs_control.js';
 
 let pageActive = false;
 let bound = false;
@@ -36,7 +40,9 @@ function setStatus(text, kind) {
   box.classList.remove('success', 'error');
   if (kind === 'success') box.classList.add('success');
   if (kind === 'error') box.classList.add('error');
-  box.textContent = text || '';
+  const t = String(text || '').trim();
+  box.textContent = t;
+  box.style.display = t ? '' : 'none';
 }
 
 function renderBatteryBadge(battery, running) {
@@ -109,7 +115,7 @@ async function refreshTdcsStatusHint() {
       return;
     }
     if (!running) {
-      setStatus('设备未连接（请先在设备页连接）', 'error');
+      setStatus('', '');
       return;
     }
     if (!connected) {
@@ -185,10 +191,28 @@ function connectTdcsDebugWs() {
           const d = msg.event.data;
           
           const outCurrUa = document.getElementById('tdcs-out-curr-ua');
-          if (outCurrUa) outCurrUa.innerHTML = `${Number(d.out_curr_uA).toFixed(2)} <span style="font-size: 12px; font-weight: normal;">uA</span>`;
+          if (outCurrUa) {
+            const v = `${Number(d.out_curr_uA).toFixed(2)} `;
+            const unit = outCurrUa.querySelector('.tdcs-unit');
+            if (unit) {
+              if (outCurrUa.childNodes.length > 0) outCurrUa.childNodes[0].textContent = v;
+              else outCurrUa.textContent = v;
+            } else {
+              outCurrUa.textContent = `${Number(d.out_curr_uA).toFixed(2)} uA`;
+            }
+          }
           
           const hvUv = document.getElementById('tdcs-hv-uv');
-          if (hvUv) hvUv.innerHTML = `${Number(d.hv_uV).toFixed(2)} <span style="font-size: 12px; font-weight: normal;">uV</span>`;
+          if (hvUv) {
+            const v = `${Number(d.hv_uV).toFixed(2)} `;
+            const unit = hvUv.querySelector('.tdcs-unit');
+            if (unit) {
+              if (hvUv.childNodes.length > 0) hvUv.childNodes[0].textContent = v;
+              else hvUv.textContent = v;
+            } else {
+              hvUv.textContent = `${Number(d.hv_uV).toFixed(2)} uV`;
+            }
+          }
           
           const outCurrRaw = document.getElementById('tdcs-out-curr-raw');
           if (outCurrRaw) outCurrRaw.textContent = d.out_curr_raw;
@@ -198,19 +222,22 @@ function connectTdcsDebugWs() {
           
           const stateWorking = document.getElementById('tdcs-state-working');
           if (stateWorking) {
-            stateWorking.className = 'badge ' + (d.is_working ? 'active' : 'warn');
+            stateWorking.classList.remove('active', 'warn', 'error');
+            stateWorking.classList.add(d.is_working ? 'active' : 'warn');
             stateWorking.querySelector('div:last-child').textContent = `CCS工作状态：${d.is_working ? '工作中' : '停止工作'}`;
           }
           
           const stateOpen = document.getElementById('tdcs-state-open');
           if (stateOpen) {
-            stateOpen.className = 'badge ' + (d.open_circuit ? 'error' : 'active');
+            stateOpen.classList.remove('active', 'warn', 'error');
+            stateOpen.classList.add(d.open_circuit ? 'error' : 'active');
             stateOpen.querySelector('div:last-child').textContent = `负载开路故障：${d.open_circuit ? '开路故障' : '无故障'}`;
           }
           
           const stateOver = document.getElementById('tdcs-state-over');
           if (stateOver) {
-            stateOver.className = 'badge ' + (d.over_current ? 'error' : 'active');
+            stateOver.classList.remove('active', 'warn', 'error');
+            stateOver.classList.add(d.over_current ? 'error' : 'active');
             stateOver.querySelector('div:last-child').textContent = `负载过流故障：${d.over_current ? '过流故障' : '无故障'}`;
           }
         }
@@ -277,6 +304,7 @@ function ensureBound() {
   if (bound) return;
   bound = true;
   bootstrapTdcsDebug();
+  void initTdcsControlPanel({ containerId: 'tdcs-controls', report: setStatus });
   const startBtn = document.getElementById('btn-tdcs-start');
   const stopBtn = document.getElementById('btn-tdcs-stop');
   if (startBtn) {
