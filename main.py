@@ -30,9 +30,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-08: 1.3.6 下发动态 y 轴分档/更新频率配置并下调默认渲染频率，降低 ECharts 布局与重绘压力
 - 2026-05-09: 1.3.7 (Fengye)增加 SSVEP 模式：独立进程启动/停止刺激程序并暴露状态字段
 - 2026-05-09: 1.3.8 修复 SSVEP 刺激模块导入路径，避免启动时报错
+- 2026-05-12: 1.3.9 延迟导入 SSVEP 依赖，避免子进程启动时加载重模块导致 BLE 连接超时
 
 作者: Spoon
-版本: 1.3.8
+版本: 1.3.9
 """
 
 import asyncio
@@ -58,7 +59,6 @@ from core.offline.offline_service import BandpassConfig, ExportTarget, OfflineSe
 from core.signal.notch_filter import NotchFilter, NotchFilterConfig
 from ws_hub_eeg import EegWsHub, EegWsHubConfig
 from ws_hub_impedance import ImpedanceWsHub, ImpedanceWsHubConfig
-from core.ssvep.stim_v1 import start_ssvep_experiment
 import multiprocessing
 import threading
 # import socketio
@@ -863,6 +863,7 @@ async def start_mode(req: ModeRequest):
 
         # 3. 启动进程 (PsychoPy 必须在独立进程运行以防阻塞 FastAPI)
         # 注意：不要在主线程运行 GUI
+        from core.ssvep.stim_v1 import start_ssvep_experiment
         state.ssvep_process = multiprocessing.Process(
             target=start_ssvep_experiment,
             args=(state.config.offline.root_dir,), # 使用配置文件的路径
