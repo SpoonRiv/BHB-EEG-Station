@@ -12,9 +12,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.3 增加 50Hz 工频陷波：导出 raw/filtered 均先陷波再（可选）带通
 - 2026-05-03: 1.0.4 导出链路统一使用“陷波+可选带通”流式处理，确保 raw/filtered 均执行 50Hz 陷波
 - 2026-05-07: 1.0.5 离线写入队列支持上限与满时策略，并将 chunk 转换移至后台线程避免阻塞事件循环
+- 2026-05-15: 1.0.6 离线导出缩放配置改为 count_divisor（与旧版 /120 对齐）
+- 2026-05-15: 1.0.7 缩放实现改为 /count_divisor（不使用乘法），并兼容旧 meta.json 字段
 
 作者: Spoon
-版本: 1.0.5
+版本: 1.0.7
 """
 
 from __future__ import annotations
@@ -47,7 +49,7 @@ class OfflineSessionInfo:
         channel_names: 通道名列表（含可选触发通道）。
         total_samples: 总采样点数（逐采样点计数）。
         physical_unit: 物理单位（用于 EDF 元信息与 CSV 表头提示）。
-        uv_per_count: 原始计数到 uV 的缩放因子（导出时应用）。
+        count_divisor: 原始计数到物理单位的缩放除数（导出/展示时按 /count_divisor 应用）。
     """
 
     session_id: str
@@ -58,7 +60,7 @@ class OfflineSessionInfo:
     channel_names: List[str]
     total_samples: int
     physical_unit: str
-    uv_per_count: float
+    count_divisor: float
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -70,7 +72,7 @@ class OfflineSessionInfo:
             "channel_names": list(self.channel_names),
             "total_samples": int(self.total_samples),
             "physical_unit": str(self.physical_unit),
-            "uv_per_count": float(self.uv_per_count),
+            "count_divisor": float(self.count_divisor),
         }
 
 
@@ -247,7 +249,7 @@ class OfflineService:
         trigger_enabled: bool,
         trigger_label: str,
         physical_unit: str,
-        uv_per_count: float,
+        count_divisor: float,
         notch_freq_hz: float,
         notch_quality_factor: float,
         filter_order_default: int,
@@ -263,7 +265,9 @@ class OfflineService:
         self._trigger_enabled = bool(trigger_enabled)
         self._trigger_label = str(trigger_label or "TRIG")
         self._physical_unit = str(physical_unit or "uV")
-        self._uv_per_count = float(uv_per_count)
+        self._count_divisor = float(count_divisor)
+        if self._count_divisor <= 0 or not np.isfinite(self._count_divisor):
+            self._count_divisor = 120.0
         self._notch_freq_hz = float(notch_freq_hz)
         self._notch_quality_factor = float(notch_quality_factor)
         self._filter_order_default = max(1, int(filter_order_default))
@@ -335,7 +339,7 @@ class OfflineService:
                 channel_names=ch_names,
                 total_samples=0,
                 physical_unit=self._physical_unit,
-                uv_per_count=float(self._uv_per_count),
+                count_divisor=float(self._count_divisor),
             )
             raw_path = os.path.join(session_dir, "raw_float32.bin")
             meta_path = os.path.join(session_dir, "meta.json")
@@ -386,7 +390,7 @@ class OfflineService:
                 channel_names=info.channel_names,
                 total_samples=int(info.total_samples + int(sample_count)),
                 physical_unit=info.physical_unit,
-                uv_per_count=info.uv_per_count,
+                count_divisor=info.count_divisor,
             )
         try:
             writer.append_chunk(chunk, expected_ch=expected_ch)
@@ -424,7 +428,7 @@ class OfflineService:
             channel_names=info.channel_names,
             total_samples=info.total_samples,
             physical_unit=info.physical_unit,
-            uv_per_count=info.uv_per_count,
+            count_divisor=info.count_divisor,
         )
         try:
             if raw_path:
@@ -439,7 +443,7 @@ class OfflineService:
                         channel_names=stopped.channel_names,
                         total_samples=int(samples),
                         physical_unit=stopped.physical_unit,
-                        uv_per_count=stopped.uv_per_count,
+                        count_divisor=stopped.count_divisor,
                     )
         except Exception:
             pass
@@ -472,6 +476,20 @@ class OfflineService:
         with open(meta_path, "r", encoding="utf-8") as f:
             raw = json.load(f) or {}
         ch_names = list(raw.get("channel_names") or [])
+        divisor_raw = raw.get("count_divisor", None)
+        if divisor_raw is None:
+            legacy_uv = raw.get("uv_per_count", None)
+            try:
+                uv = float(legacy_uv)
+            except Exception:
+                uv = 0.0
+            divisor_raw = (1.0 / uv) if uv > 0 else 120.0
+        try:
+            divisor = float(divisor_raw)
+        except Exception:
+            divisor = 120.0
+        if divisor <= 0:
+            divisor = 120.0
         return OfflineSessionInfo(
             session_id=str(raw.get("session_id") or sid),
             session_dir=session_dir,
@@ -481,7 +499,7 @@ class OfflineService:
             channel_names=[str(x) for x in ch_names],
             total_samples=int(raw.get("total_samples") or 0),
             physical_unit=str(raw.get("physical_unit") or "uV"),
-            uv_per_count=float(raw.get("uv_per_count") or 0.0),
+            count_divisor=divisor,
         )
 
     def export(
@@ -607,7 +625,7 @@ class OfflineService:
         bandpass: BandpassConfig,
         block_size_samples: int,
     ) -> None:
-        scaled = self._scale_view(data=data, uv_per_count=info.uv_per_count)
+        scaled = self._scale_view(data=data, count_divisor=info.count_divisor)
         if fmt == "csv":
             self._write_csv_filtered(
                 out_path=out_path,
@@ -633,7 +651,7 @@ class OfflineService:
         raise ValueError("不支持的导出格式")
 
     def _export_one(self, data: np.ndarray, info: OfflineSessionInfo, out_path: str, fmt: str, block_size_samples: int) -> None:
-        scaled = self._scale_view(data=data, uv_per_count=info.uv_per_count)
+        scaled = self._scale_view(data=data, count_divisor=info.count_divisor)
         if fmt == "csv":
             self._write_csv(
                 out_path=out_path,
@@ -656,13 +674,13 @@ class OfflineService:
             return
         raise ValueError("不支持的导出格式")
 
-    def _scale_view(self, data: np.ndarray, uv_per_count: float) -> np.ndarray:
-        factor = float(uv_per_count)
-        if not np.isfinite(factor) or factor <= 0:
-            factor = 1.0
-        if factor == 1.0:
+    def _scale_view(self, data: np.ndarray, count_divisor: float) -> np.ndarray:
+        divisor = float(count_divisor)
+        if not np.isfinite(divisor) or divisor <= 0:
+            divisor = 120.0
+        if divisor == 1.0:
             return data
-        return data * factor
+        return data / divisor
 
     def _design_notch(self, sampling_rate_hz: int) -> Tuple[np.ndarray, np.ndarray]:
         fs = float(sampling_rate_hz)

@@ -39,9 +39,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-12: 1.0.32 tDCS 操作按钮统一宽度并将输入框右置；两列卡片高度对齐并限制说明行数保持边框平齐
 - 2026-05-12: 1.0.33 tDCS 状态信息三枚徽标改为不拉伸宽度并略缩窄，避免占满整行
 - 2026-05-12: 1.0.34 tDCS 面板布局更宽松并让网格填满容器高度，减少底部留白
+- 2026-05-15: 1.0.35 增加徽标无框变体样式，用于顶栏连接状态与电量展示
 
 作者: Spoon
-版本: 1.0.34
+版本: 1.0.35
 */
 
 @import "./eeg_topomap.css";
@@ -156,6 +157,14 @@ html, body {
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.16);
   box-shadow: 0 0 0 1px rgba(49, 215, 255, 0.06) inset;
+}
+
+.badge.plain {
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  gap: 6px;
 }
 
 .badge-dot {

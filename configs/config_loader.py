@@ -26,9 +26,13 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.1.16 统一三模式命名（eeg/impedance/tdcs），并显式区分 8/16 通道配置字段
 - 2026-05-07: 1.1.17 增加前端 WS 待处理上限与离线写入队列上限配置，降低长时间运行卡顿风险
 - 2026-05-08: 1.1.18 增加动态 y 轴分档与更新频率配置，并下调默认渲染/转发频率以降低长时间渲染压力
+- 2026-05-15: 1.1.19 增加实时波形展示带通滤波配置（默认 0.5-80Hz）
+- 2026-05-15: 1.1.20 离线导出缩放默认改为 1/120（与旧版 /120 对齐）
+- 2026-05-15: 1.1.21 离线导出缩放配置改为 count_divisor（展示/导出统一按 /120）
+- 2026-05-15: 1.1.22 增加 count_divisor 兜底与范围校验，并兼容旧字段 uv_per_count
 
 作者: Spoon
-版本: 1.1.18
+版本: 1.1.22
 """
 
 import os
@@ -161,14 +165,23 @@ class NotchConfig:
 
 
 @dataclass(frozen=True)
+class BandpassConfig:
+    enabled: bool
+    lowcut_hz: float
+    highcut_hz: float
+    order: int
+
+
+@dataclass(frozen=True)
 class SignalConfig:
     notch: NotchConfig
+    bandpass: BandpassConfig
 
 
 @dataclass(frozen=True)
 class OfflineExportConfig:
     physical_unit: str
-    uv_per_count: float
+    count_divisor: float
     trigger_label: str
 
 
@@ -644,12 +657,51 @@ def load_config(config_path: str) -> AppConfig:
         notch_freq_hz = 50.0
     if notch_q <= 0:
         notch_q = 30.0
+
+    bandpass_raw = signal_raw.get("bandpass", {}) or {}
+    bandpass_enabled = bool(bandpass_raw.get("enabled", True))
+    bandpass_lowcut_hz = float(bandpass_raw.get("lowcut_hz", 0.5))
+    bandpass_highcut_hz = float(bandpass_raw.get("highcut_hz", 80.0))
+    bandpass_order = int(bandpass_raw.get("order", 4))
+    if bandpass_order < 1:
+        bandpass_order = 1
+    if bandpass_order > 12:
+        bandpass_order = 12
+    nyq = float(sampling_rate_hz) / 2.0
+    if bandpass_lowcut_hz <= 0:
+        bandpass_lowcut_hz = 0.5
+    if bandpass_highcut_hz <= 0:
+        bandpass_highcut_hz = 80.0
+    if bandpass_highcut_hz >= nyq:
+        bandpass_highcut_hz = max(1.0, nyq - 1.0)
+    if bandpass_lowcut_hz >= bandpass_highcut_hz:
+        bandpass_lowcut_hz = min(0.5, max(0.01, bandpass_highcut_hz / 10.0))
     signal = SignalConfig(
         notch=NotchConfig(freq_hz=notch_freq_hz, quality_factor=notch_q),
+        bandpass=BandpassConfig(
+            enabled=bandpass_enabled,
+            lowcut_hz=bandpass_lowcut_hz,
+            highcut_hz=bandpass_highcut_hz,
+            order=bandpass_order,
+        ),
     )
 
     export_raw = offline_raw.get("export", {}) or {}
     filter_raw = offline_raw.get("filter", {}) or {}
+    count_divisor_raw = export_raw.get("count_divisor", None)
+    if count_divisor_raw is None:
+        legacy_uv_per_count = export_raw.get("uv_per_count", None)
+        try:
+            uv = float(legacy_uv_per_count)
+        except Exception:
+            uv = 0.0
+        count_divisor_raw = (1.0 / uv) if uv > 0 else 120.0
+    try:
+        count_divisor = float(count_divisor_raw)
+    except Exception:
+        count_divisor = 120.0
+    if count_divisor <= 0:
+        count_divisor = 120.0
     writer_queue_max_chunks = int(offline_raw.get("writer_queue_max_chunks", 50))
     if writer_queue_max_chunks < 1:
         writer_queue_max_chunks = 1
@@ -662,7 +714,7 @@ def load_config(config_path: str) -> AppConfig:
         root_dir=str(offline_raw.get("root_dir", "offlinedata") or "offlinedata"),
         export=OfflineExportConfig(
             physical_unit=str(export_raw.get("physical_unit", "uV") or "uV"),
-            uv_per_count=float(export_raw.get("uv_per_count", 0.0833)),
+            count_divisor=count_divisor,
             trigger_label=str(export_raw.get("trigger_label", "TRIG") or "TRIG"),
         ),
         filter=OfflineFilterConfig(

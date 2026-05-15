@@ -27,9 +27,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-07: 1.1.10 修复长时间运行卡顿：离开页面释放图表实例；WS 数据增加背压并启用懒更新渲染
 - 2026-05-07: 1.1.11 调试面板渲染加入限帧与批量刷新，避免高频调试事件导致主线程满载卡顿
 - 2026-05-08: 1.1.12 动态 y 轴分档+限频更新，降低 Layout/Pre-paint；并按配置降低波形刷新频率
+- 2026-05-15: 1.1.13 EEG 页面提示补充 0.5-80Hz 带通滤波（默认开启）
 
 作者: Spoon
-版本: 1.1.12
+版本: 1.1.13
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -730,7 +731,13 @@ export async function enterEegPage() {
     if (notchEl) {
       const notch = cfg && cfg.signal && cfg.signal.notch ? cfg.signal.notch : null;
       const hz = notch && typeof notch.freq_hz === 'number' ? notch.freq_hz : 50;
-      notchEl.textContent = ` ｜ 默认开启 ${hz}Hz 工频陷波`;
+      const bp = cfg && cfg.signal && cfg.signal.bandpass ? cfg.signal.bandpass : null;
+      const bpEnabled = bp && typeof bp.enabled === 'boolean' ? bp.enabled : true;
+      const low = bp && typeof bp.lowcut_hz === 'number' ? bp.lowcut_hz : 0.5;
+      const high = bp && typeof bp.highcut_hz === 'number' ? bp.highcut_hz : 80.0;
+      notchEl.textContent = bpEnabled
+        ? ` ｜ 默认开启 ${hz}Hz 工频陷波 ｜ 默认开启 ${low}-${high}Hz 带通滤波`
+        : ` ｜ 默认开启 ${hz}Hz 工频陷波`;
     }
   } catch (_) {}
 

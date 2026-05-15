@@ -39,9 +39,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-12: 1.2.20 电刺激页面状态提示改为无框文本并在空内容时隐藏，整体风格参考阻抗检测页面
 - 2026-05-12: 1.2.21 移除 tDCS 页面预留参数区提示文案，保持页面简洁
 - 2026-05-12: 1.2.22 tDCS 主面板改为可伸展布局，减少底部留白并优化空间利用
+- 2026-05-15: 1.2.23 去掉蓝牙连接与电量徽标外框，仅保留提示灯与数值
 
 作者: Spoon
-版本: 1.2.22
+版本: 1.2.23
 -->
 <html lang="zh-CN">
 <head>
@@ -62,7 +63,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
             <div class="brand-sub" id="brand-sub">v1.0.1</div>
         </div>
         <div class="header-actions">
-            <div class="badge" id="conn-badge">
+            <div class="badge plain" id="conn-badge">
                 <div class="badge-dot"></div>
                 <div id="conn-text">未连接</div>
             </div>
@@ -248,7 +249,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             <div class="card-sub"><span id="eeg-sub">WebSocket 实时推送</span><span id="eeg-notch-hint"></span></div>
                         </div>
                         <div class="row">
-                            <div class="badge" id="battery-badge">
+                            <div class="badge plain" id="battery-badge">
                                 <div class="badge-dot"></div>
                                 <div id="battery-text">电量：--</div>
                             </div>
@@ -424,7 +425,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             <div class="card-sub">监测数据 + 两级指令控制面板（按钮化）</div>
                         </div>
                         <div class="row">
-                            <div class="badge" id="tdcs-battery-badge">
+                            <div class="badge plain" id="tdcs-battery-badge">
                                 <div class="badge-dot"></div>
                                 <div id="tdcs-battery-text">电量：--</div>
                             </div>

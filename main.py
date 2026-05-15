@@ -33,9 +33,12 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-12: 1.3.9 延迟导入 SSVEP 依赖，避免子进程启动时加载重模块导致 BLE 连接超时
 - 2026-05-12: 1.3.10 增加两级指令控制面板 API（下发指令与指令列表），用于 tDCS 页面按钮化控制
 - 2026-05-12: 1.3.11 控制面板指令列表补充 help 字段（用于 UI 展示按钮说明）
+- 2026-05-15: 1.3.12 EEG 波形展示默认开启 0.5-80Hz 带通滤波
+- 2026-05-15: 1.3.13 EEG 波形展示与离线导出统一按 /120 缩放（uv_per_count）
+- 2026-05-15: 1.3.14 EEG 缩放配置改为 count_divisor，并统一按 /count_divisor 执行（不使用乘法）
 
 作者: Spoon
-版本: 1.3.11
+版本: 1.3.14
 """
 
 import asyncio
@@ -59,6 +62,7 @@ from core.debug_bus import DebugEventBus
 from core.ble.commands import L1_COMMANDS, L2_COMMANDS
 from core.ble.scanner import scan_devices
 from core.offline.offline_service import BandpassConfig, ExportTarget, OfflineService
+from core.signal.bandpass_filter import BandpassFilter, BandpassFilterConfig
 from core.signal.notch_filter import NotchFilter, NotchFilterConfig
 from ws_hub_eeg import EegWsHub, EegWsHubConfig
 from ws_hub_impedance import ImpedanceWsHub, ImpedanceWsHubConfig
@@ -115,7 +119,7 @@ class AppState:
             trigger_enabled=self.config.eeg.lsl.include_trigger_channel,
             trigger_label=self.config.offline.export.trigger_label,
             physical_unit=self.config.offline.export.physical_unit,
-            uv_per_count=self.config.offline.export.uv_per_count,
+            count_divisor=self.config.offline.export.count_divisor,
             notch_freq_hz=self.config.signal.notch.freq_hz,
             notch_quality_factor=self.config.signal.notch.quality_factor,
             filter_order_default=self.config.offline.filter.order,
@@ -134,13 +138,25 @@ class AppState:
                 has_trigger_channel=bool(self.config.eeg.lsl.include_trigger_channel),
             )
         )
+        self.bandpass: Optional[BandpassFilter] = None
+        if bool(getattr(self.config.signal, "bandpass", None) and self.config.signal.bandpass.enabled):
+            self.bandpass = BandpassFilter(
+                BandpassFilterConfig(
+                    sampling_rate_hz=int(self.config.eeg.sampling_rate_hz),
+                    lowcut_hz=float(self.config.signal.bandpass.lowcut_hz),
+                    highcut_hz=float(self.config.signal.bandpass.highcut_hz),
+                    order=int(self.config.signal.bandpass.order),
+                    channel_count=channel_count,
+                    has_trigger_channel=bool(self.config.eeg.lsl.include_trigger_channel),
+                )
+            )
         self.eeg_ws_hub = EegWsHub(
             EegWsHubConfig(
                 max_pending_chunks=int(self.config.streaming.ws_queue_max_chunks),
                 send_timeout_sec=float(self.config.streaming.ws_send_timeout_sec),
             )
         )
-        self.eeg_ws_hub.set_transform(self._apply_notch_safe)
+        self.eeg_ws_hub.set_transform(self._apply_signal_preprocess_safe)
 
         imp_name = self.config.impedance.lsl.stream_name
         imp_type = self.config.impedance.lsl.stream_type
@@ -291,7 +307,7 @@ class AppState:
             trigger_enabled=self.config.eeg.lsl.include_trigger_channel,
             trigger_label=self.config.offline.export.trigger_label,
             physical_unit=self.config.offline.export.physical_unit,
-            uv_per_count=self.config.offline.export.uv_per_count,
+            count_divisor=self.config.offline.export.count_divisor,
             notch_freq_hz=self.config.signal.notch.freq_hz,
             notch_quality_factor=self.config.signal.notch.quality_factor,
             filter_order_default=self.config.offline.filter.order,
@@ -310,22 +326,83 @@ class AppState:
                 has_trigger_channel=bool(self.config.eeg.lsl.include_trigger_channel),
             )
         )
-        self.eeg_ws_hub.set_transform(self._apply_notch_safe)
+        self.bandpass = None
+        if bool(getattr(self.config.signal, "bandpass", None) and self.config.signal.bandpass.enabled):
+            self.bandpass = BandpassFilter(
+                BandpassFilterConfig(
+                    sampling_rate_hz=int(self.config.eeg.sampling_rate_hz),
+                    lowcut_hz=float(self.config.signal.bandpass.lowcut_hz),
+                    highcut_hz=float(self.config.signal.bandpass.highcut_hz),
+                    order=int(self.config.signal.bandpass.order),
+                    channel_count=channel_count,
+                    has_trigger_channel=bool(self.config.eeg.lsl.include_trigger_channel),
+                )
+            )
+        self.eeg_ws_hub.set_transform(self._apply_signal_preprocess_safe)
 
-    def _apply_notch_safe(self, chunk: List[List[float]]) -> List[List[float]]:
+    def _apply_signal_preprocess_safe(self, chunk: List[List[float]]) -> List[List[float]]:
         """
-        对 EEG chunk 应用陷波预处理（失败则回退到原始数据）。
+        对 EEG chunk 应用实时预处理（失败则回退到原始数据）。
 
         Args:
             chunk: 形如 [sample][channel] 的二维数组
 
         Returns:
-            List[List[float]]: 陷波后的数据（或原始数据）
+            List[List[float]]: 预处理后的数据（或原始数据）
         """
+        out = chunk
         try:
-            return self.notch.apply(chunk)
+            out = self.notch.apply(out)
         except Exception:
+            out = chunk
+        if self.bandpass is not None:
+            try:
+                out = self.bandpass.apply(out)
+            except Exception:
+                pass
+        return self._scale_eeg_chunk_like_legacy(out)
+
+    def _scale_eeg_chunk_like_legacy(self, chunk: List[List[float]]) -> List[List[float]]:
+        """
+        对实时波形展示数据做幅值缩放（与离线导出一致）。
+
+        说明：
+            - 旧版上位机在保存/展示前对数据做 /120；
+            - 新版通过配置 offline.export.count_divisor 表达“原始计数到物理单位的缩放除数”，因此采用除法缩放：
+              scaled = raw / count_divisor；
+            - 触发通道（若存在）不做缩放。
+
+        Args:
+            chunk: 形如 [sample][channel] 的二维数组
+
+        Returns:
+            List[List[float]]: 缩放后的数据
+        """
+        if not chunk:
             return chunk
+        try:
+            divisor = float(self.config.offline.export.count_divisor)
+        except Exception:
+            divisor = 120.0
+        if not (divisor > 0):
+            divisor = 120.0
+        if divisor == 1.0:
+            return chunk
+
+        n_eeg = int(self.config.eeg.n_channels)
+        has_trigger = bool(self.config.eeg.lsl.include_trigger_channel)
+        out: List[List[float]] = []
+        for s in chunk:
+            if not s:
+                out.append(s)
+                continue
+            if has_trigger and len(s) >= n_eeg + 1:
+                eeg_scaled = [float(x) / divisor for x in s[:n_eeg]]
+                trig = float(s[n_eeg])
+                out.append(eeg_scaled + [trig] + [float(x) for x in s[n_eeg + 1 :]])
+                continue
+            out.append([float(x) / divisor for x in s])
+        return out
 
     def on_lsl_chunk(self, chunk: List[List[float]]) -> None:
         """
@@ -450,6 +527,15 @@ async def start_eeg():
         if state.config.debug.ui_enabled and state.controller.debug_queue is not None and not state._debug_forward_started:
             state.debug_bus.start_forward_from_mp_queue(state.controller.debug_queue)
             state._debug_forward_started = True
+        try:
+            state.notch.reset()
+        except Exception:
+            pass
+        if getattr(state, "bandpass", None) is not None:
+            try:
+                state.bandpass.reset()
+            except Exception:
+                pass
         state.streamer.start()
         return {"status": "success", "message": "蓝牙采集已启动并连接成功。", "device": state.controller.get_status()}
     last = state.controller.last_status or {"type": "error", "message": "启动失败"}
@@ -511,12 +597,18 @@ async def get_config():
             "notch": {
                 "freq_hz": float(state.config.signal.notch.freq_hz),
                 "quality_factor": float(state.config.signal.notch.quality_factor),
+            },
+            "bandpass": {
+                "enabled": bool(getattr(state.config.signal, "bandpass", None) and state.config.signal.bandpass.enabled),
+                "lowcut_hz": float(getattr(state.config.signal, "bandpass", None) and state.config.signal.bandpass.lowcut_hz or 0.5),
+                "highcut_hz": float(getattr(state.config.signal, "bandpass", None) and state.config.signal.bandpass.highcut_hz or 80.0),
+                "order": int(getattr(state.config.signal, "bandpass", None) and state.config.signal.bandpass.order or 4),
             }
         },
         "offline": {
             "root_dir": state.config.offline.root_dir,
             "physical_unit": state.config.offline.export.physical_unit,
-            "uv_per_count": state.config.offline.export.uv_per_count,
+            "count_divisor": state.config.offline.export.count_divisor,
             "trigger_label": state.config.offline.export.trigger_label,
             "filter_defaults": state.offline.filter_defaults,
             "notch": {
