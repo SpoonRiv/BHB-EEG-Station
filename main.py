@@ -36,9 +36,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-15: 1.3.12 EEG 波形展示默认开启 0.5-80Hz 带通滤波
 - 2026-05-15: 1.3.13 EEG 波形展示与离线导出统一按 /120 缩放（uv_per_count）
 - 2026-05-15: 1.3.14 EEG 缩放配置改为 count_divisor，并统一按 /count_divisor 执行（不使用乘法）
+- 2026-05-16: 1.3.15 离线会话 ID 命名调整：默认不再追加 _00 后缀
 
 作者: Spoon
-版本: 1.3.14
+版本: 1.3.15
 """
 
 import asyncio
@@ -1133,7 +1134,7 @@ async def offline_session(session_id: str):
     查询离线会话元信息，并附带派生指标（采集时长、数据尺寸等）。
 
     Args:
-        session_id: 会话 ID（形如 YYYYMMDD_eeg_HHMMSS_XX）
+        session_id: 会话 ID（形如 YYYYMMDD_eeg_HHMMSS；若重名会追加 _NN）
     """
     sid = str(session_id or "").strip()
     if not sid:

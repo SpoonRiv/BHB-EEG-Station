@@ -14,9 +14,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-07: 1.0.5 离线写入队列支持上限与满时策略，并将 chunk 转换移至后台线程避免阻塞事件循环
 - 2026-05-15: 1.0.6 离线导出缩放配置改为 count_divisor（与旧版 /120 对齐）
 - 2026-05-15: 1.0.7 缩放实现改为 /count_divisor（不使用乘法），并兼容旧 meta.json 字段
+- 2026-05-16: 1.0.8 离线会话目录默认不再追加 _00 后缀，仅在重名时追加序号
 
 作者: Spoon
-版本: 1.0.7
+版本: 1.0.8
 """
 
 from __future__ import annotations
@@ -315,9 +316,10 @@ class OfflineService:
             base_dir = os.path.join(self._project_root_dir, self._root_dir, date_part)
             os.makedirs(base_dir, exist_ok=True)
 
-            idx = 0
+            folder_base = f"eeg_{time_part}"
+            idx = 1
             while True:
-                folder = f"eeg_{time_part}_{idx:02d}"
+                folder = folder_base if idx == 1 else f"{folder_base}_{idx - 1:02d}"
                 session_dir = os.path.join(base_dir, folder)
                 if not os.path.exists(session_dir):
                     break

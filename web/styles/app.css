@@ -40,9 +40,13 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-12: 1.0.33 tDCS 状态信息三枚徽标改为不拉伸宽度并略缩窄，避免占满整行
 - 2026-05-12: 1.0.34 tDCS 面板布局更宽松并让网格填满容器高度，减少底部留白
 - 2026-05-15: 1.0.35 增加徽标无框变体样式，用于顶栏连接状态与电量展示
+- 2026-05-16: 1.0.36 EEG 通道名改为左侧垂直居中展示，避免遮挡波形
+- 2026-05-16: 1.0.37 EEG 波形卡片高度下调，减少滚动距离
+- 2026-05-16: 1.0.38 提升 EEG 通道名在日夜模式下的对比度与可读性
+- 2026-05-16: 1.0.39 EEG 通道名字号加大，提升可读性
 
 作者: Spoon
-版本: 1.0.35
+版本: 1.0.39
 */
 
 @import "./eeg_topomap.css";
@@ -543,7 +547,7 @@ select option {
 
 .chart-container {
   position: relative;
-  height: 180px;
+  height: 140px;
   border-radius: 14px;
   border: 1px solid rgba(140, 170, 210, 0.16);
   background: var(--panel-2);
@@ -552,16 +556,31 @@ select option {
 
 .chart-title {
   position: absolute;
-  top: 10px;
+  top: 50%;
   left: 12px;
-  font-size: 12px;
-  color: rgba(233, 238, 246, 0.78);
+  transform: translateY(-50%);
+  font-size: 14px;
+  font-weight: 850;
+  color: rgba(255, 255, 255, 0.92);
   letter-spacing: 0.2px;
   z-index: 10;
   padding: 4px 8px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.22);
-  border: 1px solid rgba(140, 170, 210, 0.14);
+  background: rgba(0, 0, 0, 0.46);
+  border: 1px solid rgba(140, 170, 210, 0.22);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+  max-width: 92px;
+  text-align: center;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+[data-theme="light"] .chart-title {
+  color: #111827;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(17, 24, 39, 0.18);
+  box-shadow: 0 8px 22px rgba(17, 24, 39, 0.14);
 }
 
 .echarts-instance { width: 100%; height: 100%; }

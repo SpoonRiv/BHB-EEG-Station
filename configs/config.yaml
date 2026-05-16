@@ -1,5 +1,5 @@
 app:
-  ui_version: "1.4.10"
+  ui_version: "1.4.11"
 
 ui:
   waveform:
@@ -14,9 +14,9 @@ ui:
     # 前端 WS 待处理队列上限（只用于展示背压：积压时覆盖旧包以保持“尽量实时”的显示）。
     max_pending_ws_chunks: 2
     # 动态 y 轴“分档”步长（<=0 表示不分档，连续变化）。单位与波形数值一致（通常为 uV 或计数）。
-    y_axis_step: 50
+    y_axis_step: 100
     # 动态 y 轴更新频率（Hz）。降低该值可减少 yAxis 重算/重绘开销。
-    y_axis_update_hz: 2
+    y_axis_update_hz: 5
 
 bluetooth:
   device_names:

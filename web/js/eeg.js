@@ -28,9 +28,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-07: 1.1.11 调试面板渲染加入限帧与批量刷新，避免高频调试事件导致主线程满载卡顿
 - 2026-05-08: 1.1.12 动态 y 轴分档+限频更新，降低 Layout/Pre-paint；并按配置降低波形刷新频率
 - 2026-05-15: 1.1.13 EEG 页面提示补充 0.5-80Hz 带通滤波（默认开启）
+- 2026-05-16: 1.1.14 通道名移到左侧并垂直居中，避免与坐标轴标签挤压
 
 作者: Spoon
-版本: 1.1.13
+版本: 1.1.14
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -272,7 +273,7 @@ function initCharts() {
     const chart = echarts.init(chartDiv, null, { renderer: 'canvas' });
     chart.setOption({
       backgroundColor: 'transparent',
-      grid: { top: 24, bottom: 12, left: 64, right: 10 },
+      grid: { top: 12, bottom: 12, left: 120, right: 10 },
       xAxis: { type: 'value', show: false, boundaryGap: false, min: -eegWindowSec, max: 0 },
       yAxis: {
         type: 'value',
@@ -280,6 +281,7 @@ function initCharts() {
         axisLine: { show: false },
         axisTick: { show: false },
         axisLabel: {
+          margin: 10,
           color: isLight ? '#111827' : 'rgba(255, 255, 255, 0.78)',
           formatter: function (value) {
             const v = Number(value);
