@@ -30,9 +30,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-15: 1.1.20 离线导出缩放默认改为 1/120（与旧版 /120 对齐）
 - 2026-05-15: 1.1.21 离线导出缩放配置改为 count_divisor（展示/导出统一按 /120）
 - 2026-05-15: 1.1.22 增加 count_divisor 兜底与范围校验，并兼容旧字段 uv_per_count
+- 2026-05-16: 1.1.23 增加 EEG 波形 y 轴动态/固定缩放 UI 配置（默认开关与滑条范围）
 
 作者: Spoon
-版本: 1.1.22
+版本: 1.1.23
 """
 
 import os
@@ -210,6 +211,11 @@ class WaveformUiConfig:
     max_pending_ws_chunks: int
     y_axis_step: float
     y_axis_update_hz: float
+    y_axis_dynamic_default: bool
+    y_axis_fixed_max_default: float
+    y_axis_fixed_max_min: float
+    y_axis_fixed_max_max: float
+    y_axis_fixed_max_step: float
 
 
 @dataclass(frozen=True)
@@ -460,6 +466,31 @@ def load_config(config_path: str) -> AppConfig:
         y_axis_update_hz = 0.2
     if y_axis_update_hz > 20.0:
         y_axis_update_hz = 20.0
+
+    y_axis_dynamic_default = bool(waveform_ui_raw.get("y_axis_dynamic_default", True))
+    y_axis_fixed_max_default = float(waveform_ui_raw.get("y_axis_fixed_max_default", 500.0))
+    if not (y_axis_fixed_max_default == y_axis_fixed_max_default):
+        y_axis_fixed_max_default = 500.0
+    y_axis_fixed_max_min = float(waveform_ui_raw.get("y_axis_fixed_max_min", 50.0))
+    if not (y_axis_fixed_max_min == y_axis_fixed_max_min):
+        y_axis_fixed_max_min = 50.0
+    y_axis_fixed_max_max = float(waveform_ui_raw.get("y_axis_fixed_max_max", 1500.0))
+    if not (y_axis_fixed_max_max == y_axis_fixed_max_max):
+        y_axis_fixed_max_max = 1500.0
+    y_axis_fixed_max_step = float(waveform_ui_raw.get("y_axis_fixed_max_step", 50.0))
+    if not (y_axis_fixed_max_step == y_axis_fixed_max_step):
+        y_axis_fixed_max_step = 50.0
+
+    if y_axis_fixed_max_step <= 0:
+        y_axis_fixed_max_step = 50.0
+    if y_axis_fixed_max_min <= 0:
+        y_axis_fixed_max_min = 50.0
+    if y_axis_fixed_max_max <= y_axis_fixed_max_min:
+        y_axis_fixed_max_max = max(y_axis_fixed_max_min + y_axis_fixed_max_step, y_axis_fixed_max_min + 1.0)
+    if y_axis_fixed_max_default < y_axis_fixed_max_min:
+        y_axis_fixed_max_default = y_axis_fixed_max_min
+    if y_axis_fixed_max_default > y_axis_fixed_max_max:
+        y_axis_fixed_max_default = y_axis_fixed_max_max
 
     def _as_u8_list(items: Any) -> List[int]:
         if not isinstance(items, list):
@@ -735,6 +766,11 @@ def load_config(config_path: str) -> AppConfig:
             max_pending_ws_chunks=max_pending_ws_chunks,
             y_axis_step=y_axis_step,
             y_axis_update_hz=y_axis_update_hz,
+            y_axis_dynamic_default=y_axis_dynamic_default,
+            y_axis_fixed_max_default=y_axis_fixed_max_default,
+            y_axis_fixed_max_min=y_axis_fixed_max_min,
+            y_axis_fixed_max_max=y_axis_fixed_max_max,
+            y_axis_fixed_max_step=y_axis_fixed_max_step,
         )
     )
 

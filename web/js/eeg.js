@@ -29,9 +29,13 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-08: 1.1.12 动态 y 轴分档+限频更新，降低 Layout/Pre-paint；并按配置降低波形刷新频率
 - 2026-05-15: 1.1.13 EEG 页面提示补充 0.5-80Hz 带通滤波（默认开启）
 - 2026-05-16: 1.1.14 通道名移到左侧并垂直居中，避免与坐标轴标签挤压
+- 2026-05-16: 1.1.15 EEG 波形页增加 y 轴动态开关与最大值滑条（动态时置灰）
+- 2026-05-16: 1.1.16 EEG 波形页 y 轴开关改为 iOS 风格，并优化固定最大值展示
+- 2026-05-16: 1.1.17 动态 y 轴范围保持正负对称
+- 2026-05-16: 1.1.18 EEG 波形页固定最大值徽标隐藏时仍占位，避免控件位移
 
 作者: Spoon
-版本: 1.1.14
+版本: 1.1.18
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -57,6 +61,12 @@ let eegPendingMin = Infinity;
 let eegPendingMax = -Infinity;
 let eegLastAppliedYAxisMin = null;
 let eegLastAppliedYAxisMax = null;
+let eegYAxisDynamicEnabled = true;
+let eegYAxisFixedMax = 500;
+let eegYAxisFixedMaxMin = 50;
+let eegYAxisFixedMaxMax = 1500;
+let eegYAxisFixedMaxStep = 50;
+let eegYAxisModeDirty = false;
 
 let eegRings = [];
 let eegDataDirty = false;
@@ -226,6 +236,93 @@ function debugRenderLoop() {
     renderDebug();
   }
   requestAnimationFrame(debugRenderLoop);
+}
+
+function clampNumber(v, minV, maxV, fallback) {
+  const x = Number(v);
+  if (!Number.isFinite(x)) return Number(fallback);
+  return Math.max(Number(minV), Math.min(Number(maxV), x));
+}
+
+function setYAxisMode(nextDynamicEnabled) {
+  eegYAxisDynamicEnabled = !!nextDynamicEnabled;
+  eegYAxisModeDirty = true;
+  try { localStorage.setItem('bhb_eeg_yaxis_dynamic', eegYAxisDynamicEnabled ? '1' : '0'); } catch (_) {}
+  eegLastAppliedYAxisMin = null;
+  eegLastAppliedYAxisMax = null;
+  eegDataDirty = true;
+}
+
+function setFixedYAxisMax(nextMax) {
+  eegYAxisFixedMax = clampNumber(nextMax, eegYAxisFixedMaxMin, eegYAxisFixedMaxMax, eegYAxisFixedMax);
+  try { localStorage.setItem('bhb_eeg_yaxis_fixed_max', String(eegYAxisFixedMax)); } catch (_) {}
+  eegLastAppliedYAxisMin = null;
+  eegLastAppliedYAxisMax = null;
+  eegDataDirty = true;
+}
+
+function buildYAxisControls() {
+  const host = document.getElementById('eeg-yaxis-controls');
+  if (!host) return;
+  host.innerHTML = '';
+
+  const sw = document.createElement('div');
+  sw.className = 'eeg-yaxis-switch';
+  const swText = document.createElement('span');
+  swText.className = 'eeg-yaxis-label';
+  swText.textContent = '动态Y轴';
+  const swLabel = document.createElement('label');
+  swLabel.className = 'ios-switch';
+  const dynamicInput = document.createElement('input');
+  dynamicInput.type = 'checkbox';
+  dynamicInput.checked = !!eegYAxisDynamicEnabled;
+  const swSlider = document.createElement('span');
+  swSlider.className = 'ios-slider';
+  swLabel.appendChild(dynamicInput);
+  swLabel.appendChild(swSlider);
+  sw.appendChild(swText);
+  sw.appendChild(swLabel);
+
+  const range = document.createElement('div');
+  range.className = 'imp-range';
+  const track = document.createElement('div');
+  track.className = 'imp-range-track';
+  range.appendChild(track);
+
+  const r = document.createElement('input');
+  r.type = 'range';
+  r.min = String(eegYAxisFixedMaxMin);
+  r.max = String(eegYAxisFixedMaxMax);
+  r.step = String(eegYAxisFixedMaxStep);
+  r.value = String(eegYAxisFixedMax);
+  r.disabled = !!eegYAxisDynamicEnabled;
+  range.appendChild(r);
+
+  const pill = document.createElement('div');
+  pill.className = 'eeg-yaxis-pill';
+  pill.textContent = `±${Math.round(Number(eegYAxisFixedMax) || 0)}`;
+  if (eegYAxisDynamicEnabled) pill.classList.add('eeg-hidden');
+
+  const applyUiState = () => {
+    r.disabled = !!eegYAxisDynamicEnabled;
+    pill.classList.toggle('eeg-hidden', !!eegYAxisDynamicEnabled);
+    pill.textContent = `±${Math.round(Number(eegYAxisFixedMax) || 0)}`;
+  };
+
+  dynamicInput.onchange = () => {
+    setYAxisMode(dynamicInput.checked);
+    applyUiState();
+  };
+
+  r.oninput = () => {
+    setFixedYAxisMax(r.value);
+    r.value = String(eegYAxisFixedMax);
+    applyUiState();
+  };
+
+  host.appendChild(sw);
+  host.appendChild(range);
+  host.appendChild(pill);
 }
 
 function scheduleDebugRender() {
@@ -463,22 +560,48 @@ function scheduleVisibleUpdate(forceAll = false) {
 }
 
 function renderCharts() {
-  let yAxisMin = globalYMin === Infinity ? null : Math.floor(globalYMin);
-  let yAxisMax = globalYMax === -Infinity ? null : Math.ceil(globalYMax);
-  const step = Number(eegYAxisStep);
-  if (Number.isFinite(step) && step > 0 && yAxisMin !== null && yAxisMax !== null) {
-    yAxisMin = Math.floor(yAxisMin / step) * step;
-    yAxisMax = Math.ceil(yAxisMax / step) * step;
-    if (yAxisMin === yAxisMax) {
-      yAxisMin = yAxisMin - step;
-      yAxisMax = yAxisMax + step;
+  let yAxisPatch = null;
+  if (eegYAxisDynamicEnabled) {
+    if (!eegGlobalScale) {
+      yAxisPatch = { min: null, max: null };
+    } else {
+      let yAxisMin = globalYMin === Infinity ? null : Math.floor(globalYMin);
+      let yAxisMax = globalYMax === -Infinity ? null : Math.ceil(globalYMax);
+      const step = Number(eegYAxisStep);
+      if (yAxisMin !== null && yAxisMax !== null) {
+        let maxAbs = Math.max(Math.abs(yAxisMin), Math.abs(yAxisMax));
+        if (Number.isFinite(step) && step > 0) {
+          maxAbs = Math.ceil(maxAbs / step) * step;
+          if (maxAbs === 0) maxAbs = step;
+        } else if (maxAbs === 0) {
+          maxAbs = 1;
+        }
+        yAxisMin = -maxAbs;
+        yAxisMax = maxAbs;
+      }
+      const applyYAxis = (yAxisMin !== eegLastAppliedYAxisMin || yAxisMax !== eegLastAppliedYAxisMax);
+      if (applyYAxis && yAxisMin !== null && yAxisMax !== null) {
+        eegLastAppliedYAxisMin = yAxisMin;
+        eegLastAppliedYAxisMax = yAxisMax;
+        yAxisPatch = { min: yAxisMin, max: yAxisMax };
+      } else if (eegYAxisModeDirty) {
+        eegLastAppliedYAxisMin = null;
+        eegLastAppliedYAxisMax = null;
+        yAxisPatch = { min: null, max: null };
+      }
+    }
+  } else {
+    const m = clampNumber(eegYAxisFixedMax, eegYAxisFixedMaxMin, eegYAxisFixedMaxMax, 500);
+    const yAxisMin = -m;
+    const yAxisMax = m;
+    const applyYAxis = (yAxisMin !== eegLastAppliedYAxisMin || yAxisMax !== eegLastAppliedYAxisMax);
+    if (applyYAxis) {
+      eegLastAppliedYAxisMin = yAxisMin;
+      eegLastAppliedYAxisMax = yAxisMax;
+      yAxisPatch = { min: yAxisMin, max: yAxisMax };
     }
   }
-  const applyYAxis = eegGlobalScale && (yAxisMin !== eegLastAppliedYAxisMin || yAxisMax !== eegLastAppliedYAxisMax);
-  if (applyYAxis) {
-    eegLastAppliedYAxisMin = yAxisMin;
-    eegLastAppliedYAxisMax = yAxisMax;
-  }
+  eegYAxisModeDirty = false;
 
   for (let i = 0; i < channels; i++) {
     if (eegVisibleMask.length === channels && !eegVisibleMask[i]) continue;
@@ -487,11 +610,12 @@ function renderCharts() {
     const ring = eegRings[i];
     const tgt = eegTargetPointsCache[i] > 0 ? eegTargetPointsCache[i] : computeTargetPointsForChart(ch);
     const points = buildSeriesPoints(ring, eegSamplingRateHz, tgt);
-    ch.setOption({
+    const opt = {
       xAxis: { min: -eegWindowSec, max: 0 },
-      ...(eegGlobalScale ? (applyYAxis ? { yAxis: { min: yAxisMin, max: yAxisMax } } : {}) : { yAxis: { min: null, max: null } }),
       series: [{ data: points }],
-    }, false, true);
+    };
+    if (yAxisPatch) opt.yAxis = yAxisPatch;
+    ch.setOption(opt, false, true);
   }
 }
 
@@ -723,12 +847,24 @@ export async function enterEegPage() {
       : 2;
     eegYAxisStep = uiWave && typeof uiWave.y_axis_step === 'number' ? Number(uiWave.y_axis_step) : 50;
     eegYAxisUpdateHz = uiWave && typeof uiWave.y_axis_update_hz === 'number' ? Number(uiWave.y_axis_update_hz) : 2;
+    eegYAxisFixedMaxMin = uiWave && typeof uiWave.y_axis_fixed_max_min === 'number' ? Number(uiWave.y_axis_fixed_max_min) : 50;
+    eegYAxisFixedMaxMax = uiWave && typeof uiWave.y_axis_fixed_max_max === 'number' ? Number(uiWave.y_axis_fixed_max_max) : 1500;
+    eegYAxisFixedMaxStep = uiWave && typeof uiWave.y_axis_fixed_max_step === 'number' ? Number(uiWave.y_axis_fixed_max_step) : 50;
+    const dynDefault = uiWave && typeof uiWave.y_axis_dynamic_default === 'boolean' ? !!uiWave.y_axis_dynamic_default : true;
+    const fixedDefault = uiWave && typeof uiWave.y_axis_fixed_max_default === 'number' ? Number(uiWave.y_axis_fixed_max_default) : 500;
+    let storedDyn = null;
+    let storedMax = null;
+    try { storedDyn = localStorage.getItem('bhb_eeg_yaxis_dynamic'); } catch (_) {}
+    try { storedMax = localStorage.getItem('bhb_eeg_yaxis_fixed_max'); } catch (_) {}
+    eegYAxisDynamicEnabled = storedDyn === null ? dynDefault : (String(storedDyn) === '1');
+    eegYAxisFixedMax = clampNumber(storedMax === null ? fixedDefault : storedMax, eegYAxisFixedMaxMin, eegYAxisFixedMaxMax, fixedDefault);
     maxPoints = Math.max(50, Math.floor(Math.max(1, eegSamplingRateHz) * Math.max(0.2, eegWindowSec)));
     eegLastYAxisUpdateAtMs = 0;
     eegPendingMin = Infinity;
     eegPendingMax = -Infinity;
     eegLastAppliedYAxisMin = null;
     eegLastAppliedYAxisMax = null;
+    eegYAxisModeDirty = true;
     const notchEl = document.getElementById('eeg-notch-hint');
     if (notchEl) {
       const notch = cfg && cfg.signal && cfg.signal.notch ? cfg.signal.notch : null;
@@ -743,6 +879,7 @@ export async function enterEegPage() {
     }
   } catch (_) {}
 
+  buildYAxisControls();
   initCharts();
   if (!eegGridScrollHandler) {
     eegGridScrollHandler = () => {

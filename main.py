@@ -37,9 +37,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-15: 1.3.13 EEG 波形展示与离线导出统一按 /120 缩放（uv_per_count）
 - 2026-05-15: 1.3.14 EEG 缩放配置改为 count_divisor，并统一按 /count_divisor 执行（不使用乘法）
 - 2026-05-16: 1.3.15 离线会话 ID 命名调整：默认不再追加 _00 后缀
+- 2026-05-16: 1.3.16 下发 EEG y 轴动态/固定缩放 UI 配置（开关与滑条范围）
 
 作者: Spoon
-版本: 1.3.15
+版本: 1.3.16
 """
 
 import asyncio
@@ -568,6 +569,11 @@ async def get_config():
                 "max_pending_ws_chunks": int(getattr(state.config.ui.waveform, "max_pending_ws_chunks", 2)),
                 "y_axis_step": float(getattr(state.config.ui.waveform, "y_axis_step", 50.0)),
                 "y_axis_update_hz": float(getattr(state.config.ui.waveform, "y_axis_update_hz", 2.0)),
+                "y_axis_dynamic_default": bool(getattr(state.config.ui.waveform, "y_axis_dynamic_default", True)),
+                "y_axis_fixed_max_default": float(getattr(state.config.ui.waveform, "y_axis_fixed_max_default", 500.0)),
+                "y_axis_fixed_max_min": float(getattr(state.config.ui.waveform, "y_axis_fixed_max_min", 50.0)),
+                "y_axis_fixed_max_max": float(getattr(state.config.ui.waveform, "y_axis_fixed_max_max", 1500.0)),
+                "y_axis_fixed_max_step": float(getattr(state.config.ui.waveform, "y_axis_fixed_max_step", 50.0)),
             }
         },
         "n_channels": eeg_n_channels,

@@ -44,9 +44,22 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-16: 1.0.37 EEG 波形卡片高度下调，减少滚动距离
 - 2026-05-16: 1.0.38 提升 EEG 通道名在日夜模式下的对比度与可读性
 - 2026-05-16: 1.0.39 EEG 通道名字号加大，提升可读性
+- 2026-05-16: 1.0.40 EEG 波形页增加 y 轴动态开关与滑条样式（复用阻抗滑条）
+- 2026-05-16: 1.0.41 EEG 通道名称徽标统一宽度并居中对齐
+- 2026-05-16: 1.0.42 EEG 波形页开关改为 iOS 风格，并调整通道名徽标尺寸与布局
+- 2026-05-16: 1.0.43 EEG 通道名称徽标恢复更紧凑尺寸（与本次对话前一致）
+- 2026-05-16: 1.0.44 EEG 通道名称徽标统一为 PO4 尺寸并保持居中
+- 2026-05-16: 1.0.45 EEG 波形页右上角控件固定宽度布局，避免随文案变化位移
+- 2026-05-16: 1.0.46 修复 EEG 波形页控件样式重复定义，并支持隐藏元素占位
+- 2026-05-16: 1.0.47 EEG 波形页开关/滑条/徽标统一高度与阴影，并禁止“动态Y轴”换行
+- 2026-05-16: 1.0.48 EEG 波形页控件改为单层分组外框，避免嵌套阴影
+- 2026-05-16: 1.0.49 EEG 波形页通道名/右上角控件/电量区域整体收窄
+- 2026-05-16: 1.0.50 EEG 波形页 y 轴控件外框改为按钮风格，并收紧“动态Y轴”与开关间距
+- 2026-05-16: 1.0.51 去掉 EEG 波形页 y 轴控件最外侧外框，保留固定布局不位移
+- 2026-05-16: 1.0.52 EEG 波形页右上角控件自适应收缩并让出电量区域，避免遮挡
 
 作者: Spoon
-版本: 1.0.39
+版本: 1.0.52
 */
 
 @import "./eeg_topomap.css";
@@ -559,17 +572,22 @@ select option {
   top: 50%;
   left: 12px;
   transform: translateY(-50%);
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 850;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 22px;
   color: rgba(255, 255, 255, 0.92);
   letter-spacing: 0.2px;
   z-index: 10;
-  padding: 4px 8px;
+  padding: 0 8px;
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.46);
   border: 1px solid rgba(140, 170, 210, 0.22);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
-  max-width: 92px;
+  box-sizing: border-box;
   text-align: center;
   overflow: hidden;
   white-space: nowrap;
@@ -584,6 +602,199 @@ select option {
 }
 
 .echarts-instance { width: 100%; height: 100%; }
+
+.eeg-wave-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 10px;
+  align-items: center;
+}
+
+#eeg-yaxis-controls {
+  display: grid;
+  grid-template-columns: 118px minmax(120px, 1fr) 56px;
+  align-items: center;
+  gap: 8px;
+  margin-right: 0;
+  flex: 0 0 auto;
+  justify-content: end;
+  height: 36px;
+  padding: 0;
+  border-radius: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 320px;
+  justify-self: end;
+}
+
+#eeg-yaxis-controls .eeg-yaxis-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-start;
+  height: 36px;
+}
+
+#eeg-yaxis-controls .eeg-yaxis-label {
+  font-weight: 850;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+#eeg-yaxis-controls .eeg-yaxis-pill {
+  height: 36px;
+  padding: 0;
+  border-radius: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-weight: 900;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: 0.2px;
+  width: 56px;
+  box-shadow: none;
+}
+
+#eeg-yaxis-controls .eeg-hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+[data-theme="light"] #eeg-yaxis-controls .eeg-yaxis-pill {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+[data-theme="light"] #eeg-yaxis-controls .eeg-yaxis-switch {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+[data-theme="light"] #eeg-yaxis-controls {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+#eeg-yaxis-controls .ios-switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  display: inline-block;
+}
+
+#eeg-yaxis-controls .ios-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+#eeg-yaxis-controls .ios-slider {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 170, 210, 0.20);
+  background: rgba(0, 0, 0, 0.18);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04) inset, 0 10px 22px rgba(0, 0, 0, 0.14);
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+[data-theme="light"] #eeg-yaxis-controls .ios-slider {
+  border-color: rgba(17, 24, 39, 0.18);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.04) inset, 0 10px 22px rgba(17, 24, 39, 0.10);
+}
+
+#eeg-yaxis-controls .ios-slider::before {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  left: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  border: 1px solid rgba(120, 170, 210, 0.26);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 252, 255, 0.92) 62%, rgba(236, 245, 255, 0.86) 100%);
+  box-shadow:
+    0 10px 22px rgba(0, 0, 0, 0.22),
+    0 0 0 1px rgba(0, 0, 0, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.70),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.10);
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+#eeg-yaxis-controls .ios-switch input:checked + .ios-slider {
+  background: rgba(49, 215, 255, 0.32);
+  border-color: rgba(49, 215, 255, 0.46);
+  box-shadow: 0 0 0 1px rgba(49, 215, 255, 0.10) inset, 0 10px 22px rgba(0, 0, 0, 0.14);
+}
+
+#eeg-yaxis-controls .ios-switch input:checked + .ios-slider::before {
+  transform: translate(20px, -50%);
+  border-color: rgba(49, 215, 255, 0.40);
+  box-shadow:
+    0 10px 22px rgba(0, 0, 0, 0.22),
+    0 0 0 1px rgba(0, 0, 0, 0.10),
+    0 0 18px rgba(49, 215, 255, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.74),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.10);
+}
+
+#eeg-yaxis-controls .imp-range {
+  width: auto;
+  height: 36px;
+}
+
+#eeg-yaxis-controls .imp-range-track {
+  border: none;
+  background: rgba(0, 0, 0, 0.06);
+  box-shadow: none;
+}
+
+[data-theme="light"] #eeg-yaxis-controls .imp-range-track {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+#eeg-yaxis-controls .imp-range input[type="range"] {
+  height: 36px;
+}
+
+#eeg-yaxis-controls .imp-range input[type="range"]:disabled {
+  opacity: 0.45;
+}
+
+#eeg-yaxis-controls .imp-range input[type="range"]:disabled::-webkit-slider-thumb {
+  cursor: not-allowed;
+}
+
+#eeg-yaxis-controls .imp-range input[type="range"]:disabled::-moz-range-thumb {
+  cursor: not-allowed;
+}
+
+#battery-badge {
+  width: 120px;
+  justify-content: flex-end;
+}
+
+#battery-text {
+  width: 100%;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .imp-legend {
   display: flex;

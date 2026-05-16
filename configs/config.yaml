@@ -1,5 +1,5 @@
 app:
-  ui_version: "1.4.11"
+  ui_version: "1.4.12"
 
 ui:
   waveform:
@@ -17,6 +17,14 @@ ui:
     y_axis_step: 100
     # 动态 y 轴更新频率（Hz）。降低该值可减少 yAxis 重算/重绘开销。
     y_axis_update_hz: 5
+    # EEG 波形 y 轴是否动态变化（true=动态缩放；false=固定缩放，最大值由滑条控制）。
+    y_axis_dynamic_default: true
+    # 固定缩放模式下的 y 轴最大值默认值（显示范围为 [-max, +max]）。
+    y_axis_fixed_max_default: 500
+    # 固定缩放模式下滑条最小/最大/步进。
+    y_axis_fixed_max_min: 200
+    y_axis_fixed_max_max: 5000
+    y_axis_fixed_max_step: 100
 
 bluetooth:
   device_names:
