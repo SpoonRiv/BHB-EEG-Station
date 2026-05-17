@@ -28,9 +28,9 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.3.4 统一三模式命名：eeg/impedance/tdcs，并重命名 EEG WebSocket Hub 模块
 - 2026-05-07: 1.3.5 下发前端 WS 背压配置并将离线写入队列上限接入配置，降低长时间运行卡顿风险
 - 2026-05-08: 1.3.6 下发动态 y 轴分档/更新频率配置并下调默认渲染频率，降低 ECharts 布局与重绘压力
-- 2026-05-09: 1.3.7 (Fengye)增加 SSVEP 模式：独立进程启动/停止刺激程序并暴露状态字段
-- 2026-05-09: 1.3.8 修复 SSVEP 刺激模块导入路径，避免启动时报错
-- 2026-05-12: 1.3.9 延迟导入 SSVEP 依赖，避免子进程启动时加载重模块导致 BLE 连接超时
+- 2026-05-09: 1.3.7 (Fengye) 增加刺激模式：独立进程启动/停止刺激程序并暴露状态字段（已移除）
+- 2026-05-09: 1.3.8 修复刺激模块导入路径，避免启动时报错（已移除）
+- 2026-05-12: 1.3.9 延迟导入刺激模式依赖，避免子进程启动时加载重模块导致 BLE 连接超时（已移除）
 - 2026-05-12: 1.3.10 增加两级指令控制面板 API（下发指令与指令列表），用于 tDCS 页面按钮化控制
 - 2026-05-12: 1.3.11 控制面板指令列表补充 help 字段（用于 UI 展示按钮说明）
 - 2026-05-15: 1.3.12 EEG 波形展示默认开启 0.5-80Hz 带通滤波
@@ -38,9 +38,13 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-15: 1.3.14 EEG 缩放配置改为 count_divisor，并统一按 /count_divisor 执行（不使用乘法）
 - 2026-05-16: 1.3.15 离线会话 ID 命名调整：默认不再追加 _00 后缀
 - 2026-05-16: 1.3.16 下发 EEG y 轴动态/固定缩放 UI 配置（开关与滑条范围）
+- 2026-05-17: 1.3.17 移除视觉刺激模式相关接口与模块
+- 2026-05-17: 1.3.18 BLE 扫描白名单改为前缀匹配，支持列出多个同前缀设备供用户选择
+- 2026-05-17: 1.3.19 下发 10-20 电极位置布局给前端（用于地形图绘制）
+- 2026-05-17: 1.3.20 参考电极允许从全部电极中选择（地形图点选），不再强制限制为候选列表
 
 作者: Spoon
-版本: 1.3.16
+版本: 1.3.20
 """
 
 import asyncio
@@ -68,9 +72,6 @@ from core.signal.bandpass_filter import BandpassFilter, BandpassFilterConfig
 from core.signal.notch_filter import NotchFilter, NotchFilterConfig
 from ws_hub_eeg import EegWsHub, EegWsHubConfig
 from ws_hub_impedance import ImpedanceWsHub, ImpedanceWsHubConfig
-import multiprocessing
-import threading
-# import socketio
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -178,7 +179,6 @@ class AppState:
                 queue_size=1,
             )
         )
-        self.ssvep_process: Optional[multiprocessing.Process] = None
 
     def _load_local_raw(self) -> Dict[str, Any]:
         return load_yaml_file(self.local_override_path)
@@ -491,7 +491,7 @@ async def lifespan(app: FastAPI):
     await asyncio.to_thread(state.controller.stop_device)
     await state.debug_bus.stop_forward()
 
-app = FastAPI(title="BHB-SSVEP Web API", lifespan=lifespan)
+app = FastAPI(title="BHB-EEG Station Web API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -558,6 +558,15 @@ async def get_config():
         imp_names.append("BIAS")
     if bool(state.config.impedance.frame.include_tdcs_if_ch8) and imp_n_channels == 8:
         imp_names.append("tDCS")
+    layout = getattr(state.config.eeg, "montage_1020_layout", None)
+    layout_payload = None
+    if layout is not None:
+        layout_payload = {
+            "name": str(layout.name or ""),
+            "coord_system": str(layout.coord_system or ""),
+            "positions": {k: {"x": float(v.x), "y": float(v.y)} for k, v in (layout.positions or {}).items()},
+            "aliases": dict(layout.aliases or {}),
+        }
     return {
         "ui_version": ui_version,
         "ui": {
@@ -579,6 +588,7 @@ async def get_config():
         "n_channels": eeg_n_channels,
         "channel_names": state.config.eeg.channel_names,
         "sampling_rate_hz": state.config.eeg.sampling_rate_hz,
+        "electrode_layout_1020": layout_payload,
         "impedance": {
             "enabled": bool(state.config.impedance.enabled),
             "n_channels": imp_n_channels,
@@ -622,10 +632,6 @@ async def get_config():
                 "freq_hz": float(state.config.signal.notch.freq_hz),
                 "quality_factor": float(state.config.signal.notch.quality_factor),
             },
-        },
-        "ssvep": {
-        "enabled": True,
-        "name": "SSVEP刺激模式"
         },
     }
 
@@ -676,9 +682,19 @@ async def eeg_channel_options():
         for p in (state.config.eeg.presets or [])
     ]
     presets_local = [{"scope": "local", **p} for p in state.get_local_channel_presets()]
+    layout = getattr(state.config.eeg, "montage_1020_layout", None)
+    layout_payload = None
+    if layout is not None:
+        layout_payload = {
+            "name": str(layout.name or ""),
+            "coord_system": str(layout.coord_system or ""),
+            "positions": {k: {"x": float(v.x), "y": float(v.y)} for k, v in (layout.positions or {}).items()},
+            "aliases": dict(layout.aliases or {}),
+        }
     return {
         "supported_channel_modes": list(state.config.eeg.supported_channel_modes or []),
         "available_channels": available,
+        "electrode_layout_1020": layout_payload,
         "ref_candidates": _normalize_channel_list(list(state.config.eeg.ref_selectable_channels or [])),
         "presets": presets_cfg + presets_local,
         "effective": {
@@ -720,10 +736,7 @@ async def eeg_channel_set_selection(req: ChannelSelectionRequest):
         for n in names:
             if n not in available:
                 raise HTTPException(status_code=400, detail=f"非法通道名：{n}")
-    candidates = set(_normalize_channel_list(list(state.config.eeg.ref_selectable_channels or [])))
     if ref:
-        if candidates and ref not in candidates:
-            raise HTTPException(status_code=400, detail=f"参考电极必须在候选列表中：{ref}")
         if available and ref not in available:
             raise HTTPException(status_code=400, detail=f"非法参考电极名：{ref}")
     state.set_pending_channel_selection(mode, names, ref)
@@ -744,15 +757,13 @@ async def eeg_channel_apply():
         raise HTTPException(status_code=400, detail=f"当前不支持 {mode} 通道模式")
     if len(names) != int(mode):
         raise HTTPException(status_code=400, detail=f"请先选择满 {mode} 个通道，再点击应用")
-    candidates = _normalize_channel_list(list(state.config.eeg.ref_selectable_channels or []))
     if not ref:
         ref = str(state.config.eeg.ref_channel_name or "").strip()
+    candidates = _normalize_channel_list(list(state.config.eeg.ref_selectable_channels or []))
     if not ref and candidates:
         ref = candidates[0]
     if not ref:
         raise HTTPException(status_code=400, detail="请先选择参考电极，再点击应用")
-    if candidates and ref not in set(candidates):
-        raise HTTPException(status_code=400, detail=f"参考电极必须在候选列表中：{ref}")
     available = set(_normalize_channel_list(list(state.config.eeg.montage_1020_channels or [])))
     if available and ref not in available:
         raise HTTPException(status_code=400, detail=f"非法参考电极名：{ref}")
@@ -796,15 +807,13 @@ async def eeg_channel_preset_upsert(req: ChannelPresetRequest):
         for n in names:
             if n not in available:
                 raise HTTPException(status_code=400, detail=f"非法通道名：{n}")
-    candidates = _normalize_channel_list(list(state.config.eeg.ref_selectable_channels or []))
     if not ref:
         ref = str(state.config.eeg.ref_channel_name or "").strip()
+    candidates = _normalize_channel_list(list(state.config.eeg.ref_selectable_channels or []))
     if not ref and candidates:
         ref = candidates[0]
     if not ref:
         raise HTTPException(status_code=400, detail="ref_channel_name 不能为空")
-    if candidates and ref not in set(candidates):
-        raise HTTPException(status_code=400, detail=f"参考电极必须在候选列表中：{ref}")
     if available and ref not in available:
         raise HTTPException(status_code=400, detail=f"非法参考电极名：{ref}")
     state.upsert_local_channel_preset(name=name, n_channels=mode, channel_names=names, ref_channel_name=ref)
@@ -827,16 +836,12 @@ async def get_status():
     """
     获取采集状态（用于前端连接指示与设备名展示）。
     """
-    ssvep_running = False
-    if state.ssvep_process and state.ssvep_process.is_alive():
-        ssvep_running = True
     return {
         "device": state.controller.get_status(),
         "lsl_streaming": bool(getattr(state.streamer, "is_streaming", False)),
         "lsl": state.streamer.get_status() if hasattr(state.streamer, "get_status") else None,
         "impedance_lsl_streaming": bool(getattr(state.imp_streamer, "is_streaming", False)),
         "impedance_lsl": state.imp_streamer.get_status() if hasattr(state.imp_streamer, "get_status") else None,
-        "ssvep_running": ssvep_running,
     }
 
 @app.get("/api/stop")
@@ -865,14 +870,15 @@ async def ble_devices(timeout_sec: float = 3.0, whitelist_only: bool = True):
 
     Args:
         timeout_sec: 单次扫描时长（秒）。
-        whitelist_only: 是否仅返回配置 bluetooth.device_names 命中的设备。
+        whitelist_only: 是否仅返回配置 bluetooth.device_names 命中的设备（前缀匹配）。
     """
     results = await scan_devices(timeout_sec=timeout_sec)
     allowed = set(str(x) for x in (state.config.bluetooth.device_names or []))
     out: List[Dict[str, Any]] = []
     for one in results:
         if whitelist_only and allowed:
-            if not any(name and name in one.name for name in allowed):
+            one_name = str(one.name or "")
+            if not any(prefix and one_name.startswith(str(prefix)) for prefix in allowed):
                 continue
         out.append({"name": one.name, "address": one.address, "rssi": one.rssi})
     out.sort(key=lambda x: (x["rssi"] is None, -(x["rssi"] or -9999), x["name"]))
@@ -1025,32 +1031,6 @@ async def start_mode(req: ModeRequest):
             state.imp_ws_hub.start()
         return {"status": "success" if ok else "error", "message": "模式已启动" if ok else "模式启动失败", "device": state.controller.get_status()}
     ok = state.controller.start_mode(req.mode)
-
-    if req.mode == "ssvep":
-        # 1. 确保蓝牙已连接
-        # if not state.controller.is_running():
-        #     return {"status": "error", "message": "设备未连接"}
-        
-        # 2. 检查是否已经在运行
-        if state.ssvep_process and state.ssvep_process.is_alive():
-            return {"status": "error", "message": "SSVEP 已经在运行中"}
-
-        # 3. 启动进程 (PsychoPy 必须在独立进程运行以防阻塞 FastAPI)
-        # 注意：不要在主线程运行 GUI
-        from core.ssvep.stim_v1 import start_ssvep_experiment
-        state.ssvep_process = multiprocessing.Process(
-            target=start_ssvep_experiment,
-            args=(state.config.offline.root_dir,), # 使用配置文件的路径
-            daemon=False
-        )
-        state.ssvep_process.start()
-        
-
-        return {
-            "status": "success", 
-            "message": "SSVEP 刺激程序已启动",
-            "device": state.controller.get_status()
-        }
     return {"status": "success" if ok else "error", "message": "模式已启动" if ok else "模式启动失败", "device": state.controller.get_status()}
 
 
@@ -1078,14 +1058,6 @@ async def stop_mode(req: ModeRequest):
         state.imp_ws_hub.stop(clear_pending=True)
         state.imp_streamer.stop()
     ok = state.controller.stop_mode(req.mode)
-    if req.mode == "ssvep":
-        if state.ssvep_process and state.ssvep_process.is_alive():
-            # 强制结束进程（PsychoPy 窗口会关闭）
-            state.ssvep_process.terminate()
-            state.ssvep_process.join()
-            state.ssvep_process = None
-            return {"status": "success", "message": "SSVEP 刺激程序已强行停止"}
-        return {"status": "error", "message": "没有正在运行的 SSVEP 程序"}
     return {"status": "success" if ok else "error", "message": "模式已停止" if ok else "模式停止失败", "device": state.controller.get_status()}
 
 

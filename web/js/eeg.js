@@ -33,9 +33,13 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-16: 1.1.16 EEG 波形页 y 轴开关改为 iOS 风格，并优化固定最大值展示
 - 2026-05-16: 1.1.17 动态 y 轴范围保持正负对称
 - 2026-05-16: 1.1.18 EEG 波形页固定最大值徽标隐藏时仍占位，避免控件位移
+- 2026-05-17: 1.1.19 固定电量徽标“电量”字样位置（数值变化不位移）
+- 2026-05-17: 1.1.20 关闭动态 Y 轴时坐标轴标签不使用科学计数法
+- 2026-05-17: 1.1.21 电量徽标数值靠左显示；未连接时提示灯默认红色
+- 2026-05-17: 1.1.22 波形可视化自检：提示 ECharts 缺失与 LSL 解析状态，便于定位“无波形”
 
 作者: Spoon
-版本: 1.1.18
+版本: 1.1.22
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -117,33 +121,34 @@ function renderBatteryBadge(battery, running, streaming) {
   badge.classList.remove('active', 'warn', 'error');
 
   if (!running) {
-    textEl.textContent = '电量：--';
+    textEl.textContent = '--';
+    badge.classList.add('error');
     return;
   }
 
   if (streaming && (!battery || typeof battery !== 'object')) {
-    textEl.textContent = '电量：获取中';
+    textEl.textContent = '获取中';
     badge.classList.add('warn');
     return;
   }
 
   const v = battery && typeof battery.value === 'number' ? battery.value : null;
   if (v === null || !Number.isFinite(v)) {
-    textEl.textContent = streaming ? '电量：获取中' : '电量：--';
+    textEl.textContent = streaming ? '获取中' : '--';
     if (streaming) badge.classList.add('warn');
     return;
   }
 
   const isPercent = Number.isInteger(v) && v >= 0 && v <= 100;
   if (isPercent) {
-    textEl.textContent = `电量：${v}%`;
+    textEl.textContent = `${v}%`;
     if (v >= 50) badge.classList.add('active');
     else if (v >= 20) badge.classList.add('warn');
     else badge.classList.add('error');
     return;
   }
 
-  textEl.textContent = `电量：${v}`;
+  textEl.textContent = `${v}`;
 }
 
 function renderEegControlButtons(running, streaming) {
@@ -173,13 +178,15 @@ async function refreshEegStatusHint() {
     const dev = st && st.device ? st.device : null;
     const running = !!(dev && dev.running);
     const streaming = !!(st && st.lsl_streaming);
+    const lsl = st && st.lsl ? st.lsl : null;
     renderBatteryBadge(dev && dev.battery ? dev.battery : null, running, streaming);
     if (!running) eegSessionLocked = false;
     renderEegControlButtons(running, streaming);
     if (!running) {
       eegStatusHint = '设备未连接（请先在设备页连接）';
     } else if (!streaming) {
-      eegStatusHint = '采集未启动（请点击“开始采集”）';
+      const extra = lsl && lsl.last_error ? `；LSL：${String(lsl.last_error)}` : '';
+      eegStatusHint = `采集未启动或数据总线未就绪（请点击“开始采集”）${extra}`;
     } else {
       eegStatusHint = '';
     }
@@ -242,6 +249,16 @@ function clampNumber(v, minV, maxV, fallback) {
   const x = Number(v);
   if (!Number.isFinite(x)) return Number(fallback);
   return Math.max(Number(minV), Math.min(Number(maxV), x));
+}
+
+function formatNumberPlain(value) {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return '';
+  const rounded = Math.round(v);
+  const isIntLike = Math.abs(v - rounded) < 1e-9;
+  const absV = Math.abs(v);
+  const maxFracDigits = isIntLike ? 0 : (absV < 1 ? 3 : absV < 10 ? 2 : absV < 100 ? 1 : 0);
+  return v.toLocaleString('en-US', { useGrouping: false, maximumFractionDigits: maxFracDigits });
 }
 
 function setYAxisMode(nextDynamicEnabled) {
@@ -337,6 +354,11 @@ function scheduleDebugRender() {
 function initCharts() {
   const grid = document.getElementById('charts-grid');
   if (!grid) return;
+  if (!window.echarts || typeof window.echarts.init !== 'function') {
+    eegStatusHint = '波形可视化组件未加载（ECharts）。若处于离线环境，请避免使用外部 CDN 资源，改为本地引入。';
+    renderEegSubtitle();
+    return;
+  }
   eegGridEl = grid;
   const isLight = (document.documentElement.getAttribute('data-theme') || 'light') === 'light';
 
@@ -383,8 +405,9 @@ function initCharts() {
           formatter: function (value) {
             const v = Number(value);
             if (!Number.isFinite(v)) return '';
+            if (!eegYAxisDynamicEnabled) return formatNumberPlain(v);
             if (Math.abs(v) > 1001) return v.toExponential(0);
-            return v.toFixed(0);
+            return formatNumberPlain(v);
           }
         },
         splitLine: {

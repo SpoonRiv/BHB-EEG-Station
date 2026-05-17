@@ -31,9 +31,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-15: 1.1.21 离线导出缩放配置改为 count_divisor（展示/导出统一按 /120）
 - 2026-05-15: 1.1.22 增加 count_divisor 兜底与范围校验，并兼容旧字段 uv_per_count
 - 2026-05-16: 1.1.23 增加 EEG 波形 y 轴动态/固定缩放 UI 配置（默认开关与滑条范围）
+- 2026-05-17: 1.1.24 增加 10-20 电极位置布局文件配置与加载（供 UI 绘制地形图）
 
 作者: Spoon
-版本: 1.1.23
+版本: 1.1.24
 """
 
 import os
@@ -42,6 +43,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from configs.electrode_layout import ElectrodeLayoutConfig, load_electrode_layout
 from configs.local_overrides import deep_merge_dict, get_local_override_path, load_yaml_file
 
 
@@ -103,6 +105,8 @@ class EegConfig:
     lsl: LslConfig
     supported_channel_modes: List[int]
     montage_1020_channels: List[str]
+    montage_1020_layout_path: str
+    montage_1020_layout: Optional[ElectrodeLayoutConfig]
     presets: List[ChannelPresetConfig]
     protocol: "EegProtocolConfig"
 
@@ -383,6 +387,18 @@ def load_config(config_path: str) -> AppConfig:
             if s not in montage_channels:
                 montage_channels.append(s)
 
+    montage_layout_path = str(eeg_raw.get("montage_1020_layout_path", "") or "").strip()
+    montage_layout = load_electrode_layout(config_path=config_path, layout_path=montage_layout_path, required=bool(montage_layout_path))
+    if montage_layout is not None:
+        pos_names = set(montage_layout.positions.keys())
+        for ch in montage_channels:
+            if ch in pos_names:
+                continue
+            alias = montage_layout.aliases.get(ch, "")
+            if alias and alias in pos_names:
+                continue
+            raise ValueError(f"电极布局缺少坐标: {ch}")
+
     presets_raw = eeg_raw.get("presets", []) or []
     presets: List[ChannelPresetConfig] = []
     if isinstance(presets_raw, list):
@@ -586,6 +602,8 @@ def load_config(config_path: str) -> AppConfig:
         ),
         supported_channel_modes=supported_modes,
         montage_1020_channels=montage_channels,
+        montage_1020_layout_path=montage_layout_path,
+        montage_1020_layout=montage_layout,
         presets=presets,
         protocol=EegProtocolConfig(ch8=ch8_proto, ch16=ch16_proto),
     )

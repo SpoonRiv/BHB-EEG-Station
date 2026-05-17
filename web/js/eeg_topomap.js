@@ -21,9 +21,27 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.0.14 通道选择变更/应用成功向外派发事件，用于设备页自动跳转门禁
 - 2026-05-04: 1.0.15 配置字段更名：mode_channels -> n_channels（与三模式命名一致）
 - 2026-05-04: 1.0.16 文件更名为 eeg_topomap.js，命名与 impedance_topomap.js 保持一致
+- 2026-05-17: 1.0.17 电极位置由后端配置下发，前端仅做渲染与兼容回退
+- 2026-05-17: 1.0.18 电极默认回退与按钮命名切换为标准 10-20（T7/T8），移除扩展电极
+- 2026-05-17: 1.0.19 电极默认回退扩展为 64 通道帽布局（10-10），支持完整电极分布绘制
+- 2026-05-17: 1.0.20 参考电极选择改为可取消，并在地形图用绿色标识；支持右键电极快速切换参考电极
+- 2026-05-17: 1.0.21 参考电极支持从地形图点选（Shift+点击/右键），不再限制为三选一
+- 2026-05-17: 1.0.22 移除参考电极三按钮快捷选择，改为同款卡片展示当前参考电极（无编号），参考电极从地形图点选
+- 2026-05-17: 1.0.23 参考电极卡片支持“点按进入选取模式”，下一次左键点击地形图电极将其设为参考
+- 2026-05-17: 1.0.24 更新地形图提示文案，突出“参考电极卡片 -> 地形图点选”流程
+- 2026-05-17: 1.0.25 参考电极卡片对齐已选通道样式：编号改为 REF；UI 不使用绿色；移除底部状态提示元素
+- 2026-05-17: 1.0.26 参考电极卡片宽度对齐单个已选通道卡片；编号由 REF 改为 R
+- 2026-05-17: 1.0.27 未选择参考电极时显示空虚线框（无文字提示），点击进入/退出参考电极选取模式
+- 2026-05-17: 1.0.28 参考电极仅支持在地形图右键点选，移除 Shift+左键点选
+- 2026-05-17: 1.0.29 阻抗通道常用组合展示包含参考电极（8+1），并将参考电极纳入“就绪”判断
+- 2026-05-17: 1.0.30 常用组合保存校验失败时使用徽标提示（名称/通道数/参考电极）
+- 2026-05-17: 1.0.31 已选通道区域高度锁定（清空不影响下方布局）；常用组合下拉去掉括号详情
+- 2026-05-17: 1.0.32 参考通道卡片移除不可拖拽的“六点”图标
+- 2026-05-17: 1.0.32 参考电极右键选择不直接覆盖：已有参考时需先右键同一电极取消，再右键新电极设置
+- 2026-05-17: 1.0.33 参考电极与工作通道互斥：右键不能设为已选工作通道，左键不能选择当前参考电极
 
 作者: Spoon
-版本: 1.0.16
+版本: 1.0.32
 */
 
 import {
@@ -34,33 +52,81 @@ import {
   eegChannelSetSelection,
 } from './api.js';
 
-const ELECTRODE_POS = {
+const DEFAULT_ELECTRODE_POS = {
+  Fpz: { x: 50, y: 6 },
   Fp1: { x: 38, y: 10 },
   Fp2: { x: 62, y: 10 },
-  AF3: { x: 42, y: 18 },
-  AF4: { x: 58, y: 18 },
+  AF3: { x: 42, y: 16 },
+  AF4: { x: 58, y: 16 },
   F7: { x: 18, y: 22 },
+  F5: { x: 26, y: 24 },
   F3: { x: 34, y: 26 },
+  F1: { x: 42, y: 24 },
   Fz: { x: 50, y: 26 },
+  F2: { x: 58, y: 24 },
   F4: { x: 66, y: 26 },
+  F6: { x: 74, y: 24 },
   F8: { x: 82, y: 22 },
-  T3: { x: 12, y: 44 },
+  FT7: { x: 12, y: 34 },
+  FC5: { x: 26, y: 36 },
+  FC3: { x: 34, y: 36 },
+  FC1: { x: 42, y: 36 },
+  FCz: { x: 50, y: 36 },
+  FC2: { x: 58, y: 36 },
+  FC4: { x: 66, y: 36 },
+  FC6: { x: 74, y: 36 },
+  FT8: { x: 88, y: 34 },
+  T7: { x: 12, y: 44 },
+  C5: { x: 26, y: 44 },
   C3: { x: 32, y: 44 },
+  C1: { x: 42, y: 44 },
   Cz: { x: 50, y: 44 },
+  C2: { x: 58, y: 44 },
   C4: { x: 68, y: 44 },
-  T4: { x: 88, y: 44 },
+  C6: { x: 74, y: 44 },
+  T8: { x: 88, y: 44 },
+  TP7: { x: 12, y: 56 },
+  CP5: { x: 26, y: 56 },
+  CP3: { x: 34, y: 56 },
+  CP1: { x: 42, y: 56 },
+  CPz: { x: 50, y: 56 },
+  CP2: { x: 58, y: 56 },
+  CP4: { x: 66, y: 56 },
+  CP6: { x: 74, y: 56 },
+  TP8: { x: 88, y: 56 },
   P7: { x: 22, y: 64 },
+  P5: { x: 26, y: 64 },
   P3: { x: 34, y: 62 },
+  P1: { x: 42, y: 64 },
   Pz: { x: 50, y: 66 },
+  P2: { x: 58, y: 64 },
   P4: { x: 66, y: 62 },
+  P6: { x: 74, y: 64 },
   P8: { x: 78, y: 64 },
-  PO7: { x: 34, y: 74 },
-  PO3: { x: 40, y: 70 },
-  O1: { x: 42, y: 80 },
-  PO4: { x: 60, y: 70 },
-  PO8: { x: 66, y: 74 },
-  O2: { x: 58, y: 80 },
+  PO7: { x: 18, y: 74 },
+  PO5: { x: 30, y: 74 },
+  PO3: { x: 40, y: 74 },
+  POz: { x: 50, y: 74 },
+  PO4: { x: 60, y: 74 },
+  PO6: { x: 70, y: 74 },
+  PO8: { x: 82, y: 74 },
+  O1: { x: 42, y: 84 },
+  Oz: { x: 50, y: 86 },
+  O2: { x: 58, y: 84 },
+  CB1: { x: 46, y: 92 },
+  CB2: { x: 54, y: 92 },
+  A1: { x: 4, y: 50 },
+  A2: { x: 96, y: 50 },
 };
+
+function getElectrodePos(name, positions, aliases) {
+  const n = String(name || '').trim();
+  if (!n) return null;
+  if (positions && positions[n]) return positions[n];
+  const a = aliases && aliases[n];
+  if (a && positions && positions[a]) return positions[a];
+  return DEFAULT_ELECTRODE_POS[n] || null;
+}
 
 function normalizeUnique(items) {
   const out = [];
@@ -158,14 +224,20 @@ function drawHead(svg) {
   svg.appendChild(guide);
 }
 
-function renderElectrodes(svg, channels, selected, maxCount, onToggle) {
+function renderElectrodes(svg, channels, selected, maxCount, onToggle, positions, aliases, refName, onRefToggle, refCandidates) {
   const selectedSet = new Set(selected || []);
+  const ref = String(refName || '').trim();
+  const total = Array.isArray(channels) ? channels.length : 0;
+  const r = total >= 60 ? 2.7 : (total >= 40 ? 3.2 : 4.4);
+  const fontSize = total >= 60 ? 2.1 : (total >= 40 ? 2.6 : 3.55);
+  const dy = total >= 60 ? 0.7 : 0.9;
   for (const name of channels) {
-    const pos = ELECTRODE_POS[name];
+    const pos = getElectrodePos(name, positions, aliases);
     if (!pos) continue;
     const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     g.classList.add('electrode');
     if (selectedSet.has(name)) g.classList.add('selected');
+    if (ref && name === ref) g.classList.add('ref-selected');
 
     const canAdd = selectedSet.has(name) || selectedSet.size < maxCount;
     if (!canAdd) g.classList.add('disabled');
@@ -175,22 +247,26 @@ function renderElectrodes(svg, channels, selected, maxCount, onToggle) {
     circle.classList.add('electrode-circle');
     circle.setAttribute('cx', String(pos.x));
     circle.setAttribute('cy', String(pos.y));
-    circle.setAttribute('r', '4.4');
+    circle.setAttribute('r', String(r));
     g.appendChild(circle);
 
     const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     text.classList.add('electrode-text');
     text.setAttribute('x', String(pos.x));
-    text.setAttribute('y', String(pos.y + 0.9));
+    text.setAttribute('y', String(pos.y + dy));
     text.setAttribute('text-anchor', 'middle');
     text.setAttribute('dominant-baseline', 'middle');
-    text.setAttribute('font-size', '3.55');
+    text.setAttribute('font-size', String(fontSize));
     text.setAttribute('font-weight', '650');
     text.textContent = name;
     g.appendChild(text);
 
-    if (canAdd) {
-      g.addEventListener('click', () => onToggle(name));
+    if (canAdd) g.addEventListener('click', () => onToggle(name));
+    if (typeof onRefToggle === 'function') {
+      g.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        onRefToggle(name);
+      });
     }
     svg.appendChild(g);
   }
@@ -213,10 +289,13 @@ export function initTopomapPanel() {
   const btnPresetSave = document.getElementById('ch-preset-save');
   const btnPresetDelete = document.getElementById('ch-preset-delete');
   const presetNameInput = document.getElementById('ch-preset-name');
-  const effectiveStatus = document.getElementById('ch-effective-status');
+  const sub = document.getElementById('topomap-sub');
 
-  if (!modeSel || !btnApply || !svgHost || !listHost || !btnClear || !badge || !refPills || !presetSel || !btnPresetApply || !btnPresetSave || !btnPresetDelete || !presetNameInput || !effectiveStatus) {
+  if (!modeSel || !btnApply || !svgHost || !listHost || !btnClear || !badge || !refPills || !presetSel || !btnPresetApply || !btnPresetSave || !btnPresetDelete || !presetNameInput) {
     return;
+  }
+  if (sub) {
+    sub.textContent = '点击电极选择通道与顺序；点按右侧“参考电极”卡片后再点地形图电极设置参考（绿色）';
   }
 
   let supportedModes = [];
@@ -239,23 +318,12 @@ export function initTopomapPanel() {
   let badgeCountEl = null;
   let badgeStrongCur = null;
   let badgeStrongTotal = null;
+  let badgeStrongRef = null;
+  let electrodePositions = DEFAULT_ELECTRODE_POS;
+  let electrodeAliases = {};
+  let refPickArmed = false;
 
-  function setStatus(text, level) {
-    const t = String(text || '');
-    effectiveStatus.style.display = t ? '' : 'none';
-    if (level === 'error') {
-      effectiveStatus.textContent = t;
-      effectiveStatus.style.color = 'var(--bad)';
-      return;
-    }
-    if (level === 'success') {
-      effectiveStatus.textContent = t;
-      effectiveStatus.style.color = 'var(--good)';
-      return;
-    }
-    effectiveStatus.textContent = t;
-    effectiveStatus.style.color = 'var(--muted)';
-  }
+  function setStatus() {}
 
   function ensureBadgeMsgEl() {
     if (badgeMsgEl) return badgeMsgEl;
@@ -266,7 +334,7 @@ export function initTopomapPanel() {
   }
 
   function ensureBadgeCountEls() {
-    if (badgeCountEl && badgeStrongCur && badgeStrongTotal) return;
+    if (badgeCountEl && badgeStrongCur && badgeStrongTotal && badgeStrongRef) return;
     badge.innerHTML = '';
     badgeMsgEl = null;
 
@@ -279,11 +347,16 @@ export function initTopomapPanel() {
     const total = document.createElement('strong');
     total.textContent = String(pendingMode);
     count.appendChild(total);
+    count.appendChild(document.createTextNode(' + 参考 '));
+    const ref = document.createElement('strong');
+    ref.textContent = String(String(pendingRef || '').trim() ? 1 : 0);
+    count.appendChild(ref);
     badge.appendChild(count);
 
     badgeCountEl = count;
     badgeStrongCur = cur;
     badgeStrongTotal = total;
+    badgeStrongRef = ref;
 
     ensureBadgeMsgEl();
   }
@@ -306,12 +379,14 @@ export function initTopomapPanel() {
   function updateBadge() {
     ensureBadgeCountEls();
     const a = (badge.querySelectorAll('strong') || []);
-    if (a.length >= 2) {
+    if (a.length >= 3) {
       a[0].textContent = String(selected.length);
       a[1].textContent = String(pendingMode);
+      a[2].textContent = String(String(pendingRef || '').trim() ? 1 : 0);
     }
-    const isFull = selected.length === pendingMode;
-    const isWarn = selected.length < pendingMode || selected.length > pendingMode;
+    const hasRef = Boolean(String(pendingRef || '').trim());
+    const isFull = selected.length === pendingMode && hasRef;
+    const isWarn = selected.length < pendingMode || selected.length > pendingMode || !hasRef;
     badge.classList.toggle('warn', isWarn);
     badge.classList.toggle('ok', isFull);
     if (isFull && badgeMsgKind === 'error') setBadgeMsg('', '');
@@ -319,7 +394,10 @@ export function initTopomapPanel() {
 
   function updateSelectedGridCols() {
     const cols = pendingMode >= 16 ? 4 : 2;
+    const rows = Math.ceil(Math.max(pendingMode, 1) / Math.max(cols, 1));
     listHost.style.setProperty('--ch-selected-cols', String(cols));
+    listHost.style.setProperty('--ch-selected-rows', String(rows));
+    refPills.style.setProperty('--ch-selected-cols', String(cols));
   }
 
   function renderModeSelect() {
@@ -335,31 +413,46 @@ export function initTopomapPanel() {
     modeSel.value = String(pendingMode);
   }
 
-  function renderRefPills() {
+  function renderRefCard() {
     const cur = String(pendingRef || '').trim();
     refPills.innerHTML = '';
     refPills.classList.toggle('has-active', Boolean(cur));
-    if (!refCandidates.length) {
-      const btn = el('button', 'ref-pill', '无候选');
-      btn.type = 'button';
-      btn.disabled = true;
-      refPills.appendChild(btn);
+    if (!cur) {
+      const box = el('div', 'chip chip-ref chip-ref-empty');
+      box.classList.toggle('armed', Boolean(refPickArmed));
+      box.addEventListener('click', () => {
+        refPickArmed = !refPickArmed;
+        render();
+      });
+      refPills.appendChild(box);
       return;
     }
-    const chosen = refCandidates.includes(cur) ? cur : refCandidates[0];
-    pendingRef = String(chosen || '').trim();
-    refPills.classList.add('has-active');
-    for (const name of refCandidates) {
-      const b = el('button', 'ref-pill', name);
-      b.type = 'button';
-      b.classList.toggle('active', name === pendingRef);
-      b.setAttribute('aria-pressed', name === pendingRef ? 'true' : 'false');
-      b.addEventListener('click', async () => {
-        pendingRef = String(name || '').trim();
-        await persistPending();
-      });
-      refPills.appendChild(b);
-    }
+
+    const row = el('div', 'chip chip-ref');
+    row.classList.toggle('armed', Boolean(refPickArmed));
+    row.addEventListener('click', () => {
+      refPickArmed = !refPickArmed;
+      render();
+    });
+    const left = el('div', 'chip-left');
+    const handle = el('div', 'chip-handle chip-handle-spacer', '');
+    left.appendChild(handle);
+    const idx = el('div', 'chip-index', 'R');
+    left.appendChild(idx);
+    left.appendChild(el('div', 'chip-name', cur));
+    row.appendChild(left);
+
+    const actions = el('div', 'chip-actions');
+    const btnDel = el('button', 'mini-btn danger', '×');
+    btnDel.onclick = (e) => {
+      try { e.stopPropagation(); } catch (_) {}
+      pendingRef = '';
+      refPickArmed = false;
+      persistPending();
+    };
+    actions.appendChild(btnDel);
+    row.appendChild(actions);
+    refPills.appendChild(row);
   }
 
   function renderPresetSelect() {
@@ -602,22 +695,28 @@ export function initTopomapPanel() {
     svgHost.innerHTML = '';
     const svg = createSvgRoot();
     drawHead(svg);
-    renderElectrodes(svg, availableChannels, selected, pendingMode, toggle);
+    renderElectrodes(svg, availableChannels, selected, pendingMode, (name) => {
+      if (refPickArmed) {
+        refPickArmed = false;
+        toggleRef(name);
+        return;
+      }
+      toggle(name);
+    }, electrodePositions, electrodeAliases, pendingRef, (name) => {
+      if (refPickArmed) refPickArmed = false;
+      toggleRef(name);
+    });
     svgHost.appendChild(svg);
   }
 
   function render() {
     updateBadge();
     renderModeSelect();
-    renderRefPills();
+    renderRefCard();
     renderPresetSelect();
     renderSelectedList();
     renderSvg();
-    if (lastError) {
-      setStatus(lastError, 'error');
-    } else {
-      setStatus('', '');
-    }
+    setStatus();
   }
 
   function intOr(v, fallback) {
@@ -640,6 +739,7 @@ export function initTopomapPanel() {
   function toggle(name) {
     const n = String(name || '').trim();
     if (!n) return;
+    if (String(pendingRef || '').trim() === n) return;
     const idx = selected.indexOf(n);
     if (idx >= 0) {
       selected.splice(idx, 1);
@@ -648,6 +748,17 @@ export function initTopomapPanel() {
     }
     if (selected.length >= pendingMode) return;
     selected.push(n);
+    persistPending();
+  }
+
+  function toggleRef(name) {
+    const n = String(name || '').trim();
+    if (!n) return;
+    if (availableChannels.length && !availableChannels.includes(n)) return;
+    if (selected.includes(n)) return;
+    const cur = String(pendingRef || '').trim();
+    if (cur && cur !== n) return;
+    pendingRef = cur === n ? '' : n;
     persistPending();
   }
 
@@ -664,6 +775,14 @@ export function initTopomapPanel() {
       const data = await eegChannelOptions();
       supportedModes = normalizeUnique((data && data.supported_channel_modes) || []).map((x) => Number(x)).filter((x) => Number.isFinite(x));
       availableChannels = normalizeUnique((data && data.available_channels) || []);
+      const layout = data && data.electrode_layout_1020 ? data.electrode_layout_1020 : null;
+      if (layout && layout.positions && typeof layout.positions === 'object') {
+        electrodePositions = layout.positions;
+        electrodeAliases = (layout.aliases && typeof layout.aliases === 'object') ? layout.aliases : {};
+      } else {
+        electrodePositions = DEFAULT_ELECTRODE_POS;
+        electrodeAliases = {};
+      }
       refCandidates = normalizeUnique((data && data.ref_candidates) || []);
       presets = (data && Array.isArray(data.presets)) ? data.presets : [];
       const p = data && data.pending ? data.pending : null;
@@ -710,12 +829,20 @@ export function initTopomapPanel() {
   btnPresetSave.onclick = async () => {
     const name = String(presetNameInput.value || '').trim();
     if (!name) {
-      lastError = '请输入常用组合名称';
+      lastError = '';
+      setBadgeMsg('保存失败：请输入常用组合名称', 'error');
       render();
       return;
     }
     if (selected.length !== pendingMode) {
-      lastError = `请先选择满 ${pendingMode} 个通道再保存`;
+      lastError = '';
+      setBadgeMsg(`保存失败：请先选择满 ${pendingMode} 个通道再保存`, 'error');
+      render();
+      return;
+    }
+    if (!String(pendingRef || '').trim()) {
+      lastError = '';
+      setBadgeMsg('保存失败：请先选择参考电极再保存', 'error');
       render();
       return;
     }

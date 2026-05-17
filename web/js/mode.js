@@ -8,10 +8,13 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.1 移除底部弹窗提示，统一改为按钮状态/页面导航反馈
 - 2026-05-04: 1.0.2 按配置启用/禁用电刺激入口（tdcs.enabled）
 - 2026-05-04: 1.0.3 按通道模式禁用电刺激入口（tdcs.supported_channel_modes + n_channels）
-- 2026-05-09: 1.0.4 (Fengye) 增加 SSVEP 模式卡片及入口事件
+- 2026-05-09: 1.0.4 (Fengye) 增加刺激模式卡片及入口事件（已移除）
+- 2026-05-17: 1.0.5 移除刺激模式入口逻辑
+- 2026-05-17: 1.0.6 模式页新增 SSVEP/MI 占位入口点击提示
+- 2026-05-17: 1.0.7 模式页新增 P300 占位入口点击提示
 
 作者: Spoon
-版本: 1.0.4
+版本: 1.0.7
 */
 
 import { getConfig, modeSelect } from './api.js';
@@ -28,14 +31,9 @@ export function initModePage() {
   const eeg = document.getElementById('mode-eeg');
   const imp = document.getElementById('mode-impedance');
   const tdcs = document.getElementById('mode-tdcs');
-  const cardSsvep = document.getElementById('mode-ssvep');
-   if (cardSsvep) {
-    cardSsvep.onclick = () => {
-      // 可以在跳转前先调用后端接口选择模式
-      // await postModeSelect('ssvep'); 
-      navigate('#ssvep');
-    };
-  }
+  const ssvep = document.getElementById('mode-ssvep');
+  const mi = document.getElementById('mode-mi');
+  const p300 = document.getElementById('mode-p300');
   if (!eeg || !imp || !tdcs) return;
 
   void (async () => {
@@ -69,4 +67,15 @@ export function initModePage() {
     try { await modeSelect('tdcs'); } catch (_) {}
     await navigate('#tdcs');
   });
+
+  const bindComingSoon = (btn, label) => {
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      window.alert(`${label} 功能开发中，敬请期待`);
+    });
+  };
+
+  bindComingSoon(ssvep, 'SSVEP');
+  bindComingSoon(mi, 'MI');
+  bindComingSoon(p300, 'P300');
 }

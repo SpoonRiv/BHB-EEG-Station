@@ -33,7 +33,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.2.14 电刺激按钮移动到调试输出栏，与阻抗检测一致
 - 2026-05-04: 1.2.15 调试输出窗口自适应头部高度，避免按钮换行导致留白不一致
 - 2026-05-04: 1.2.16 调试输出窗口改为自适应卡片高度，统一灰色窗口四周留白
-- 2026-05-09: 1.2.17 (Fengye) 增加 SSVEP 刺激模式的页面结构
+- 2026-05-09: 1.2.17 (Fengye) 增加刺激模式的页面结构（已移除）
 - 2026-05-09: 1.2.18 电刺激页面增加监测数据展示与电量徽标
 - 2026-05-09: 1.2.19 电刺激页面去掉状态提示框样式，数据/控制面板用两个框区分
 - 2026-05-12: 1.2.20 电刺激页面状态提示改为无框文本并在空内容时隐藏，整体风格参考阻抗检测页面
@@ -42,9 +42,25 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-15: 1.2.23 去掉蓝牙连接与电量徽标外框，仅保留提示灯与数值
 - 2026-05-16: 1.2.24 EEG 波形页增加 y 轴动态开关与最大值滑条
 - 2026-05-16: 1.2.25 EEG 波形页右上角控件改为固定布局，避免随文案变化位移
+- 2026-05-17: 1.2.26 移除刺激模式入口与页面
+- 2026-05-17: 1.2.27 更新电刺激模式文案（占位 -> 已实现）
+- 2026-05-17: 1.2.28 固定 EEG/tDCS 电量徽标布局（“电量”字样不随数值变化位移）
+- 2026-05-17: 1.2.29 设备列表改为列表框选择（移除“自动扫描并连接”）
+- 2026-05-17: 1.2.30 设备列表回退为下拉选择（保留“最近连接”标记）
+- 2026-05-17: 1.2.31 电量徽标数值靠左显示；提示灯默认红色（未连接/未获取时更直观）
+- 2026-05-17: 1.2.32 移除阻抗检测页“等待数据”徽标模块
+- 2026-05-17: 1.2.33 统一按钮交互态与科技风样式（主/次/危险语义与尺寸）
+- 2026-05-17: 1.2.34 设备页去掉底部提示卡片，页面聚焦左右两栏主功能
+- 2026-05-17: 1.2.35 模式选择页新增“拓展功能”卡片（SSVEP/MI 占位入口）
+- 2026-05-17: 1.2.36 设备页参考电极文案更新：参考电极可从地形图点选任意电极（不再误解为三选一）
+- 2026-05-17: 1.2.37 设备页参考电极移除三按钮快捷选择，改为同款卡片展示当前参考电极（无编号）
+- 2026-05-17: 1.2.38 设备页参考电极标题补充“地形图点选”提示
+- 2026-05-17: 1.2.39 模式选择页拓展功能改为同级布局；SSVEP/MI 比例与三模式一致并减少页面滚动
+- 2026-05-17: 1.2.40 设备页参考电极卡片编号显示为 REF，并移除底部错误/状态提示元素
+- 2026-05-17: 1.2.41 模式页移除说明/拓展文案并平铺六模式入口（含 SSVEP/MI/P300 占位）
 
 作者: Spoon
-版本: 1.2.25
+版本: 1.2.41
 -->
 <html lang="zh-CN">
 <head>
@@ -65,13 +81,13 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
             <div class="brand-sub" id="brand-sub">v1.0.1</div>
         </div>
         <div class="header-actions">
-            <div class="badge plain" id="conn-badge">
+            <div class="badge plain error" id="conn-badge">
                 <div class="badge-dot"></div>
                 <div id="conn-text">未连接</div>
             </div>
-            <button class="btn" id="theme-toggle" aria-label="切换日夜模式"></button>
-            <button class="btn" id="nav-device">设备</button>
-            <button class="btn" id="nav-mode">模式</button>
+            <button class="btn btn--sm btn--icon btn--ghost" id="theme-toggle" aria-label="切换日夜模式"></button>
+            <button class="btn btn--sm btn--ghost" id="nav-device">设备</button>
+            <button class="btn btn--sm btn--ghost" id="nav-mode">模式</button>
         </div>
     </header>
 
@@ -82,21 +98,21 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                     <div class="card-header">
                         <div>
                             <div class="card-title">选择蓝牙设备</div>
-                            <div class="card-sub">扫描后从下拉列表选择目标设备，再建立连接</div>
+                                <div class="card-sub">扫描后从下拉列表选择目标设备，再建立连接</div>
                         </div>
-                        <button class="btn primary" id="btn-scan">扫描</button>
+                        <button class="btn btn--primary" id="btn-scan">扫描</button>
                     </div>
                     <div class="card-body">
                         <div class="stack">
                             <div class="field">
                                 <div class="label">设备列表</div>
                                 <select id="device-select" disabled>
-                                    <option value="">请先点击“扫描”</option>
+                                    <option value="" selected>请先点击“扫描”</option>
                                 </select>
                             </div>
                             <div class="row">
-                                <button class="btn primary" id="btn-connect">连接</button>
-                                <button class="btn danger" id="btn-disconnect">断开</button>
+                                <button class="btn btn--primary" id="btn-connect">连接</button>
+                                <button class="btn btn--danger" id="btn-disconnect">断开</button>
                             </div>
                             <div class="status-box" id="device-status">状态：未连接</div>
                         </div>
@@ -111,7 +127,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             </div>
                             <div class="row">
                                 <select id="ch-mode-select" style="width: 120px;"></select>
-                                <button class="btn primary" id="ch-apply">应用到系统</button>
+                                <button class="btn btn--primary" id="ch-apply">应用到系统</button>
                             </div>
                         </div>
                         <div class="card-body">
@@ -122,48 +138,32 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                                 <div class="topomap-side">
                                     <div class="topomap-badge" id="ch-count-badge">已选 <strong>0</strong> / <strong>8</strong></div>
                                     <div class="field">
-                                        <div class="label">参考电极</div>
+                                        <div class="label">参考通道（右键点选）</div>
                                         <div class="ref-pills" id="ch-ref-pills" role="group" aria-label="参考电极"></div>
                                     </div>
                                     <div class="field">
-                                        <div class="label">已选通道（顺序）</div>
+                                        <div class="label">工作通道（左键点选）</div>
                                         <div class="chip-list" id="ch-selected-list"></div>
                                     </div>
                                     <div class="row">
-                                        <button class="btn" id="ch-clear">清空</button>
+                                        <button class="btn btn--ghost" id="ch-clear">清空</button>
                                     </div>
                                     <div class="field">
                                         <div class="label">常用组合</div>
                                         <select id="ch-preset-select"></select>
                                     </div>
                                     <div class="row">
-                                        <button class="btn" id="ch-preset-apply">套用</button>
-                                        <button class="btn danger" id="ch-preset-delete">删除本机</button>
+                                        <button class="btn btn--ghost" id="ch-preset-apply">套用</button>
+                                        <button class="btn btn--danger" id="ch-preset-delete">删除组合</button>
                                     </div>
                                     <div class="field">
                                         <div class="label">保存为本机常用</div>
                                         <input id="ch-preset-name" placeholder="例如：后部8通道" />
                                     </div>
                                     <div class="row">
-                                        <button class="btn primary" id="ch-preset-save">保存</button>
+                                        <button class="btn btn--primary" id="ch-preset-save">保存</button>
                                     </div>
-                                    <div class="topomap-hint" id="ch-effective-status"></div>
                                 </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card tips-card">
-                        <div class="card-header">
-                            <div>
-                                <div class="card-title">提示</div>
-                                <div class="card-sub">连接成功后进入模式选择页，再进入对应功能页面</div>
-                            </div>
-                        </div>
-                        <div class="card-body">
-                            <div class="stack tips-stack">
-                                <div class="card-sub">- 阻抗检测与电刺激页面后续会逐步完善数据展示与控制参数</div>
-                                <div class="card-sub">- EEG 页面包含实时波形与调试输出</div>
-                                <div class="card-sub">- 不同模式切换时建议先停止当前模式，避免设备状态混乱</div>
                             </div>
                         </div>
                     </div>
@@ -176,7 +176,6 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                 <div class="card-header">
                     <div>
                         <div class="card-title">模式选择</div>
-                        <div class="card-sub">已连接后可随时切换模式；数据展示页面按模式分别承载</div>
                     </div>
                 </div>
                 <div class="card-body">
@@ -205,17 +204,43 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             </div>
                             <div class="mode-meta">
                                 <div class="mode-title">电刺激</div>
-                                <div class="mode-desc">电刺激（tDCS）功能占位：当前版本仅提供页面入口与 start/stop 指令下发；后续将增加电流/时长/升降沿等参数配置与安全校验，并支持通过配置开关启用/隐藏。</div>
+                                <div class="mode-desc">用于经颅直流电刺激（tDCS）控制与监测：支持开启/停止刺激、下发电流/缓升/稳定/缓降/报警阈值等控制指令，并实时展示输出电流、高压电压、故障状态与电量；是否启用由配置开关控制。</div>
                             </div>
                         </button>
-                        <button type="button" class="mode-card" id="mode-ssvep">
+                        <button type="button" class="mode-card mode-card--coming" id="mode-ssvep">
                             <div class="mode-hero-wrap">
-                                <!-- 建议准备一张 ssvep_mode.png 放在 image 目录下 -->
-                                <img class="mode-hero" src="image/ssvep_mode.png" alt="SSVEP 刺激模式" />
+                                <div class="mode-mini-hero">
+                                    <div class="mode-mini-badge">开发中</div>
+                                    <div class="mode-mini-label">SSVEP</div>
+                                </div>
                             </div>
                             <div class="mode-meta">
-                                <div class="mode-title">SSVEP 刺激</div>
-                                <div class="mode-desc">视觉诱发电位实验：开启后将启动独立的 PsychoPy 刺激程序。程序会按照预设频率（8-15Hz）闪烁，并自动记录 LSL 脑电数据及进行 FBCCA 实时识别。</div>
+                                <div class="mode-title">SSVEP</div>
+                                <div class="mode-desc">稳态视觉诱发电位：用于刺激参数配置、频率/相位设计与在线识别（预留）。</div>
+                            </div>
+                        </button>
+                        <button type="button" class="mode-card mode-card--coming" id="mode-mi">
+                            <div class="mode-hero-wrap">
+                                <div class="mode-mini-hero">
+                                    <div class="mode-mini-badge">开发中</div>
+                                    <div class="mode-mini-label">MI</div>
+                                </div>
+                            </div>
+                            <div class="mode-meta">
+                                <div class="mode-title">MI</div>
+                                <div class="mode-desc">运动想象：用于任务范式、训练流程与在线分类/反馈闭环（预留）。</div>
+                            </div>
+                        </button>
+                        <button type="button" class="mode-card mode-card--coming" id="mode-p300">
+                            <div class="mode-hero-wrap">
+                                <div class="mode-mini-hero">
+                                    <div class="mode-mini-badge">开发中</div>
+                                    <div class="mode-mini-label">P300</div>
+                                </div>
+                            </div>
+                            <div class="mode-meta">
+                                <div class="mode-title">P300</div>
+                                <div class="mode-desc">事件相关电位：用于刺激矩阵范式、在线识别与反馈闭环（预留）。</div>
                             </div>
                         </button>
                     </div>
@@ -233,10 +258,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                         </div>
                         <div class="row">
                             <input id="debug-filter" placeholder="过滤关键字" style="width: 220px;" />
-                            <button class="btn" id="debug-clear">清空</button>
-                            <button class="btn" id="debug-pause">暂停输出</button>
-                            <button class="btn primary" id="btn-eeg-start">开始EEG采集</button>
-                            <button class="btn danger" id="btn-eeg-stop">停止EEG采集</button>
+                            <button class="btn btn--ghost" id="debug-clear">清空</button>
+                            <button class="btn btn--ghost" id="debug-pause">暂停输出</button>
+                            <button class="btn btn--primary" id="btn-eeg-start">开始EEG采集</button>
+                            <button class="btn btn--danger" id="btn-eeg-stop">停止EEG采集</button>
                         </div>
                     </div>
                     <div class="card-body" style="flex: 1; min-height: 0;">
@@ -252,9 +277,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                         </div>
                         <div class="row eeg-wave-controls">
                             <div id="eeg-yaxis-controls"></div>
-                            <div class="badge plain" id="battery-badge">
+                            <div class="badge plain battery-badge error" id="battery-badge">
                                 <div class="badge-dot"></div>
-                                <div id="battery-text">电量：--</div>
+                                <div class="battery-label">电量：</div>
+                                <div class="battery-value" id="battery-text">--</div>
                             </div>
                         </div>
                     </div>
@@ -274,8 +300,8 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                         <div class="card-sub" id="offline-notch-hint"></div>
                     </div>
                     <div class="row">
-                        <button class="btn" id="btn-offline-back">返回模式</button>
-                        <button class="btn primary" id="btn-offline-export">导出文件</button>
+                        <button class="btn btn--ghost" id="btn-offline-back">返回模式</button>
+                        <button class="btn btn--primary" id="btn-offline-export">导出文件</button>
                     </div>
                 </div>
                 <div class="card-body">
@@ -354,10 +380,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                         </div>
                         <div class="row">
                             <input id="imp-debug-filter" placeholder="过滤关键字" style="width: 220px;" />
-                            <button class="btn" id="imp-debug-clear">清空</button>
-                            <button class="btn" id="imp-debug-pause">暂停输出</button>
-                            <button class="btn primary" id="btn-imp-start">开启阻抗检测</button>
-                            <button class="btn danger" id="btn-imp-stop">停止阻抗检测</button>
+                            <button class="btn btn--ghost" id="imp-debug-clear">清空</button>
+                            <button class="btn btn--ghost" id="imp-debug-pause">暂停输出</button>
+                            <button class="btn btn--primary" id="btn-imp-start">开启阻抗检测</button>
+                            <button class="btn btn--danger" id="btn-imp-stop">停止阻抗检测</button>
                         </div>
                     </div>
                     <div class="card-body" style="flex: 1; min-height: 0;">
@@ -370,12 +396,6 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                         <div>
                             <div class="card-title">阻抗可视化</div>
                             <div class="card-sub"><span id="imp-sub">数据连接：未连接</span></div>
-                        </div>
-                        <div class="row">
-                            <div class="badge" id="imp-badge">
-                                <div class="badge-dot"></div>
-                                <div id="imp-badge-text">等待数据</div>
-                            </div>
                         </div>
                     </div>
                     <div class="card-body" style="height: calc(100% - 54px);">
@@ -410,10 +430,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                         </div>
                         <div class="row">
                             <input id="tdcs-debug-filter" placeholder="过滤关键字" style="width: 220px;" />
-                            <button class="btn" id="tdcs-debug-clear">清空</button>
-                            <button class="btn" id="tdcs-debug-pause">暂停输出</button>
-                            <button class="btn primary" id="btn-tdcs-start">开启电刺激</button>
-                            <button class="btn danger" id="btn-tdcs-stop">停止电刺激</button>
+                            <button class="btn btn--ghost" id="tdcs-debug-clear">清空</button>
+                            <button class="btn btn--ghost" id="tdcs-debug-pause">暂停输出</button>
+                            <button class="btn btn--primary" id="btn-tdcs-start">开启电刺激</button>
+                            <button class="btn btn--danger" id="btn-tdcs-stop">停止电刺激</button>
                         </div>
                     </div>
                     <div class="card-body" style="flex: 1; min-height: 0;">
@@ -428,9 +448,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             <div class="card-sub">监测数据 + 两级指令控制面板（按钮化）</div>
                         </div>
                         <div class="row">
-                            <div class="badge plain" id="tdcs-battery-badge">
+                            <div class="badge plain battery-badge error" id="tdcs-battery-badge">
                                 <div class="badge-dot"></div>
-                                <div id="tdcs-battery-text">电量：--</div>
+                                <div class="battery-label">电量：</div>
+                                <div class="battery-value" id="tdcs-battery-text">--</div>
                             </div>
                         </div>
                     </div>
@@ -491,54 +512,6 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
             </div>
         </section>
         
-        <section class="page" id="page-ssvep">
-            <div class="eeg-layout">
-                <!-- 左侧：调试输出（用于查看算法识别结果和实验状态） -->
-                <div class="card" style="height: 100%; display: flex; flex-direction: column;">
-                    <div class="card-header">
-                        <div>
-                            <div class="card-title">实验日志</div>
-                            <div class="card-sub">展示 SSVEP 识别结果与刺激程序状态</div>
-                        </div>
-                        <div class="row">
-                            <input id="ssvep-debug-filter" placeholder="过滤关键字" style="width: 220px;" />
-                            <button class="btn" id="ssvep-debug-clear">清空</button>
-                            <button class="btn" id="ssvep-debug-pause">暂停输出</button>
-                            <button class="btn primary" id="btn-ssvep-start">启动刺激实验</button>
-                            <button class="btn danger" id="btn-ssvep-stop">强行停止</button>
-                        </div>
-                    </div>
-                    <div class="card-body" style="flex: 1; min-height: 0;">
-                        <div class="debug-log" id="ssvep-debug-log"></div>
-                    </div>
-                </div>
-
-                <!-- 右侧：状态显示与说明 -->
-                <div class="card">
-                    <div class="card-header">
-                        <div>
-                            <div class="card-title">SSVEP 实验说明</div>
-                            <div class="card-sub">基于 PsychoPy 的视觉刺激程序</div>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        <div class="stack">
-                            <div class="hint-strip" id="ssvep-status">等待启动...</div>
-                            <div class="tips-stack">
-                                <div class="card-sub">1. 启动前请确保蓝牙设备已连接。</div>
-                                <div class="card-sub">2. 点击“启动”后，系统将弹出全屏刺激窗口。</div>
-                                <div class="card-sub">3. 实验数据将自动保存至后端配置的离线目录。</div>
-                                <div class="card-sub">4. 识别结果会实时反馈在左侧“实验日志”中。</div>
-                            </div>
-                            <div class="status-box" style="margin-top: 20px;">
-                                <strong>当前状态：</strong>
-                                <span id="ssvep-run-state">未运行</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
     </div>
 </div>
 

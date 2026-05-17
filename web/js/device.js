@@ -12,14 +12,32 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.0.5 自动跳转需同时满足：蓝牙连接成功 + 本次会话通道“应用成功”提示出现
 - 2026-05-04: 1.0.6 配置字段更名：mode_channels -> n_channels（与三模式命名一致）
 - 2026-05-04: 1.0.7 文件更名适配：topomap.js -> eeg_topomap.js
+- 2026-05-17: 1.0.8 设备列表改为列表框选择（移除“自动扫描并连接”）
+- 2026-05-17: 1.0.9 扫描列表标记“最近连接”设备（本机记忆）
+- 2026-05-17: 1.0.10 设备列表回退为下拉选择（保留“最近连接”标记）
+- 2026-05-17: 1.0.11 扫描成功状态提示文案调整
+- 2026-05-17: 1.0.12 设备页状态文案规范统一（扫描/选择/连接）
+- 2026-05-17: 1.0.13 “请选择设备”作为占位提示不出现在下拉选项中
 
 作者: Spoon
-版本: 1.0.7
+版本: 1.0.13
 */
 
 import { bleConnect, bleDevices, bleDisconnect, eegChannelOptions, getStatus } from './api.js';
 import { navigate } from './router.js';
 import { initTopomapPanel } from './eeg_topomap.js';
+
+const RECENT_BLE_KEY = 'bhb_recent_ble_address';
+
+function getRecentBleAddress() {
+  try { return String(localStorage.getItem(RECENT_BLE_KEY) || '').trim() || null; } catch (_) { return null; }
+}
+
+function setRecentBleAddress(address) {
+  const v = String(address || '').trim();
+  if (!v) return;
+  try { localStorage.setItem(RECENT_BLE_KEY, v); } catch (_) {}
+}
 
 function stripTrailingParenSuffix(text) {
   let s = String(text || '').trim();
@@ -50,20 +68,38 @@ function normalizeDeviceMessage(msg) {
   return replaced;
 }
 
+function getSelectedDeviceInfo(selectEl) {
+  const address = selectEl && selectEl.value ? String(selectEl.value || '').trim() : '';
+  if (!address) return null;
+  const selectedOpt = selectEl.selectedOptions && selectEl.selectedOptions[0] ? selectEl.selectedOptions[0] : null;
+  const name = selectedOpt ? String(selectedOpt.dataset.name || '').trim() : '';
+  return {
+    address,
+    name: name || null,
+  };
+}
+
 function renderSelect(selectEl, devices) {
   selectEl.innerHTML = '';
 
-  const optAuto = document.createElement('option');
-  optAuto.value = '';
-  optAuto.textContent = '自动扫描并连接';
-  selectEl.appendChild(optAuto);
+  const optPrompt = document.createElement('option');
+  optPrompt.value = '';
+  optPrompt.textContent = '请选择设备';
+  optPrompt.disabled = true;
+  optPrompt.hidden = true;
+  optPrompt.selected = true;
+  selectEl.appendChild(optPrompt);
+
+  const recentAddr = getRecentBleAddress();
 
   for (const d of devices) {
     const opt = document.createElement('option');
     opt.value = d.address || '';
     const rssi = (d.rssi === null || typeof d.rssi === 'undefined') ? '' : `｜信号 ${d.rssi}`;
     const displayName = normalizeDeviceName(d.name || '未知设备');
-    opt.textContent = `${displayName}｜${d.address || '-'}${rssi}`;
+    const isRecent = recentAddr && d.address && String(d.address) === String(recentAddr);
+    const badge = isRecent ? ' 【最近连接】' : '';
+    opt.textContent = `${displayName}｜${d.address || '-'}${rssi}${badge}`;
     opt.dataset.name = displayName === '未知设备' ? '' : displayName;
     selectEl.appendChild(opt);
   }
@@ -89,7 +125,35 @@ export function initDevicePage() {
 
   initTopomapPanel();
 
-  setDeviceStatus('', '状态：未连接，请先扫描并选择设备');
+  let scanState = { status: 'idle', count: 0, message: '' };
+
+  function renderIdleHint() {
+    const sel = getSelectedDeviceInfo(selectEl);
+    if (scanState.status === 'scanning') {
+      setDeviceStatus('', '状态：正在扫描中');
+      return;
+    }
+    if (scanState.status === 'failed') {
+      const msg = scanState.message ? `：${scanState.message}` : '';
+      setDeviceStatus('error', `状态：扫描失败${msg}`);
+      return;
+    }
+    if (scanState.status === 'empty') {
+      setDeviceStatus('error', '状态：未扫描到设备，请确认设备已开机并靠近');
+      return;
+    }
+    if (scanState.status === 'success') {
+      if (sel) {
+        setDeviceStatus('success', `状态：已选择：${sel.name || sel.address}`);
+      } else {
+        setDeviceStatus('success', `状态：成功扫描到 ${scanState.count} 个设备，请选择`);
+      }
+      return;
+    }
+    setDeviceStatus('', '状态：请点击“扫描”');
+  }
+
+  renderIdleHint();
   selectEl.disabled = true;
   let autoNavigated = false;
   let lastChannelCheckAtMs = 0;
@@ -147,22 +211,26 @@ export function initDevicePage() {
   btnScan.addEventListener('click', async () => {
     btnScan.disabled = true;
     selectEl.disabled = true;
-    setDeviceStatus('', '状态：扫描中…');
+    scanState = { status: 'scanning', count: 0, message: '' };
+    renderIdleHint();
     try {
       const data = await bleDevices(3.0, true);
       const list = (data && Array.isArray(data.devices)) ? data.devices : [];
       if (list.length > 0) {
         renderSelect(selectEl, list);
         selectEl.disabled = false;
-        setDeviceStatus('success', `状态：扫描到 ${list.length} 个设备，请选择后点击连接`);
+        scanState = { status: 'success', count: list.length, message: '' };
+        renderIdleHint();
       } else {
-        selectEl.innerHTML = '<option value="">未扫描到设备</option>';
-        setDeviceStatus('error', '状态：未扫描到设备，请确认设备已开机并靠近');
+        selectEl.innerHTML = '<option value="" selected>未扫描到设备</option>';
+        scanState = { status: 'empty', count: 0, message: '' };
+        renderIdleHint();
       }
     } catch (e) {
-      selectEl.innerHTML = '<option value="">扫描失败</option>';
+      selectEl.innerHTML = '<option value="" selected>扫描失败</option>';
       const err = normalizeDeviceMessage(e && (e.message || e)) || '未知错误';
-      setDeviceStatus('error', `状态：扫描失败：${err}`);
+      scanState = { status: 'failed', count: 0, message: err };
+      renderIdleHint();
     } finally {
       btnScan.disabled = false;
     }
@@ -170,15 +238,18 @@ export function initDevicePage() {
 
   btnConnect.addEventListener('click', async () => {
     btnConnect.disabled = true;
-    setDeviceStatus('', '状态：连接中…');
-    const address = selectEl.value || null;
-    const selectedOpt = selectEl.selectedOptions && selectEl.selectedOptions[0] ? selectEl.selectedOptions[0] : null;
-    const name = selectedOpt ? (selectedOpt.dataset.name || null) : null;
+    const sel = getSelectedDeviceInfo(selectEl);
     try {
-      const res = await bleConnect(address, name);
+      if (!sel) {
+        setDeviceStatus('error', '状态：请先选择设备');
+        return;
+      }
+      setDeviceStatus('', `状态：连接中：${sel.name || sel.address}`);
+      const res = await bleConnect(sel.address, sel.name);
       if (res && res.status === 'success') {
+        setRecentBleAddress(sel.address);
         lastConnReady = true;
-        setDeviceStatus('success', '状态：已连接，请先确认通道选择并点击“应用到系统”');
+        setDeviceStatus('success', `状态：成功连接，请确认通道并点击“应用到系统”`);
         autoNavigated = false;
         const ok = await checkChannelReady();
         if (ok && channelAppliedOk) {
@@ -207,7 +278,7 @@ export function initDevicePage() {
       if (res && res.status === 'success') {
         lastConnReady = false;
         autoNavigated = false;
-        setDeviceStatus('', '状态：已断开，请先扫描并选择设备');
+        renderIdleHint();
       } else {
         const err = normalizeDeviceMessage(res && res.message ? res.message : '') || ((res && res.message) ? '' : '未知错误');
         setDeviceStatus('error', err ? `状态：断开失败：${err}` : '状态：断开失败');
@@ -221,6 +292,12 @@ export function initDevicePage() {
     }
   });
 
+  selectEl.addEventListener('change', () => {
+    if (lastConnReady) return;
+    if (scanState.status !== 'success') return;
+    renderIdleHint();
+  });
+
   async function refreshHint() {
     try {
       const st = await getStatus();
@@ -232,26 +309,26 @@ export function initDevicePage() {
         lastConnReady = true;
         const ok = await checkChannelReady();
         if (ok && channelAppliedOk) {
-          setDeviceStatus('success', `状态：已连接 ${name}，通道已应用`);
+          setDeviceStatus('success', `状态：成功连接，通道已应用`);
           if (!autoNavigated && (location.hash === '#device' || !location.hash)) {
             autoNavigated = true;
             await navigate('#mode');
           }
         } else {
-          setDeviceStatus('success', `状态：已连接 ${name}`);
+          setDeviceStatus('success', `状态：成功连接，请确认通道并点击“应用到系统”`);
           autoNavigated = false;
         }
       }
-      else if (t === 'connecting') setDeviceStatus('', `状态：连接中 ${name}`);
-      else if (t === 'error') setDeviceStatus('error', `状态：失败 ${name}${msg ? `：${msg}` : ''}`.trim());
+      else if (t === 'connecting') setDeviceStatus('', `状态：连接中：${name || '设备'}`);
+      else if (t === 'error') setDeviceStatus('error', `状态：连接失败${name ? `：${name}` : ''}${msg ? `：${msg}` : ''}`.trim());
       else if (t === 'disconnected' || t === 'stopped') {
         autoNavigated = false;
         lastConnReady = false;
-        setDeviceStatus('', `状态：已断开 ${name || ''}`.trim());
+        renderIdleHint();
       }
       else {
         lastConnReady = false;
-        setDeviceStatus('', '状态：未连接，请先扫描并选择设备');
+        renderIdleHint();
       }
     } catch (_) {}
   }

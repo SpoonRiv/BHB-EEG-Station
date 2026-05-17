@@ -19,9 +19,23 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.0.12 阻抗页右侧面板不使用内部滚动条，避免出现列表滑条
 - 2026-05-04: 1.0.13 已选通道拖拽排序体验优化：插入占位提示与更平滑的位移动画
 - 2026-05-04: 1.0.14 文件更名为 eeg_topomap.css，命名与 impedance_topomap.js 保持一致
+- 2026-05-17: 1.0.15 电极圆圈描边变细，降低密集电极时的视觉干扰
+- 2026-05-17: 1.0.16 适配全局科技风主题色变量（accent-rgb），提升一致性
+- 2026-05-17: 1.0.17 右侧面板与列表增加左右留白，避免高亮描边被裁切
+- 2026-05-17: 1.0.18 参考电极改为地形图点选，参考电极与卡片用绿色高亮标识
+- 2026-05-17: 1.0.19 参考电极卡片增加“选取模式”外观提示（点按卡片后从地形图点选）
+- 2026-05-17: 1.0.20 参考电极卡片样式对齐已选通道：编号为 REF，卡片本身不使用绿色高亮
+- 2026-05-17: 1.0.21 参考电极卡片宽度对齐单个已选通道卡片（网格单列宽度）
+- 2026-05-17: 1.0.22 未选择参考电极时显示空虚线框（无文字提示）
+- 2026-05-17: 1.0.23 地形图电极禁用态不使用“禁止”鼠标样式，避免误导右键选择参考电极
+- 2026-05-17: 1.0.23 已选通道区域高度锁定（清空不影响下方布局）
+- 2026-05-17: 1.0.24 参考通道卡片进入选取模式时不使用黑色描边（与主题主色一致）
+- 2026-05-17: 1.0.24 统一矩形控件圆角为 12px
+- 2026-05-17: 1.0.25 已选计数提示条圆角对齐全局 12px
+- 2026-05-17: 1.0.26 参考通道卡片点击后不显示蓝色高亮，交互外观与工作通道一致
 
 作者: Spoon
-版本: 1.0.14
+版本: 1.0.26
 */
 
 .device-right {
@@ -57,7 +71,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 .topomap-canvas {
   border: 1px solid rgba(120, 170, 210, 0.14);
-  border-radius: 14px;
+  border-radius: var(--radius);
   background: rgba(0, 0, 0, 0.10);
   height: 100%;
   min-height: 320px;
@@ -79,11 +93,13 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
   height: 100%;
   min-height: 0;
   overflow: auto;
-  padding-right: 4px;
+  padding-left: 6px;
+  padding-right: 6px;
 }
 
 #page-impedance .topomap-side {
   overflow: hidden;
+  padding-left: 0;
   padding-right: 0;
 }
 
@@ -100,18 +116,22 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 .topomap-svg svg {
   width: 100%;
   height: 100%;
+  overflow: visible;
 }
 
 .chip-list {
+  --ch-chip-row-h: 44px;
+  --ch-chip-gap: 8px;
   display: grid;
   grid-template-columns: repeat(var(--ch-selected-cols, 2), minmax(0, 1fr));
   grid-auto-rows: minmax(44px, auto);
   gap: 8px;
   flex: 1;
-  min-height: 160px;
-  max-height: none;
+  min-height: calc(var(--ch-selected-rows, 4) * var(--ch-chip-row-h) + (var(--ch-selected-rows, 4) - 1) * var(--ch-chip-gap));
+  max-height: calc(var(--ch-selected-rows, 4) * var(--ch-chip-row-h) + (var(--ch-selected-rows, 4) - 1) * var(--ch-chip-gap));
   overflow: auto;
-  padding-right: 4px;
+  padding-left: 6px;
+  padding-right: 6px;
   align-content: start;
 }
 
@@ -121,7 +141,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
   justify-content: space-between;
   gap: 10px;
   padding: 8px 10px;
-  border-radius: 12px;
+  border-radius: var(--radius);
   border: 1px solid rgba(120, 170, 210, 0.16);
   background: rgba(0, 0, 0, 0.10);
   width: 100%;
@@ -161,9 +181,9 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 }
 
 .chip.chip-placeholder {
-  border: 2px dashed rgba(49, 215, 255, 0.62);
-  background: rgba(49, 215, 255, 0.06);
-  box-shadow: 0 0 0 1px rgba(49, 215, 255, 0.08) inset;
+  border: 2px dashed rgba(var(--accent-rgb), 0.62);
+  background: rgba(var(--accent-rgb), 0.06);
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.08) inset;
   animation: chipPlaceholderPop 120ms ease-out;
 }
 
@@ -179,13 +199,13 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 }
 
 .chip.chip-drag-preview {
-  border-color: rgba(49, 215, 255, 0.55);
+  border-color: rgba(var(--accent-rgb), 0.55);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
 
 .chip.drop-target {
-  border-color: rgba(49, 215, 255, 0.55);
-  box-shadow: 0 0 0 1px rgba(49, 215, 255, 0.10) inset;
+  border-color: rgba(var(--accent-rgb), 0.55);
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.10) inset;
 }
 
 .chip-index {
@@ -198,7 +218,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
   font-weight: 800;
   font-size: 12px;
   color: rgba(0, 0, 0, 0.82);
-  background: rgba(49, 215, 255, 0.85);
+  background: rgba(var(--accent-rgb), 0.85);
 }
 
 [data-theme="light"] .chip-index {
@@ -221,43 +241,41 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 .ref-pills {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--ch-selected-cols, 2), minmax(0, 1fr));
+  grid-auto-rows: minmax(44px, auto);
   gap: 8px;
+  align-content: start;
+  padding-left: 6px;
+  padding-right: 6px;
 }
 
-.ref-pill {
-  appearance: none;
-  border: 1px solid rgba(120, 170, 210, 0.16);
-  color: var(--text);
-  background: rgba(0, 0, 0, 0.06);
-  padding: 10px 10px;
-  border-radius: 14px;
-  cursor: pointer;
-  font-weight: 900;
-  letter-spacing: 0.4px;
-  transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+.chip.chip-ref {
+  min-height: 44px;
 }
 
-.ref-pill:hover {
-  transform: translateY(-1px);
-  border-color: rgba(49, 215, 255, 0.38);
+.chip.chip-ref.chip-ref-empty {
+  border: 2px dashed rgba(120, 170, 210, 0.30);
+  background: rgba(0, 0, 0, 0.00);
+  box-shadow: none;
 }
 
-.ref-pill.active {
-  border-color: rgba(49, 215, 255, 0.72);
-  box-shadow: 0 0 0 1px rgba(49, 215, 255, 0.10) inset;
-  background: rgba(49, 215, 255, 0.10);
+[data-theme="light"] .chip.chip-ref.chip-ref-empty {
+  border: 2px dashed rgba(12, 18, 28, 0.28);
+  background: rgba(255, 255, 255, 0.70);
 }
 
-.ref-pills.has-active .ref-pill:not(.active) {
-  opacity: 0.45;
-  border-color: rgba(120, 170, 210, 0.10);
+.chip.chip-ref.armed {
+  border-color: rgba(120, 170, 210, 0.16);
+  box-shadow: none;
 }
 
-.ref-pill:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-  transform: none;
+[data-theme="light"] .chip.chip-ref.armed {
+  border-color: rgba(120, 170, 210, 0.16);
+  box-shadow: none;
+}
+
+.chip-handle.chip-handle-spacer {
+  cursor: default;
 }
 
 .mini-btn {
@@ -266,7 +284,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
   color: var(--text);
   background: rgba(0, 0, 0, 0.06);
   padding: 6px 8px;
-  border-radius: 10px;
+  border-radius: var(--radius);
   cursor: pointer;
   font-weight: 800;
   font-size: 12px;
@@ -276,7 +294,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 .mini-btn:hover {
   transform: translateY(-1px);
-  border-color: rgba(49, 215, 255, 0.38);
+  border-color: rgba(var(--accent-rgb), 0.38);
 }
 
 .mini-btn:disabled {
@@ -309,9 +327,9 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
   padding: 7px 10px;
   min-height: 44px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius);
   background: rgba(0, 0, 0, 0.12);
-  box-shadow: 0 0 0 1px rgba(49, 215, 255, 0.06) inset;
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.06) inset;
   font-size: 13px;
   color: var(--muted);
 }
@@ -366,13 +384,13 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 }
 
 .electrode:hover {
-  filter: drop-shadow(0 0 12px rgba(49, 215, 255, 0.30));
+  filter: drop-shadow(0 0 12px rgba(var(--accent-rgb), 0.30));
   transform: translateY(-0.6px);
 }
 
 .electrode-circle {
   stroke: rgba(236, 242, 255, 0.55);
-  stroke-width: 0.80;
+  stroke-width: 0.55;
   fill: rgba(12, 18, 28, 0.18);
 }
 
@@ -390,12 +408,12 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 }
 
 .electrode.selected .electrode-circle {
-  stroke: rgba(49, 215, 255, 0.95);
-  fill: rgba(49, 215, 255, 0.22);
+  stroke: rgba(var(--accent-rgb), 0.95);
+  fill: rgba(var(--accent-rgb), 0.22);
 }
 
 .electrode.selected {
-  filter: drop-shadow(0 0 12px rgba(49, 215, 255, 0.34));
+  filter: drop-shadow(0 0 12px rgba(var(--accent-rgb), 0.34));
   transform: none;
 }
 
@@ -403,8 +421,27 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
   transform: none;
 }
 
+.electrode.ref-selected .electrode-circle {
+  stroke: rgba(47, 229, 139, 0.92);
+  fill: rgba(47, 229, 139, 0.20);
+}
+
+.electrode.ref-selected .electrode-text {
+  fill: rgba(47, 229, 139, 0.96);
+}
+
+.electrode.ref-selected {
+  filter: drop-shadow(0 0 12px rgba(47, 229, 139, 0.34));
+  transform: none;
+}
+
+.electrode.ref-selected:hover {
+  filter: drop-shadow(0 0 12px rgba(47, 229, 139, 0.38));
+  transform: none;
+}
+
 .electrode.disabled {
-  cursor: not-allowed;
+  cursor: pointer;
   opacity: 0.45;
   filter: none;
   transform: none;
@@ -412,6 +449,16 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 .electrode.disabled:hover {
   filter: none;
+  transform: none;
+}
+
+.electrode.disabled.ref-selected {
+  opacity: 1;
+  cursor: default;
+}
+
+.electrode.disabled.ref-selected:hover {
+  filter: drop-shadow(0 0 12px rgba(47, 229, 139, 0.32));
   transform: none;
 }
 
@@ -440,5 +487,5 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 }
 
 .impedance-map .imp-electrode.imp-selected {
-  filter: drop-shadow(0 0 12px rgba(49, 215, 255, 0.34));
+  filter: drop-shadow(0 0 12px rgba(var(--accent-rgb), 0.34));
 }

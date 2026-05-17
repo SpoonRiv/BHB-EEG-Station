@@ -27,6 +27,7 @@ dist/
 # Logs & debug artifacts
 *.log
 logs/
+log/
 *.dmp
 
 # Runtime / exported data (avoid committing large outputs)
@@ -61,3 +62,5 @@ pnpm-debug.log*
 # Local runtime overrides (do not commit)
 configs/config.local.yaml
 
+# VSCodeCounter (do not commit)
+.VSCodeCounter/

@@ -68,10 +68,12 @@ python main.py
 3. 采集结束后点击“停止采集”
 
 EEG 实时波形：
+
 - EEG 模式开始后会通过 WebSocket 推送数据到浏览器进行实时绘制
 - 若需要调整“显示窗口时长 / 渲染刷新率”等，只需修改 `configs/config.yaml -> ui.waveform.*`，它只影响展示，不影响采集完整性与离线存储
 
 离线保存与导出：
+
 - EEG 开始采集后会在本地创建离线会话并持续录制
 - 默认存放目录：`configs/config.yaml -> offline.root_dir`（默认 `offlinedata/`）
 - 停止采集后可在“数据存储/离线数据”相关页面进行导出：
@@ -87,9 +89,9 @@ EEG 实时波形：
 - Impedance 模式开始后会周期性刷新各通道阻抗与状态颜色
 - 阈值与刷新频率在 `configs/config.yaml -> impedance.ui.*` 中配置
 
-#### C. 电刺激（tDCS，占位）
+#### C. 电刺激（tDCS）
 
-- tDCS 页面为占位入口：当前仅保留 start/stop 指令通路；参数与安全校验后续接入
+- tDCS 页面支持开启/停止刺激、两级指令控制（电流/缓升/稳定/缓降/报警阈值等）以及监测数据展示（输出电流、高压电压、故障状态、电量）
 - 是否显示/是否可用由配置控制：`tdcs.enabled`、`tdcs.ui.show_reserved`
 
 ***
@@ -179,7 +181,7 @@ WebSocket：
 1. 查看占用进程：
    `netstat -ano | findstr :8001`
 2. 终止占用进程（将 `<PID>` 替换为上一步查到的进程号）：
-   `taskkill /F /PID <PID>`
+   `taskkill /F /PID<PID>`
 
 也可以直接在 `configs/config.local.yaml` 中修改 `server.port` 换一个端口。
 
@@ -220,3 +222,4 @@ WebSocket：
 - 确认离线目录可写：`offline.root_dir`
 - 确认磁盘空间充足
 - 若 EDF 导出失败，先用 CSV 导出确认数据已录制，再排查 EDF 相关依赖（`pyedflib`）
+

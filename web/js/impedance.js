@@ -17,9 +17,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.0.10 阈值三档标识右侧增加“默认”按钮，一键恢复默认阈值
 - 2026-05-04: 1.0.11 阻抗列表分组：电极阻抗与参考电极阻抗
 - 2026-05-04: 1.0.12 配置字段更名：impedance.mode_channels -> impedance.n_channels（与三模式命名一致）
+- 2026-05-17: 1.0.13 阻抗地形图电极位置由后端配置下发，前端仅做渲染与回退
+- 2026-05-17: 1.0.14 阻抗可视化自检：补充 LSL 解析状态提示，便于定位“无阻抗值”
 
 作者: Spoon
-版本: 1.0.12
+版本: 1.0.14
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -432,6 +434,7 @@ async function refreshImpStatusHint() {
     const connected = lastType === 'connected' || lastType === 'ready';
     const taskActive = !!(dev && dev.task_running) && String(dev.task_mode || '') === 'impedance';
     const lsl = !!(st && st.impedance_lsl_streaming);
+    const lslDetail = st && st.impedance_lsl ? st.impedance_lsl : null;
     if (!running) {
       impTaskActive = false;
       renderImpControlButtons(false, false, false);
@@ -441,7 +444,9 @@ async function refreshImpStatusHint() {
     impTaskActive = taskActive;
     renderImpControlButtons(running, connected, taskActive);
     if (!lsl) {
-      renderSubtitle('数据连接：未启动（请点击“开启阻抗检测”）');
+      const extra = lslDetail && lslDetail.last_error ? `；LSL：${String(lslDetail.last_error)}` : '';
+      if (taskActive) renderSubtitle(`数据连接：解析中（等待数据）${extra}`);
+      else renderSubtitle(`数据连接：未启动（请点击“开启阻抗检测”）${extra}`);
       return;
     }
     const ageMs = impLastRecvAtMs ? Math.max(0, Date.now() - impLastRecvAtMs) : null;
@@ -569,6 +574,8 @@ function bindControls() {
 }
 
 async function initImpedanceUiOnce() {
+  let electrodePositions = null;
+  let electrodeAliases = null;
   try {
     const cfg = await getConfig();
     const imp = cfg && cfg.impedance ? cfg.impedance : null;
@@ -582,13 +589,18 @@ async function initImpedanceUiOnce() {
       slider_max_ohm: Number(imp.ui.slider_max_ohm) || 30000,
       slider_step_ohm: Number(imp.ui.slider_step_ohm) || 100,
     } : impUi;
+    const layout = cfg && cfg.electrode_layout_1020 ? cfg.electrode_layout_1020 : null;
+    if (layout && layout.positions && typeof layout.positions === 'object') {
+      electrodePositions = layout.positions;
+      electrodeAliases = (layout.aliases && typeof layout.aliases === 'object') ? layout.aliases : null;
+    }
   } catch (_) {}
 
   renderLegend();
   ensureList();
 
   const topoHost = document.getElementById('imp-topomap-svg');
-  topo = createImpedanceTopomap(topoHost, impNames, { good_max_ohm: impUi.good_max_ohm, warn_max_ohm: impUi.warn_max_ohm });
+  topo = createImpedanceTopomap(topoHost, impNames, { good_max_ohm: impUi.good_max_ohm, warn_max_ohm: impUi.warn_max_ohm }, electrodePositions, electrodeAliases);
   if (topo) {
     topo.setOnSelect((name) => {
       const cell = listItems.get(name);

@@ -1,7 +1,7 @@
 /*
 Copyright (c) 2026 BUAA BHB. All rights reserved.
 
-文件功能: 电刺激（tDCS）页面占位逻辑（按配置启用/禁用、下发 start/stop 指令、预留参数区）
+文件功能: 电刺激（tDCS）页面逻辑（按配置启用/禁用、监测数据展示、下发 start/stop 与两级控制指令）
 
 修改日志:
 - 2026-05-04: 1.0.0 创建文件
@@ -15,9 +15,12 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-12: 1.0.8 接入两级指令控制面板（动态生成按钮并下发到采集进程）
 - 2026-05-12: 1.0.9 状态提示改为无框文本并在空内容时隐藏（参考阻抗检测风格）
 - 2026-05-12: 1.0.10 tDCS 页面不再展示“设备未连接”提示文案（保持页面简洁）
+- 2026-05-17: 1.0.11 更新电刺激页面状态提示文案（占位 -> 已实现）
+- 2026-05-17: 1.0.12 固定电量徽标“电量”字样位置，并与 EEG 页面保持一致
+- 2026-05-17: 1.0.13 电量徽标数值靠左显示；未连接时提示灯默认红色
 
 作者: Spoon
-版本: 1.0.10
+版本: 1.0.13
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -53,27 +56,28 @@ function renderBatteryBadge(battery, running) {
   badge.classList.remove('active', 'warn', 'error');
 
   if (!running) {
-    textEl.textContent = '电量：--';
+    textEl.textContent = '--';
+    badge.classList.add('error');
     return;
   }
 
   const v = battery && typeof battery.value === 'number' ? battery.value : null;
   if (v === null || !Number.isFinite(v)) {
-    textEl.textContent = '电量：获取中';
+    textEl.textContent = '获取中';
     badge.classList.add('warn');
     return;
   }
 
   const isPercent = Number.isInteger(v) && v >= 0 && v <= 100;
   if (isPercent) {
-    textEl.textContent = `电量：${v}%`;
+    textEl.textContent = `${v}%`;
     if (v >= 50) badge.classList.add('active');
     else if (v >= 20) badge.classList.add('warn');
     else badge.classList.add('error');
     return;
   }
 
-  textEl.textContent = `电量：${v}`;
+  textEl.textContent = `${v}`;
 }
 
 function setReservedVisible(visible) {
@@ -126,7 +130,7 @@ async function refreshTdcsStatusHint() {
       setStatus('电刺激运行中：已锁定“开始/设备/模式”等入口，请点击“停止电刺激”结束。', 'success');
       return;
     }
-    setStatus('电刺激页面占位：当前仅保留 start/stop 指令通路；参数与安全校验后续接入。', '');
+    setStatus('电刺激就绪：可在右侧控制面板下发参数/操作指令；点击“开启电刺激”进入运行态后将锁定入口。', '');
   } catch (_) {
     renderTdcsControlButtons(false, false, false);
     if (tdcsConfigEnabled) setStatus('后端未响应', 'error');
