@@ -37,9 +37,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-17: 1.1.20 关闭动态 Y 轴时坐标轴标签不使用科学计数法
 - 2026-05-17: 1.1.21 电量徽标数值靠左显示；未连接时提示灯默认红色
 - 2026-05-17: 1.1.22 波形可视化自检：提示 ECharts 缺失与 LSL 解析状态，便于定位“无波形”
+- 2026-05-19: 1.1.23 移除页面副标题动态状态文案，仅保留固定说明文本
 
 作者: Spoon
-版本: 1.1.22
+版本: 1.1.23
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -159,17 +160,7 @@ function renderEegControlButtons(running, streaming) {
 }
 
 function renderEegSubtitle() {
-  const sub = document.getElementById('eeg-sub');
-  if (!sub) return;
-  if (eegStatusHint) {
-    sub.textContent = eegStatusHint;
-    return;
-  }
-  const wsText = eegWsState === 'connected'
-    ? '数据连接：已连接'
-    : (eegWsState === 'error' ? '数据连接：异常' : '数据连接：已断开');
-  const dataText = eegWsState === 'connected' ? (eegHasData ? '（数据流）' : '（等待数据）') : '';
-  sub.textContent = `${wsText}${dataText}`;
+  return;
 }
 
 async function refreshEegStatusHint() {

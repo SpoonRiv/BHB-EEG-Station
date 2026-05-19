@@ -58,9 +58,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-17: 1.2.39 模式选择页拓展功能改为同级布局；SSVEP/MI 比例与三模式一致并减少页面滚动
 - 2026-05-17: 1.2.40 设备页参考电极卡片编号显示为 REF，并移除底部错误/状态提示元素
 - 2026-05-17: 1.2.41 模式页移除说明/拓展文案并平铺六模式入口（含 SSVEP/MI/P300 占位）
+- 2026-05-19: 1.2.42 移除 tDCS 页面“后端未响应”等状态提示占位，保持页面简洁
+- 2026-05-19: 1.2.43 移除 EEG/阻抗页面副标题的动态状态文案，仅保留固定说明文本
 
 作者: Spoon
-版本: 1.2.41
+版本: 1.2.43
 -->
 <html lang="zh-CN">
 <head>
@@ -395,7 +397,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                     <div class="card-header">
                         <div>
                             <div class="card-title">阻抗可视化</div>
-                            <div class="card-sub"><span id="imp-sub">数据连接：未连接</span></div>
+                            <div class="card-sub"><span id="imp-sub">用于上机前的电极接触检查</span></div>
                         </div>
                     </div>
                     <div class="card-body" style="height: calc(100% - 54px);">
@@ -445,7 +447,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                     <div class="card-header">
                         <div>
                             <div class="card-title">电刺激（tDCS）</div>
-                            <div class="card-sub">监测数据 + 两级指令控制面板（按钮化）</div>
+                            <div class="card-sub">监测数据与两级指令控制面板</div>
                         </div>
                         <div class="row">
                             <div class="badge plain battery-badge error" id="tdcs-battery-badge">
@@ -457,45 +459,45 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                     </div>
                     <div class="card-body tdcs-main-body">
                         <div class="stack tdcs-main-stack">
-                            <div class="tdcs-status-text" id="tdcs-status"></div>
-
                             <div class="tdcs-grid">
-                                <div class="tdcs-section">
-                                    <div class="tdcs-section-title">监测数据</div>
-                                    <div class="tdcs-metric-grid">
-                                        <div class="tdcs-metric tdcs-metric-blue">
-                                            <div class="tdcs-metric-label">实际输出电流（计算值）</div>
-                                            <div class="tdcs-metric-value" id="tdcs-out-curr-ua">-- <span class="tdcs-unit">uA</span></div>
-                                        </div>
-                                        <div class="tdcs-metric tdcs-metric-green">
-                                            <div class="tdcs-metric-label">高压电源电压（计算值）</div>
-                                            <div class="tdcs-metric-value" id="tdcs-hv-uv">-- <span class="tdcs-unit">uV</span></div>
-                                        </div>
-                                    </div>
-                                    <div class="tdcs-metric-grid tdcs-metric-grid-secondary">
-                                        <div class="tdcs-metric tdcs-metric-neutral">
-                                            <div class="tdcs-metric-label">输出电流测量值（原始值）</div>
-                                            <div class="tdcs-metric-value tdcs-metric-value-raw" id="tdcs-out-curr-raw">--</div>
-                                        </div>
-                                        <div class="tdcs-metric tdcs-metric-neutral">
-                                            <div class="tdcs-metric-label">高压电压测量值（原始值）</div>
-                                            <div class="tdcs-metric-value tdcs-metric-value-raw" id="tdcs-hv-raw">--</div>
+                                <div class="tdcs-section tdcs-section-monitor">
+                                    <div class="tdcs-subcard">
+                                        <div class="tdcs-section-title">监测数据</div>
+                                        <div class="tdcs-metric-grid">
+                                            <div class="tdcs-metric tdcs-metric-blue">
+                                                <div class="tdcs-metric-label">实际输出电流（计算值）</div>
+                                                <div class="tdcs-metric-value" id="tdcs-out-curr-ua">-- <span class="tdcs-unit">uA</span></div>
+                                            </div>
+                                            <div class="tdcs-metric tdcs-metric-green">
+                                                <div class="tdcs-metric-label">高压电源电压（计算值）</div>
+                                                <div class="tdcs-metric-value" id="tdcs-hv-uv">-- <span class="tdcs-unit">uV</span></div>
+                                            </div>
+                                            <div class="tdcs-metric tdcs-metric-neutral">
+                                                <div class="tdcs-metric-label">输出电流测量值（原始值）</div>
+                                                <div class="tdcs-metric-value tdcs-metric-value-raw" id="tdcs-out-curr-raw">--</div>
+                                            </div>
+                                            <div class="tdcs-metric tdcs-metric-neutral">
+                                                <div class="tdcs-metric-label">高压电压测量值（原始值）</div>
+                                                <div class="tdcs-metric-value tdcs-metric-value-raw" id="tdcs-hv-raw">--</div>
+                                            </div>
                                         </div>
                                     </div>
 
-                                    <div class="tdcs-section-title tdcs-section-title-small">状态信息</div>
-                                    <div class="tdcs-state-grid">
-                                        <div class="badge tdcs-state-badge" id="tdcs-state-working">
-                                            <div class="badge-dot"></div>
-                                            <div>CCS工作状态：未知</div>
-                                        </div>
-                                        <div class="badge tdcs-state-badge" id="tdcs-state-open">
-                                            <div class="badge-dot"></div>
-                                            <div>负载开路故障：未知</div>
-                                        </div>
-                                        <div class="badge tdcs-state-badge" id="tdcs-state-over">
-                                            <div class="badge-dot"></div>
-                                            <div>负载过流故障：未知</div>
+                                    <div class="tdcs-subcard">
+                                        <div class="tdcs-section-title">状态信息</div>
+                                        <div class="tdcs-state-grid">
+                                            <div class="badge tdcs-state-badge" id="tdcs-state-working">
+                                                <div class="badge-dot"></div>
+                                                <div>CCS工作状态：未知</div>
+                                            </div>
+                                            <div class="badge tdcs-state-badge" id="tdcs-state-open">
+                                                <div class="badge-dot"></div>
+                                                <div>负载开路故障：未知</div>
+                                            </div>
+                                            <div class="badge tdcs-state-badge" id="tdcs-state-over">
+                                                <div class="badge-dot"></div>
+                                                <div>负载过流故障：未知</div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

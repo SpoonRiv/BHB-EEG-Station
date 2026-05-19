@@ -9,9 +9,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-12: 1.0.2 操作按钮改为短文案与非拉伸宽度（参考“开启电刺激”按钮大小）
 - 2026-05-12: 1.0.3 操作按钮宽度统一；带参操作输入框右置；两列卡片高度对齐
 - 2026-05-12: 1.0.4 去掉“启动 tDCS/停止 tDCS”操作按钮（与右上角开启/停止电刺激重复）
+- 2026-05-19: 1.0.5 控制面板操作按“两两成组”排序（使能/禁止高压、缓升/缓降时间相邻）
 
 作者: Spoon
-版本: 1.0.4
+版本: 1.0.5
 */
 
 import { getTwoLevelCommands, sendTwoLevelCommand } from './api.js';
@@ -174,9 +175,25 @@ function renderTdcsButtons(cmds) {
   const all = Array.isArray(cmds && cmds.commands) ? cmds.commands : [];
   const tdcs = all.find((x) => intOrNull(x && x.l1) === TDCS_L1) || null;
   const children = Array.isArray(tdcs && tdcs.children) ? tdcs.children : [];
+  const preferredOrder = new Map([
+    [0x10, 0],
+    [0x21, 1],
+    [0x15, 2],
+    [0x16, 3],
+    [0x20, 4],
+    [0x22, 5],
+    [0x23, 6],
+  ]);
+  const orderedChildren = [...children].sort((a, b) => {
+    const la = intOrNull(a && a.l2);
+    const lb = intOrNull(b && b.l2);
+    const ka = la === null ? 9999 : (preferredOrder.has(la) ? preferredOrder.get(la) : 1000 + la);
+    const kb = lb === null ? 9999 : (preferredOrder.has(lb) ? preferredOrder.get(lb) : 1000 + lb);
+    return ka - kb;
+  });
 
   const grid = el('div', 'tdcs-ops-grid');
-  for (const c of children) {
+  for (const c of orderedChildren) {
     const l2 = intOrNull(c && c.l2);
     if (l2 === null) continue;
     if (l2 === 0x01 || l2 === 0x02) continue;

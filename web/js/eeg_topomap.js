@@ -295,7 +295,7 @@ export function initTopomapPanel() {
     return;
   }
   if (sub) {
-    sub.textContent = '点击电极选择通道与顺序；点按右侧“参考电极”卡片后再点地形图电极设置参考（绿色）';
+    sub.textContent = '左键点击选择工作通道与顺序 | 右键点击选择参考通道';
   }
 
   let supportedModes = [];

@@ -19,9 +19,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.0.12 配置字段更名：impedance.mode_channels -> impedance.n_channels（与三模式命名一致）
 - 2026-05-17: 1.0.13 阻抗地形图电极位置由后端配置下发，前端仅做渲染与回退
 - 2026-05-17: 1.0.14 阻抗可视化自检：补充 LSL 解析状态提示，便于定位“无阻抗值”
+- 2026-05-19: 1.0.15 移除页面副标题动态状态文案，仅保留固定说明文本
 
 作者: Spoon
-版本: 1.0.14
+版本: 1.0.15
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -419,9 +420,7 @@ function renderBadgeByFreshness() {
 }
 
 function renderSubtitle(stateText) {
-  const sub = document.getElementById('imp-sub');
-  if (!sub) return;
-  sub.textContent = stateText || '';
+  return;
 }
 
 async function refreshImpStatusHint() {

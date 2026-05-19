@@ -84,9 +84,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-17: 1.0.77 模式页卡片按固定长宽比收缩，确保全屏无裁切且两行完整可见
 - 2026-05-17: 1.0.78 模式页高度约束为 100%，两行栅格填充避免底部被裁切
 - 2026-05-17: 1.0.79 统一矩形控件圆角为 12px
+- 2026-05-19: 1.0.80 tDCS 页面布局更松散，并移除页面内状态提示占位（由页面结构控制）
 
 作者: Spoon
-版本: 1.0.79
+版本: 1.0.80
 */
 
 @import "./eeg_topomap.css";
@@ -417,8 +418,8 @@ body::after {
   width: 9px;
   height: 9px;
   border-radius: 999px;
-  background: rgba(233, 238, 246, 0.35);
-  box-shadow: 0 0 10px rgba(233, 238, 246, 0.08);
+  background: var(--bad);
+  box-shadow: 0 0 18px rgba(255, 77, 109, 0.35);
 }
 
 .badge.active .badge-dot {
@@ -1642,24 +1643,27 @@ select option {
 }
 
 .tdcs-main-body {
-  height: calc(100% - 54px);
   display: flex;
   flex-direction: column;
   min-height: 0;
+  padding: var(--space-5);
 }
 
 .tdcs-main-stack {
-  flex: 1;
   min-height: 0;
 }
 
 .tdcs-grid {
   display: grid;
   grid-template-columns: 0.85fr 1.15fr;
-  gap: 18px;
-  align-items: stretch;
-  flex: 1;
+  gap: 22px;
+  align-items: start;
   min-height: 0;
+}
+
+.tdcs-grid > .tdcs-section {
+  align-self: start;
+  height: fit-content;
 }
 
 @media (max-width: 980px) {
@@ -1705,12 +1709,31 @@ select option {
   background: rgba(255, 255, 255, 0.60);
 }
 
+.tdcs-section.tdcs-section-monitor {
+  border: none;
+  background: transparent;
+  padding: 0;
+  gap: 16px;
+}
+
+.tdcs-subcard {
+  border-radius: var(--radius);
+  border: 1px solid rgba(140, 170, 210, 0.18);
+  background: rgba(0, 0, 0, 0.06);
+  padding: 16px;
+  min-width: 0;
+}
+
+[data-theme="light"] .tdcs-subcard {
+  background: rgba(255, 255, 255, 0.60);
+}
+
 .tdcs-section-title {
   font-size: 13px;
   color: var(--muted);
   font-weight: 750;
   letter-spacing: 0.2px;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .tdcs-section-title-small {
@@ -1720,7 +1743,7 @@ select option {
 .tdcs-metric-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 14px;
+  gap: 16px;
 }
 
 @media (max-width: 980px) {
@@ -1730,7 +1753,7 @@ select option {
 .tdcs-metric {
   border-radius: var(--radius);
   border: 1px solid rgba(140, 170, 210, 0.16);
-  padding: 12px 12px;
+  padding: 14px 14px;
   background: rgba(0, 0, 0, 0.06);
 }
 
@@ -1779,7 +1802,9 @@ select option {
 .tdcs-state-grid {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
-  gap: 10px;
+  gap: 16px;
+  justify-items: start;
+  align-items: start;
 }
 
 @media (max-width: 980px) {
@@ -1787,12 +1812,16 @@ select option {
 }
 
 .tdcs-state-badge {
-  justify-content: center;
-  justify-self: center;
-  align-self: center;
+  justify-content: flex-start;
+  justify-self: start;
+  align-self: start;
   width: max-content;
   max-width: 100%;
-  padding: 7px 10px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  gap: 6px;
 }
 
 .tdcs-controls {
