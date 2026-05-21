@@ -21,9 +21,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-04: 1.1.11 EEG 启动不再发送 pre_stop_eeg（0x02 0x02）
 - 2026-05-09: 1.1.12 增加 tDCS 通知帧解析与调试事件（TDCS_RX/TDCS_FRAME/TDCS_NODATA）
 - 2026-05-12: 1.1.13 支持下发任意两级控制指令（控制面板），并抽取指令元数据模块复用
+- 2026-05-21: 1.1.14 延迟创建 LSL Outlet（pylsl），降低“仅连接蓝牙”阶段启动耗时
+- 2026-05-21: 1.1.15 LSL 初始化失败时返回结构化错误，避免采集进程崩溃
 
 作者: Spoon
-版本: 1.1.13
+版本: 1.1.15
 """
 
 import asyncio
@@ -61,48 +63,15 @@ async def _connect_and_stream(
     if eeg_proto is None:
         raise ValueError("eeg.n_channels=16 时必须配置 eeg.protocol.ch16.frame")
 
-    spec = FrameSpec(
-        channels=eeg_n_channels,
-        header_len_bytes=eeg_proto.frame.header_len_bytes,
-        bytes_per_sample_per_channel=eeg_proto.frame.bytes_per_sample_per_channel,
-        samples_per_frame=eeg_proto.frame.samples_per_frame,
-        trigger_len_bytes=eeg_proto.frame.trigger_len_bytes,
-        imu_len_bytes=eeg_proto.frame.imu_len_bytes,
-        battery_len_bytes=eeg_proto.frame.battery_len_bytes,
-        tail_len_bytes=eeg_proto.frame.tail_len_bytes,
-    )
-
     channel_count = eeg_n_channels + (1 if cfg.eeg.lsl.include_trigger_channel else 0)
-    outlet = LslOutletWriter(
-        LslOutletConfig(
-            stream_name=cfg.eeg.lsl.stream_name,
-            stream_type=cfg.eeg.lsl.stream_type,
-            channel_count=channel_count,
-            sampling_rate_hz=cfg.eeg.sampling_rate_hz,
-            source_id=f"bhb-eeg-{cfg.bluetooth.target_device}",
-        )
-    )
+    spec: Optional[FrameSpec] = None
+    outlet: Optional[LslOutletWriter] = None
 
     imp_n_channels = int(cfg.impedance.n_channels)
     imp_include_tdcs = bool(cfg.impedance.frame.include_tdcs_if_ch8) and imp_n_channels == 8
     imp_tail_channels = (1 if bool(cfg.impedance.frame.include_bias) else 0) + (1 if imp_include_tdcs else 0)
-    imp_outlet = LslOutletWriter(
-        LslOutletConfig(
-            stream_name=cfg.impedance.lsl.stream_name,
-            stream_type=cfg.impedance.lsl.stream_type,
-            channel_count=imp_n_channels + imp_tail_channels,
-            sampling_rate_hz=int(cfg.impedance.lsl.sampling_rate_hz),
-            source_id=f"bhb-imp-{cfg.bluetooth.target_device}",
-        )
-    )
-    imp_spec = ImpedanceFrameSpec(
-        header=(int(cfg.impedance.frame.header[0]) & 0xFF, int(cfg.impedance.frame.header[1]) & 0xFF),
-        n_channels=imp_n_channels,
-        frame_len_bytes=int(cfg.impedance.frame.frame_len_bytes_ch8 if imp_n_channels == 8 else cfg.impedance.frame.frame_len_bytes_ch16),
-        include_bias=bool(cfg.impedance.frame.include_bias),
-        include_tdcs=imp_include_tdcs,
-        gain_scale=float(cfg.impedance.frame.gain_scale),
-    )
+    imp_spec: Optional[ImpedanceFrameSpec] = None
+    imp_outlet: Optional[LslOutletWriter] = None
 
     address: Optional[str] = (connect_address or "").strip() or cfg.bluetooth.mac_address.strip() or None
     resolved_name = (connect_name or "").strip() or cfg.bluetooth.target_device
@@ -120,6 +89,52 @@ async def _connect_and_stream(
 
     notify_handle = cfg.bluetooth.gatt.notify_char_handle
     write_handle = cfg.bluetooth.gatt.write_char_handle
+
+    def ensure_eeg_lsl_ready() -> None:
+        nonlocal spec, outlet
+        if spec is None:
+            spec = FrameSpec(
+                channels=eeg_n_channels,
+                header_len_bytes=eeg_proto.frame.header_len_bytes,
+                bytes_per_sample_per_channel=eeg_proto.frame.bytes_per_sample_per_channel,
+                samples_per_frame=eeg_proto.frame.samples_per_frame,
+                trigger_len_bytes=eeg_proto.frame.trigger_len_bytes,
+                imu_len_bytes=eeg_proto.frame.imu_len_bytes,
+                battery_len_bytes=eeg_proto.frame.battery_len_bytes,
+                tail_len_bytes=eeg_proto.frame.tail_len_bytes,
+            )
+        if outlet is None:
+            outlet = LslOutletWriter(
+                LslOutletConfig(
+                    stream_name=cfg.eeg.lsl.stream_name,
+                    stream_type=cfg.eeg.lsl.stream_type,
+                    channel_count=channel_count,
+                    sampling_rate_hz=cfg.eeg.sampling_rate_hz,
+                    source_id=f"bhb-eeg-{cfg.bluetooth.target_device}",
+                )
+            )
+
+    def ensure_impedance_lsl_ready() -> None:
+        nonlocal imp_spec, imp_outlet
+        if imp_spec is None:
+            imp_spec = ImpedanceFrameSpec(
+                header=(int(cfg.impedance.frame.header[0]) & 0xFF, int(cfg.impedance.frame.header[1]) & 0xFF),
+                n_channels=imp_n_channels,
+                frame_len_bytes=int(cfg.impedance.frame.frame_len_bytes_ch8 if imp_n_channels == 8 else cfg.impedance.frame.frame_len_bytes_ch16),
+                include_bias=bool(cfg.impedance.frame.include_bias),
+                include_tdcs=imp_include_tdcs,
+                gain_scale=float(cfg.impedance.frame.gain_scale),
+            )
+        if imp_outlet is None:
+            imp_outlet = LslOutletWriter(
+                LslOutletConfig(
+                    stream_name=cfg.impedance.lsl.stream_name,
+                    stream_type=cfg.impedance.lsl.stream_type,
+                    channel_count=imp_n_channels + imp_tail_channels,
+                    sampling_rate_hz=int(cfg.impedance.lsl.sampling_rate_hz),
+                    source_id=f"bhb-imp-{cfg.bluetooth.target_device}",
+                )
+            )
 
     buf = bytearray()
     frame_counter = 0
@@ -150,6 +165,8 @@ async def _connect_and_stream(
         nonlocal tdcs_buf, tdcs_notify_counter, tdcs_last_notify_ts, tdcs_no_data_reported, tdcs_streaming_enabled
 
         if impedance_streaming_enabled:
+            if imp_spec is None or imp_outlet is None:
+                return
             imp_notify_counter += 1
             imp_last_notify_ts = time.time()
             imp_no_data_reported = False
@@ -313,6 +330,8 @@ async def _connect_and_stream(
         no_data_reported = False
         if not eeg_streaming_enabled:
             return
+        if spec is None or outlet is None:
+            return
         if debug_queue is not None:
             try:
                 if notify_counter % 10 == 0:
@@ -435,6 +454,11 @@ async def _connect_and_stream(
                                 last_notify_ts = time.time()
                                 no_data_reported = False
                                 start_retry_count = 0
+                                try:
+                                    ensure_eeg_lsl_ready()
+                                except Exception as e:
+                                    status_queue.put({"type": "error", "message": f"创建 EEG LSL Outlet 失败：{str(e)}"})
+                                    continue
                                 await _send_cmd(cfg.bluetooth.commands.start_eeg, action="start_eeg")
                                 last_start_cmd_ts = time.time()
                                 eeg_streaming_enabled = True
@@ -448,6 +472,11 @@ async def _connect_and_stream(
                                 imp_notify_counter = 0
                                 imp_last_notify_ts = time.time()
                                 imp_no_data_reported = False
+                                try:
+                                    ensure_impedance_lsl_ready()
+                                except Exception as e:
+                                    status_queue.put({"type": "error", "message": f"创建阻抗 LSL Outlet 失败：{str(e)}"})
+                                    continue
                                 await _send_cmd(cfg.bluetooth.commands.start_impedance, action="start_impedance")
                                 impedance_streaming_enabled = True
                                 status_queue.put({"type": "mode_started", "mode": "impedance"})

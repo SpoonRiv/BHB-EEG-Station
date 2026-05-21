@@ -38,9 +38,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-17: 1.1.21 电量徽标数值靠左显示；未连接时提示灯默认红色
 - 2026-05-17: 1.1.22 波形可视化自检：提示 ECharts 缺失与 LSL 解析状态，便于定位“无波形”
 - 2026-05-19: 1.1.23 移除页面副标题动态状态文案，仅保留固定说明文本
+- 2026-05-21: 1.1.24 移除实时波形展示带通滤波提示
 
 作者: Spoon
-版本: 1.1.23
+版本: 1.1.24
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -883,13 +884,7 @@ export async function enterEegPage() {
     if (notchEl) {
       const notch = cfg && cfg.signal && cfg.signal.notch ? cfg.signal.notch : null;
       const hz = notch && typeof notch.freq_hz === 'number' ? notch.freq_hz : 50;
-      const bp = cfg && cfg.signal && cfg.signal.bandpass ? cfg.signal.bandpass : null;
-      const bpEnabled = bp && typeof bp.enabled === 'boolean' ? bp.enabled : true;
-      const low = bp && typeof bp.lowcut_hz === 'number' ? bp.lowcut_hz : 0.5;
-      const high = bp && typeof bp.highcut_hz === 'number' ? bp.highcut_hz : 80.0;
-      notchEl.textContent = bpEnabled
-        ? ` ｜ 默认开启 ${hz}Hz 工频陷波 ｜ 默认开启 ${low}-${high}Hz 带通滤波`
-        : ` ｜ 默认开启 ${hz}Hz 工频陷波`;
+      notchEl.textContent = ` ｜ 默认开启 ${hz}Hz 工频陷波`;
     }
   } catch (_) {}
 

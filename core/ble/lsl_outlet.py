@@ -7,16 +7,15 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 修改日志:
 - 2026-04-30: 1.0.0 创建文件
+- 2026-05-21: 1.0.1 pylsl 延迟导入以降低采集进程启动开销
 
 作者: Spoon
-版本: 1.0.0
+版本: 1.0.1
 """
 
 import time
 from dataclasses import dataclass
 from typing import List, Optional
-
-from pylsl import StreamInfo, StreamOutlet
 
 
 @dataclass(frozen=True)
@@ -37,6 +36,8 @@ class LslOutletWriter:
     """
 
     def __init__(self, cfg: LslOutletConfig):
+        from pylsl import StreamInfo, StreamOutlet
+
         self.cfg = cfg
         info = StreamInfo(
             name=cfg.stream_name,

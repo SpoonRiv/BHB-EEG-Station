@@ -1,5 +1,5 @@
 app:
-  ui_version: "1.5.1"
+  ui_version: "1.5.2"
 
 ui:
   waveform:
@@ -213,11 +213,6 @@ signal:
   notch:
     freq_hz: 50.0
     quality_factor: 30.0
-  bandpass:
-    enabled: true
-    lowcut_hz: 0.5
-    highcut_hz: 80.0
-    order: 4
 
 offline:
   root_dir: "offlinedata"

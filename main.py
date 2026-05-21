@@ -42,9 +42,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-17: 1.3.18 BLE 扫描白名单改为前缀匹配，支持列出多个同前缀设备供用户选择
 - 2026-05-17: 1.3.19 下发 10-20 电极位置布局给前端（用于地形图绘制）
 - 2026-05-17: 1.3.20 参考电极允许从全部电极中选择（地形图点选），不再强制限制为候选列表
+- 2026-05-21: 1.3.21 移除 EEG 波形展示带通滤波预处理与相关配置下发
 
 作者: Spoon
-版本: 1.3.20
+版本: 1.3.21
 """
 
 import asyncio
@@ -68,7 +69,6 @@ from core.debug_bus import DebugEventBus
 from core.ble.commands import L1_COMMANDS, L2_COMMANDS
 from core.ble.scanner import scan_devices
 from core.offline.offline_service import BandpassConfig, ExportTarget, OfflineService
-from core.signal.bandpass_filter import BandpassFilter, BandpassFilterConfig
 from core.signal.notch_filter import NotchFilter, NotchFilterConfig
 from ws_hub_eeg import EegWsHub, EegWsHubConfig
 from ws_hub_impedance import ImpedanceWsHub, ImpedanceWsHubConfig
@@ -141,18 +141,6 @@ class AppState:
                 has_trigger_channel=bool(self.config.eeg.lsl.include_trigger_channel),
             )
         )
-        self.bandpass: Optional[BandpassFilter] = None
-        if bool(getattr(self.config.signal, "bandpass", None) and self.config.signal.bandpass.enabled):
-            self.bandpass = BandpassFilter(
-                BandpassFilterConfig(
-                    sampling_rate_hz=int(self.config.eeg.sampling_rate_hz),
-                    lowcut_hz=float(self.config.signal.bandpass.lowcut_hz),
-                    highcut_hz=float(self.config.signal.bandpass.highcut_hz),
-                    order=int(self.config.signal.bandpass.order),
-                    channel_count=channel_count,
-                    has_trigger_channel=bool(self.config.eeg.lsl.include_trigger_channel),
-                )
-            )
         self.eeg_ws_hub = EegWsHub(
             EegWsHubConfig(
                 max_pending_chunks=int(self.config.streaming.ws_queue_max_chunks),
@@ -328,18 +316,6 @@ class AppState:
                 has_trigger_channel=bool(self.config.eeg.lsl.include_trigger_channel),
             )
         )
-        self.bandpass = None
-        if bool(getattr(self.config.signal, "bandpass", None) and self.config.signal.bandpass.enabled):
-            self.bandpass = BandpassFilter(
-                BandpassFilterConfig(
-                    sampling_rate_hz=int(self.config.eeg.sampling_rate_hz),
-                    lowcut_hz=float(self.config.signal.bandpass.lowcut_hz),
-                    highcut_hz=float(self.config.signal.bandpass.highcut_hz),
-                    order=int(self.config.signal.bandpass.order),
-                    channel_count=channel_count,
-                    has_trigger_channel=bool(self.config.eeg.lsl.include_trigger_channel),
-                )
-            )
         self.eeg_ws_hub.set_transform(self._apply_signal_preprocess_safe)
 
     def _apply_signal_preprocess_safe(self, chunk: List[List[float]]) -> List[List[float]]:
@@ -357,11 +333,6 @@ class AppState:
             out = self.notch.apply(out)
         except Exception:
             out = chunk
-        if self.bandpass is not None:
-            try:
-                out = self.bandpass.apply(out)
-            except Exception:
-                pass
         return self._scale_eeg_chunk_like_legacy(out)
 
     def _scale_eeg_chunk_like_legacy(self, chunk: List[List[float]]) -> List[List[float]]:
@@ -533,11 +504,6 @@ async def start_eeg():
             state.notch.reset()
         except Exception:
             pass
-        if getattr(state, "bandpass", None) is not None:
-            try:
-                state.bandpass.reset()
-            except Exception:
-                pass
         state.streamer.start()
         return {"status": "success", "message": "蓝牙采集已启动并连接成功。", "device": state.controller.get_status()}
     last = state.controller.last_status or {"type": "error", "message": "启动失败"}
@@ -615,12 +581,6 @@ async def get_config():
                 "freq_hz": float(state.config.signal.notch.freq_hz),
                 "quality_factor": float(state.config.signal.notch.quality_factor),
             },
-            "bandpass": {
-                "enabled": bool(getattr(state.config.signal, "bandpass", None) and state.config.signal.bandpass.enabled),
-                "lowcut_hz": float(getattr(state.config.signal, "bandpass", None) and state.config.signal.bandpass.lowcut_hz or 0.5),
-                "highcut_hz": float(getattr(state.config.signal, "bandpass", None) and state.config.signal.bandpass.highcut_hz or 80.0),
-                "order": int(getattr(state.config.signal, "bandpass", None) and state.config.signal.bandpass.order or 4),
-            }
         },
         "offline": {
             "root_dir": state.config.offline.root_dir,
