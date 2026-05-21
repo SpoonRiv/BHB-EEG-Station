@@ -10,7 +10,7 @@ ui:
     # 单通道最大渲染点数（超过则进行降采样渲染，确保不丢数据但降低渲染负载）。
     max_render_points_per_channel: 800
     # 是否所有通道共用同一 y 轴范围（true=统一缩放，false=各通道独立）。
-    global_scale: true
+    global_scale: false
     # 前端 WS 待处理队列上限（只用于展示背压：积压时覆盖旧包以保持“尽量实时”的显示）。
     max_pending_ws_chunks: 2
     # 动态 y 轴“分档”步长（<=0 表示不分档，连续变化）。单位与波形数值一致（通常为 uV 或计数）。
