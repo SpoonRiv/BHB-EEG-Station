@@ -18,9 +18,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-17: 1.0.11 更新电刺激页面状态提示文案（占位 -> 已实现）
 - 2026-05-17: 1.0.12 固定电量徽标“电量”字样位置，并与 EEG 页面保持一致
 - 2026-05-17: 1.0.13 电量徽标数值靠左显示；未连接时提示灯默认红色
+- 2026-05-24: 1.0.14 无电刺激模块时禁用电刺激页面 start/stop，并提示原因
 
 作者: Spoon
-版本: 1.0.13
+版本: 1.0.14
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -30,6 +31,7 @@ let pageActive = false;
 let bound = false;
 let statusTimer = null;
 let tdcsConfigEnabled = false;
+let tdcsDisabledReason = '';
 
 let debugWs = null;
 let debugLines = [];
@@ -115,7 +117,7 @@ async function refreshTdcsStatusHint() {
     renderTdcsControlButtons(running, connected, taskActive);
     renderBatteryBadge(dev && dev.battery ? dev.battery : null, running);
     if (!tdcsConfigEnabled) {
-      setStatus('当前配置已禁用电刺激模式（tdcs.enabled=false）', 'error');
+      setStatus(tdcsDisabledReason || '电刺激功能已禁用', 'error');
       return;
     }
     if (!running) {
@@ -297,8 +299,14 @@ async function loadAndApplyConfig() {
   try {
     cfg = await getConfig();
   } catch (_) {}
-  const enabled = !!(cfg && cfg.tdcs && cfg.tdcs.enabled);
-  tdcsConfigEnabled = enabled;
+  const configEnabled = !!(cfg && cfg.tdcs && cfg.tdcs.enabled);
+  const effectiveEnabled = (cfg && cfg.tdcs && typeof cfg.tdcs.effective_enabled === 'boolean') ? !!cfg.tdcs.effective_enabled : configEnabled;
+  const capable = (cfg && cfg.tdcs && typeof cfg.tdcs.capable === 'boolean') ? !!cfg.tdcs.capable : null;
+  tdcsConfigEnabled = effectiveEnabled;
+  if (!configEnabled) tdcsDisabledReason = '当前配置已禁用电刺激模式（tdcs.enabled=false）';
+  else if (capable === false) tdcsDisabledReason = '当前设备不带电刺激模块，电刺激（tDCS）已禁用';
+  else if (!effectiveEnabled) tdcsDisabledReason = '电刺激功能不可用';
+  else tdcsDisabledReason = '';
   const showReserved = !(cfg && cfg.tdcs && cfg.tdcs.ui && cfg.tdcs.ui.show_reserved === false);
   setReservedVisible(showReserved);
   await refreshTdcsStatusHint();

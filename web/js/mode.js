@@ -12,12 +12,13 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-17: 1.0.5 移除刺激模式入口逻辑
 - 2026-05-17: 1.0.6 模式页新增 SSVEP/MI 占位入口点击提示
 - 2026-05-17: 1.0.7 模式页新增 P300 占位入口点击提示
+- 2026-05-24: 1.0.8 按设备能力禁用电刺激入口（无电刺激模块时置灰）
 
 作者: Spoon
-版本: 1.0.7
+版本: 1.0.8
 */
 
-import { getConfig, modeSelect } from './api.js';
+import { getConfig, getStatus, modeSelect } from './api.js';
 import { navigate } from './router.js';
 
 function setModeDisabled(btn, disabled, reason) {
@@ -40,9 +41,23 @@ export function initModePage() {
     try {
       const cfg = await getConfig();
       const nChannels = cfg && cfg.n_channels ? Number(cfg.n_channels) : 8;
-      const enabled = !!(cfg && cfg.tdcs && cfg.tdcs.enabled);
-      if (!enabled) {
-        setModeDisabled(tdcs, true, '电刺激模式已在配置中禁用（tdcs.enabled=false）');
+      const configEnabled = !!(cfg && cfg.tdcs && cfg.tdcs.enabled);
+      const effectiveEnabled = (cfg && cfg.tdcs && typeof cfg.tdcs.effective_enabled === 'boolean') ? !!cfg.tdcs.effective_enabled : configEnabled;
+      if (!effectiveEnabled) {
+        let reason = '当前功能已禁用';
+        if (!configEnabled) {
+          reason = '电刺激模式已在配置中禁用（tdcs.enabled=false）';
+        } else if (cfg && cfg.tdcs && cfg.tdcs.capable === false) {
+          reason = '当前设备不带电刺激模块，电刺激模式已禁用';
+        } else {
+          try {
+            const st = await getStatus();
+            const capable = !!(st && st.device && st.device.capabilities && st.device.capabilities.tdcs);
+            const known = st && st.device && st.device.module && typeof st.device.module === 'object';
+            if (known && !capable) reason = '当前设备不带电刺激模块，电刺激模式已禁用';
+          } catch (_) {}
+        }
+        setModeDisabled(tdcs, true, reason);
         return;
       }
       const supported = (cfg && cfg.tdcs && Array.isArray(cfg.tdcs.supported_channel_modes)) ? cfg.tdcs.supported_channel_modes.map(Number).filter(Number.isFinite) : [];

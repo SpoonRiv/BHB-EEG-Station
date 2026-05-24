@@ -32,9 +32,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-15: 1.1.22 增加 count_divisor 兜底与范围校验，并兼容旧字段 uv_per_count
 - 2026-05-16: 1.1.23 增加 EEG 波形 y 轴动态/固定缩放 UI 配置（默认开关与滑条范围）
 - 2026-05-17: 1.1.24 增加 10-20 电极位置布局文件配置与加载（供 UI 绘制地形图）
+- 2026-05-24: 1.1.25 增加 BLE 模块命名规则正则配置（MSM***S**）
 
 作者: Spoon
-版本: 1.1.24
+版本: 1.1.25
 """
 
 import os
@@ -74,6 +75,7 @@ class BluetoothScanConfig:
 class BluetoothConfig:
     device_names: List[str]
     target_device: str
+    module_name_regex: str
     mac_address: str
     scan: BluetoothScanConfig
     gatt: BluetoothGattConfig
@@ -540,6 +542,7 @@ def load_config(config_path: str) -> AppConfig:
     bluetooth = BluetoothConfig(
         device_names=device_names_cfg,
         target_device=str(bluetooth_raw.get("target_device", "")),
+        module_name_regex=str(bluetooth_raw.get("module_name_regex", r"MSM(?P<eeg_channels>\d{3})S(?P<stim_channels>\d{2})")),
         mac_address=str(bluetooth_raw.get("mac_address", "")),
         scan=BluetoothScanConfig(
             max_retries=int(scan_raw.get("max_retries", 10)),

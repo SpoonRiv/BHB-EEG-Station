@@ -13,9 +13,12 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.2.2 增加任务运行态标记（task_running），用于运行中锁定导航入口
 - 2026-05-04: 1.2.3 配置字段更名：eeg.mode_channels -> eeg.n_channels（8/16 通道预留）
 - 2026-05-12: 1.2.4 增加两级控制指令下发接口（供 tDCS 控制面板使用）
+- 2026-05-24: 1.2.5 状态接口增加设备能力：按模块命名规则识别是否带电刺激模块
+- 2026-05-24: 1.2.6 能力字段支持未知态（未解析到模块型号时 tdcs 设为 null）
+- 2026-05-24: 1.2.7 广播名仅为 MSM 时按“无电刺激模块”处理（tdcs=false）
 
 作者: Spoon
-版本: 1.2.4
+版本: 1.2.7
 """
 
 import multiprocessing
@@ -27,6 +30,7 @@ from typing import Any, Dict, Optional
 
 from configs.config_loader import load_config
 from core.ble.acquisition_process import run_ble_acquisition_process
+from core.ble.module_naming import parse_ble_module_name
 
 
 class EEGController:
@@ -82,6 +86,25 @@ class EEGController:
         last = self.last_status or {"type": "idle", "message": "未启动", "name": configured_name}
         if "name" not in last:
             last = {**last, "name": configured_name}
+
+        module = None
+        try:
+            m_raw = last.get("module", None) if isinstance(last, dict) else None
+            if isinstance(m_raw, dict) and "eeg_channels" in m_raw and "stim_channels" in m_raw:
+                module = {"eeg_channels": int(m_raw.get("eeg_channels", 0)), "stim_channels": int(m_raw.get("stim_channels", 0))}
+            else:
+                info = parse_ble_module_name(str(last.get("name", "") or ""), str(self.config.bluetooth.module_name_regex or ""))
+                if info is not None:
+                    module = {"eeg_channels": int(info.eeg_channels), "stim_channels": int(info.stim_channels)}
+        except Exception:
+            module = None
+
+        tdcs_capable: Optional[bool]
+        if module is not None:
+            tdcs_capable = bool(int(module.get("stim_channels", 0)) > 0)
+        else:
+            name_norm = str(last.get("name", "") or "").strip()
+            tdcs_capable = False if name_norm == "MSM" else None
         return {
             "running": self.is_running(),
             "last": last,
@@ -91,6 +114,8 @@ class EEGController:
             "task_mode": str(self.task_mode or ""),
             "battery": self.last_battery,
             "imu": self.last_imu,
+            "module": module,
+            "capabilities": {"tdcs": tdcs_capable},
         }
 
     def start_device(self, address: Optional[str] = None, name: Optional[str] = None) -> bool:

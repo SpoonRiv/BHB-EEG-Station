@@ -1,5 +1,5 @@
 app:
-  ui_version: "1.5.2"
+  ui_version: "1.5.3"
 
 ui:
   waveform:
@@ -32,6 +32,7 @@ bluetooth:
     - "MSM_C16"
     - "BLE"
   target_device: "MSM"
+  module_name_regex: "MSM(?P<eeg_channels>\\d{3})S(?P<stim_channels>\\d{2})"
   mac_address: ""  # 可选：直接指定 MAC；为空则按名称扫描
   scan:
     max_retries: 10

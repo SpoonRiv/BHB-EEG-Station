@@ -85,9 +85,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-17: 1.0.78 模式页高度约束为 100%，两行栅格填充避免底部被裁切
 - 2026-05-17: 1.0.79 统一矩形控件圆角为 12px
 - 2026-05-19: 1.0.80 tDCS 页面布局更松散，并移除页面内状态提示占位（由页面结构控制）
+- 2026-05-24: 1.0.81 模式页卡片按钮禁用态增加明显置灰样式
 
 作者: Spoon
-版本: 1.0.80
+版本: 1.0.81
 */
 
 @import "./eeg_topomap.css";
@@ -884,6 +885,20 @@ select option {
   height: 100%;
   box-shadow: var(--shadow-sm), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
   position: relative;
+}
+
+.mode-card:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: var(--shadow-sm), 0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+  transform: none;
+}
+
+.mode-card:disabled:hover {
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: var(--shadow-sm), 0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+  transform: none;
 }
 
 .mode-card:hover {

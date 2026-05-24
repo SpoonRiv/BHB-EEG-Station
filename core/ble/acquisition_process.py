@@ -23,9 +23,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-12: 1.1.13 支持下发任意两级控制指令（控制面板），并抽取指令元数据模块复用
 - 2026-05-21: 1.1.14 延迟创建 LSL Outlet（pylsl），降低“仅连接蓝牙”阶段启动耗时
 - 2026-05-21: 1.1.15 LSL 初始化失败时返回结构化错误，避免采集进程崩溃
+- 2026-05-24: 1.1.16 按模块命名规则识别电刺激能力（无刺激模块时禁用 tDCS 与 tDCS 阻抗通道）
+- 2026-05-24: 1.1.17 广播名仅为 MSM 时按“无电刺激模块”处理（禁用 tDCS 与 tDCS 阻抗通道）
 
 作者: Spoon
-版本: 1.1.15
+版本: 1.1.17
 """
 
 import asyncio
@@ -34,14 +36,15 @@ import queue
 import time
 from typing import Any, Dict, List, Optional
 
-from bleak import BleakClient
+from bleak import BleakClient, BleakScanner
 
 from configs.config_loader import load_config
 from core.ble.commands import interpret_two_level_cmd
-from core.ble.device_finder import find_device_by_name
+from core.ble.device_finder import find_device_by_spec
 from core.ble.frame_parser import FrameSpec, parse_frame_to_samples
 from core.ble.impedance_parser import ImpedanceFrameSpec, build_impedance_vector, parse_impedance_frame
 from core.ble.lsl_outlet import LslOutletConfig, LslOutletWriter
+from core.ble.module_naming import BleModuleNameInfo, parse_ble_module_name
 
 
 async def _connect_and_stream(
@@ -68,24 +71,66 @@ async def _connect_and_stream(
     outlet: Optional[LslOutletWriter] = None
 
     imp_n_channels = int(cfg.impedance.n_channels)
-    imp_include_tdcs = bool(cfg.impedance.frame.include_tdcs_if_ch8) and imp_n_channels == 8
-    imp_tail_channels = (1 if bool(cfg.impedance.frame.include_bias) else 0) + (1 if imp_include_tdcs else 0)
+    imp_tail_channels = 0
     imp_spec: Optional[ImpedanceFrameSpec] = None
     imp_outlet: Optional[LslOutletWriter] = None
 
     address: Optional[str] = (connect_address or "").strip() or cfg.bluetooth.mac_address.strip() or None
     resolved_name = (connect_name or "").strip() or cfg.bluetooth.target_device
+    if address and not (connect_name or "").strip():
+        try:
+            timeout_sec = float(cfg.bluetooth.scan.retry_interval_sec)
+            if timeout_sec <= 0:
+                timeout_sec = 1.0
+            devices = await BleakScanner.discover(timeout=timeout_sec)
+            for dev in devices:
+                if str(getattr(dev, "address", "") or "") == str(address):
+                    n = str(getattr(dev, "name", "") or "").strip()
+                    if n:
+                        resolved_name = n
+                        break
+        except Exception:
+            pass
+
     if not address:
-        target = await find_device_by_name(
-            target_name=cfg.bluetooth.target_device,
-            max_retries=cfg.bluetooth.scan.max_retries,
-            retry_interval_sec=cfg.bluetooth.scan.retry_interval_sec,
+        target = await find_device_by_spec(
+            target_name=str(cfg.bluetooth.target_device or ""),
+            max_retries=int(cfg.bluetooth.scan.max_retries),
+            retry_interval_sec=float(cfg.bluetooth.scan.retry_interval_sec),
+            module_name_regex=str(cfg.bluetooth.module_name_regex or ""),
+            desired_eeg_channels=int(cfg.eeg.n_channels),
+            require_stim_module=bool(getattr(cfg, "tdcs", None) and cfg.tdcs.enabled),
         )
+        if not target and bool(getattr(cfg, "tdcs", None) and cfg.tdcs.enabled):
+            target = await find_device_by_spec(
+                target_name=str(cfg.bluetooth.target_device or ""),
+                max_retries=int(cfg.bluetooth.scan.max_retries),
+                retry_interval_sec=float(cfg.bluetooth.scan.retry_interval_sec),
+                module_name_regex=str(cfg.bluetooth.module_name_regex or ""),
+                desired_eeg_channels=int(cfg.eeg.n_channels),
+                require_stim_module=False,
+            )
         if not target:
             status_queue.put({"type": "error", "message": "未扫描到目标 BLE 设备", "name": cfg.bluetooth.target_device})
             return
         address = target.address
         resolved_name = target.name
+
+    module_info: Optional[BleModuleNameInfo] = parse_ble_module_name(resolved_name, str(cfg.bluetooth.module_name_regex or ""))
+    if module_info is not None and int(module_info.eeg_channels) != int(cfg.eeg.n_channels):
+        status_queue.put(
+            {
+                "type": "error",
+                "message": f"设备型号解析为 {int(module_info.eeg_channels)} 通道，但当前配置为 {int(cfg.eeg.n_channels)} 通道，请检查 config.yaml 的 eeg.n_channels",
+                "name": resolved_name,
+                "module": {"eeg_channels": int(module_info.eeg_channels), "stim_channels": int(module_info.stim_channels)},
+            }
+        )
+        return
+
+    device_has_stim = module_info is not None and int(module_info.stim_channels) > 0
+    imp_include_tdcs = bool(cfg.impedance.frame.include_tdcs_if_ch8) and imp_n_channels == 8 and bool(device_has_stim)
+    imp_tail_channels = (1 if bool(cfg.impedance.frame.include_bias) else 0) + (1 if imp_include_tdcs else 0)
 
     notify_handle = cfg.bluetooth.gatt.notify_char_handle
     write_handle = cfg.bluetooth.gatt.write_char_handle
@@ -372,12 +417,18 @@ async def _connect_and_stream(
             if imu and frame_counter % 50 == 0:
                 status_queue.put({"type": "imu", "value": imu})
 
-    status_queue.put({"type": "connecting", "address": address, "name": resolved_name})
+    status_payload: Dict[str, Any] = {"type": "connecting", "address": address, "name": resolved_name}
+    if module_info is not None:
+        status_payload["module"] = {"eeg_channels": int(module_info.eeg_channels), "stim_channels": int(module_info.stim_channels)}
+    status_queue.put(status_payload)
 
     while not stop_event.is_set():
         try:
             async with BleakClient(address) as client:
-                status_queue.put({"type": "connected", "address": address, "name": resolved_name})
+                status_payload = {"type": "connected", "address": address, "name": resolved_name}
+                if module_info is not None:
+                    status_payload["module"] = {"eeg_channels": int(module_info.eeg_channels), "stim_channels": int(module_info.stim_channels)}
+                status_queue.put(status_payload)
                 await client.start_notify(notify_handle, on_notify)
                 notify_counter = 0
                 last_notify_ts = time.time()
@@ -433,7 +484,10 @@ async def _connect_and_stream(
                         except Exception:
                             pass
 
-                status_queue.put({"type": "ready", "address": address, "name": resolved_name})
+                status_payload = {"type": "ready", "address": address, "name": resolved_name}
+                if module_info is not None:
+                    status_payload["module"] = {"eeg_channels": int(module_info.eeg_channels), "stim_channels": int(module_info.stim_channels)}
+                status_queue.put(status_payload)
                 while not stop_event.is_set():
                     try:
                         cmd_msg: Dict[str, Any] = command_queue.get_nowait()
@@ -483,6 +537,9 @@ async def _connect_and_stream(
                             elif mode == "tdcs":
                                 if int(cfg.eeg.n_channels) != 8:
                                     status_queue.put({"type": "error", "message": f"{int(cfg.eeg.n_channels)}通道模式不支持电刺激（tDCS）"})
+                                    continue
+                                if module_info is None or int(module_info.stim_channels) <= 0:
+                                    status_queue.put({"type": "error", "message": "当前设备不带电刺激模块，电刺激（tDCS）已禁用"})
                                     continue
                                 current_mode = "tdcs"
                                 eeg_streaming_enabled = False

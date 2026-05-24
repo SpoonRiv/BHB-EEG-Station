@@ -43,9 +43,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-17: 1.3.19 下发 10-20 电极位置布局给前端（用于地形图绘制）
 - 2026-05-17: 1.3.20 参考电极允许从全部电极中选择（地形图点选），不再强制限制为候选列表
 - 2026-05-21: 1.3.21 移除 EEG 波形展示带通滤波预处理与相关配置下发
+- 2026-05-24: 1.4.0 按模块命名规则识别电刺激能力：无刺激模块时禁用 tDCS 并隐藏 tDCS 阻抗通道
+- 2026-05-24: 1.4.1 广播名仅为 MSM 时按“无电刺激模块”处理；扫描失败返回中文错误提示
 
 作者: Spoon
-版本: 1.3.21
+版本: 1.4.1
 """
 
 import asyncio
@@ -68,6 +70,7 @@ from core.lsl_streamer import LSLStreamer
 from core.debug_bus import DebugEventBus
 from core.ble.commands import L1_COMMANDS, L2_COMMANDS
 from core.ble.scanner import scan_devices
+from core.ble.module_naming import parse_ble_module_name
 from core.offline.offline_service import BandpassConfig, ExportTarget, OfflineService
 from core.signal.notch_filter import NotchFilter, NotchFilterConfig
 from ws_hub_eeg import EegWsHub, EegWsHubConfig
@@ -518,11 +521,15 @@ async def get_config():
     """
     ui_version = getattr(state.config, "app_ui_version", "1.0.0")
     eeg_n_channels = int(state.config.eeg.n_channels)
+    device_status = state.controller.get_status()
+    tdcs_raw = (device_status.get("capabilities", {}) if isinstance(device_status, dict) else {}).get("tdcs", None)
+    tdcs_capable_known = bool(isinstance(tdcs_raw, bool))
+    tdcs_capable = bool(tdcs_raw) if tdcs_capable_known else False
     imp_n_channels = int(state.config.impedance.n_channels)
     imp_names = list(state.config.eeg.channel_names[:imp_n_channels])
     if bool(state.config.impedance.frame.include_bias):
         imp_names.append("BIAS")
-    if bool(state.config.impedance.frame.include_tdcs_if_ch8) and imp_n_channels == 8:
+    if bool(state.config.impedance.frame.include_tdcs_if_ch8) and imp_n_channels == 8 and (not tdcs_capable_known or tdcs_capable):
         imp_names.append("tDCS")
     layout = getattr(state.config.eeg, "montage_1020_layout", None)
     layout_payload = None
@@ -569,6 +576,8 @@ async def get_config():
         },
         "tdcs": {
             "enabled": bool(getattr(state.config, "tdcs", None) and state.config.tdcs.enabled),
+            "capable": bool(tdcs_capable) if tdcs_capable_known else None,
+            "effective_enabled": bool(getattr(state.config, "tdcs", None) and state.config.tdcs.enabled) and (not tdcs_capable_known or tdcs_capable),
             "supported_channel_modes": list(getattr(state.config, "tdcs", None) and state.config.tdcs.supported_channel_modes or []),
             "ui": {
                 "show_reserved": bool(getattr(state.config, "tdcs", None) and state.config.tdcs.ui.show_reserved),
@@ -832,7 +841,14 @@ async def ble_devices(timeout_sec: float = 3.0, whitelist_only: bool = True):
         timeout_sec: 单次扫描时长（秒）。
         whitelist_only: 是否仅返回配置 bluetooth.device_names 命中的设备（前缀匹配）。
     """
-    results = await scan_devices(timeout_sec=timeout_sec)
+    try:
+        results = await scan_devices(timeout_sec=timeout_sec)
+    except Exception as e:
+        logging.exception("BLE scan failed")
+        raise HTTPException(
+            status_code=500,
+            detail="蓝牙扫描失败，请确认系统蓝牙已开启、已授予本程序蓝牙权限，且设备已上电可被发现。",
+        ) from e
     allowed = set(str(x) for x in (state.config.bluetooth.device_names or []))
     out: List[Dict[str, Any]] = []
     for one in results:
@@ -840,7 +856,15 @@ async def ble_devices(timeout_sec: float = 3.0, whitelist_only: bool = True):
             one_name = str(one.name or "")
             if not any(prefix and one_name.startswith(str(prefix)) for prefix in allowed):
                 continue
-        out.append({"name": one.name, "address": one.address, "rssi": one.rssi})
+        info = parse_ble_module_name(str(one.name or ""), str(state.config.bluetooth.module_name_regex or ""))
+        module = None
+        capabilities = None
+        if info is not None:
+            module = {"eeg_channels": int(info.eeg_channels), "stim_channels": int(info.stim_channels)}
+            capabilities = {"tdcs": bool(int(info.stim_channels) > 0)}
+        elif str(one.name or "").strip() == "MSM":
+            capabilities = {"tdcs": False}
+        out.append({"name": one.name, "address": one.address, "rssi": one.rssi, "module": module, "capabilities": capabilities})
     out.sort(key=lambda x: (x["rssi"] is None, -(x["rssi"] or -9999), x["name"]))
     return {"devices": out}
 
