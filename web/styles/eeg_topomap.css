@@ -33,9 +33,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-17: 1.0.24 统一矩形控件圆角为 12px
 - 2026-05-17: 1.0.25 已选计数提示条圆角对齐全局 12px
 - 2026-05-17: 1.0.26 参考通道卡片点击后不显示蓝色高亮，交互外观与工作通道一致
+- 2026-05-29: 1.0.27 工作通道为空时展示占位虚线框（与参考通道一致）
+- 2026-05-29: 1.0.28 工作通道占位框禁用鼠标事件，避免影响拖拽命中
 
 作者: Spoon
-版本: 1.0.26
+版本: 1.0.28
 */
 
 .device-right {
@@ -260,6 +262,18 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 }
 
 [data-theme="light"] .chip.chip-ref.chip-ref-empty {
+  border: 2px dashed rgba(12, 18, 28, 0.28);
+  background: rgba(255, 255, 255, 0.70);
+}
+
+.chip.chip-work-empty {
+  border: 2px dashed rgba(120, 170, 210, 0.30);
+  background: rgba(0, 0, 0, 0.00);
+  box-shadow: none;
+  pointer-events: none;
+}
+
+[data-theme="light"] .chip.chip-work-empty {
   border: 2px dashed rgba(12, 18, 28, 0.28);
   background: rgba(255, 255, 255, 0.70);
 }

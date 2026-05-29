@@ -26,9 +26,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-17: 1.0.18 顶栏分段导航取消选中时触发反向扫光动效
 - 2026-05-17: 1.0.19 延长分段导航扫光时长并增强取消选中可见性
 - 2026-05-17: 1.0.20 统一按钮扫光触发（悬浮与取消选中参数一致，确保右->左可见）
+- 2026-05-29: 1.0.21 设备能力变化时自动刷新配置并通知模式页更新入口可用性
 
 作者: Spoon , Fengye
-版本: 1.0.20
+版本: 1.0.21
 */
 
 import { getConfig, getStatus } from './api.js';
@@ -45,6 +46,9 @@ let statusTimer = null;
 let navLocked = false;
 const btnShineTimers = new WeakMap();
 let btnShineTimeoutMs = 1100;
+let lastStatusSnapshot = null;
+let lastTdcsCapabilityKey = null;
+let configRefreshInFlight = false;
 
 const THEME_ICON_MOON = `
   <svg class="theme-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -125,12 +129,50 @@ function applyNavLock(deviceStatus) {
   if (navMode) navMode.disabled = running;
 }
 
+function getTdcsCapabilityKey(status) {
+  const device = status && status.device ? status.device : null;
+  const last = device && device.last ? device.last : null;
+  const moduleInfo = device && device.module && typeof device.module === 'object' ? device.module : null;
+  const cap = device && device.capabilities ? device.capabilities.tdcs : undefined;
+  const t = last && last.type ? String(last.type) : '';
+  const name = last && last.name ? String(last.name) : '';
+  const eeg = moduleInfo && Number.isFinite(Number(moduleInfo.eeg_channels)) ? Number(moduleInfo.eeg_channels) : null;
+  const stim = moduleInfo && Number.isFinite(Number(moduleInfo.stim_channels)) ? Number(moduleInfo.stim_channels) : null;
+  const capStr = cap === undefined ? 'u' : String(cap);
+  const eegStr = eeg === null ? 'n' : String(eeg);
+  const stimStr = stim === null ? 'n' : String(stim);
+  return `${t}|${name}|${capStr}|${eegStr}|${stimStr}`;
+}
+
+async function refreshConfigAndBroadcast() {
+  if (configRefreshInFlight) return;
+  configRefreshInFlight = true;
+  try {
+    const cfg = await getConfig();
+    try {
+      window.dispatchEvent(new CustomEvent('app:config', { detail: cfg }));
+    } catch (_) {}
+  } catch (_) {
+  } finally {
+    configRefreshInFlight = false;
+  }
+}
+
 async function refreshStatusOnce() {
   try {
     const data = await getStatus();
+    lastStatusSnapshot = data;
     if (data && data.device) {
       applyConnBadge(data.device);
       applyNavLock(data.device);
+    }
+    try {
+      window.dispatchEvent(new CustomEvent('app:status', { detail: data }));
+    } catch (_) {}
+    const nextKey = getTdcsCapabilityKey(data);
+    if (nextKey !== lastTdcsCapabilityKey) {
+      lastTdcsCapabilityKey = nextKey;
+      await refreshConfigAndBroadcast();
     }
   } catch (_) {
     setConnBadge('error', '后端未响应');

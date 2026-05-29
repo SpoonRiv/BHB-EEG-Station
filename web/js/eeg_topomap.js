@@ -39,9 +39,12 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-17: 1.0.32 参考通道卡片移除不可拖拽的“六点”图标
 - 2026-05-17: 1.0.32 参考电极右键选择不直接覆盖：已有参考时需先右键同一电极取消，再右键新电极设置
 - 2026-05-17: 1.0.33 参考电极与工作通道互斥：右键不能设为已选工作通道，左键不能选择当前参考电极
+- 2026-05-29: 1.0.34 清空按钮同步清空参考电极选择状态
+- 2026-05-29: 1.0.35 工作通道为空时展示占位虚线框
+- 2026-05-29: 1.0.36 工作通道占位虚线框数量与通道数一致（不足部分补齐）
 
 作者: Spoon
-版本: 1.0.32
+版本: 1.0.36
 */
 
 import {
@@ -576,10 +579,16 @@ export function initTopomapPanel() {
       row.appendChild(actions);
       listHost.appendChild(row);
     }
+    const remaining = Math.max(pendingMode - selected.length, 0);
+    for (let i = 0; i < remaining; i++) {
+      const empty = el('div', 'chip chip-work-empty');
+      empty.setAttribute('aria-hidden', 'true');
+      listHost.appendChild(empty);
+    }
   }
 
   function getDraggableChips() {
-    return Array.from(listHost.querySelectorAll('.chip')).filter((n) => !n.classList.contains('chip-placeholder') && !n.classList.contains('drag-hidden'));
+    return Array.from(listHost.querySelectorAll('.chip[data-name]')).filter((n) => !n.classList.contains('chip-placeholder') && !n.classList.contains('drag-hidden'));
   }
 
   function calcDragInsertIndex(e) {
@@ -615,7 +624,7 @@ export function initTopomapPanel() {
 
   function snapshotChipRects() {
     const m = new Map();
-    const nodes = Array.from(listHost.querySelectorAll('.chip')).filter((n) => !n.classList.contains('chip-placeholder') && !n.classList.contains('drag-hidden'));
+    const nodes = Array.from(listHost.querySelectorAll('.chip[data-name]')).filter((n) => !n.classList.contains('chip-placeholder') && !n.classList.contains('drag-hidden'));
     for (const n of nodes) {
       const key = n.dataset.name || '';
       if (!key) continue;
@@ -625,7 +634,7 @@ export function initTopomapPanel() {
   }
 
   function animateFlip(before) {
-    const nodes = Array.from(listHost.querySelectorAll('.chip')).filter((n) => !n.classList.contains('chip-placeholder') && !n.classList.contains('drag-hidden'));
+    const nodes = Array.from(listHost.querySelectorAll('.chip[data-name]')).filter((n) => !n.classList.contains('chip-placeholder') && !n.classList.contains('drag-hidden'));
     for (const n of nodes) {
       const key = n.dataset.name || '';
       if (!key) continue;
@@ -810,6 +819,8 @@ export function initTopomapPanel() {
 
   btnClear.onclick = async () => {
     selected = [];
+    pendingRef = '';
+    refPickArmed = false;
     await persistPending();
   };
 
