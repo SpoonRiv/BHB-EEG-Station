@@ -45,12 +45,17 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-21: 1.3.21 移除 EEG 波形展示带通滤波预处理与相关配置下发
 - 2026-05-24: 1.4.0 按模块命名规则识别电刺激能力：无刺激模块时禁用 tDCS 并隐藏 tDCS 阻抗通道
 - 2026-05-24: 1.4.1 广播名仅为 MSM 时按“无电刺激模块”处理；扫描失败返回中文错误提示
+- 2026-05-29: 1.4.2 EEG 采集模式增加频域分析（PSD WebSocket 推送与前端切换）
+- 2026-05-29: 1.4.3 频域分析与时域链路隔离：PSD 仅在前端订阅时启用且不占用主回调
+- 2026-05-30: 1.4.4 PSD 按“视图开关”启停：仅 PSD WS 在线时启动后台线程/任务，关闭后完整释放
 
 作者: Spoon
-版本: 1.4.1
+版本: 1.4.4
 """
 
 import asyncio
+import queue
+import threading
 import os
 import logging
 from contextlib import asynccontextmanager
@@ -73,8 +78,10 @@ from core.ble.scanner import scan_devices
 from core.ble.module_naming import parse_ble_module_name
 from core.offline.offline_service import BandpassConfig, ExportTarget, OfflineService
 from core.signal.notch_filter import NotchFilter, NotchFilterConfig
+from core.signal.psd_worker import PsdWorker, PsdWorkerConfig
 from ws_hub_eeg import EegWsHub, EegWsHubConfig
 from ws_hub_impedance import ImpedanceWsHub, ImpedanceWsHubConfig
+from ws_hub_psd import PsdWsHub, PsdWsHubConfig
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -170,6 +177,156 @@ class AppState:
                 queue_size=1,
             )
         )
+
+        psd_cfg = getattr(self.config.signal, "psd", None)
+        self.psd_ws_hub = PsdWsHub(
+            PsdWsHubConfig(
+                send_timeout_sec=float(self.config.streaming.ws_send_timeout_sec),
+                queue_size=1,
+            )
+        )
+        self.psd_worker = None
+        if psd_cfg is not None:
+            try:
+                self.psd_worker = PsdWorker(
+                    PsdWorkerConfig(
+                        enabled=bool(getattr(psd_cfg, "enabled", True)),
+                        window_sec=float(getattr(psd_cfg, "window_sec", 2.0)),
+                        update_hz=float(getattr(psd_cfg, "update_hz", 2.0)),
+                        nfft=int(getattr(psd_cfg, "nfft", 512)),
+                        fmin_hz=float(getattr(psd_cfg, "fmin_hz", 0.5)),
+                        fmax_hz=float(getattr(psd_cfg, "fmax_hz", 80.0)),
+                        to_db=bool(getattr(psd_cfg, "to_db", True)),
+                        apply_notch=bool(getattr(psd_cfg, "apply_notch", True)),
+                    ),
+                    sampling_rate_hz=int(self.config.eeg.sampling_rate_hz),
+                    eeg_channel_names=list(self.config.eeg.channel_names),
+                    count_divisor=float(self.config.offline.export.count_divisor),
+                    has_trigger_channel=bool(self.config.eeg.lsl.include_trigger_channel),
+                    notch_freq_hz=float(self.config.signal.notch.freq_hz),
+                    notch_quality_factor=float(self.config.signal.notch.quality_factor),
+                )
+            except Exception:
+                self.psd_worker = None
+        self._psd_task: Optional[asyncio.Task] = None
+        self._psd_ingest_queue: Optional[queue.Queue] = None
+        self._psd_ingest_stop: Optional[threading.Event] = None
+        self._psd_ingest_thread: Optional[threading.Thread] = None
+
+    def start_psd(self) -> None:
+        """
+        启动 PSD 后台计算与 WebSocket 推送。
+        """
+        if self.psd_worker is None:
+            return
+        if not bool(self.psd_worker.cfg.enabled):
+            return
+        if self._psd_task and not self._psd_task.done():
+            return
+        if self._psd_ingest_queue is None:
+            self._psd_ingest_queue = queue.Queue(maxsize=2)
+        if self._psd_ingest_stop is None:
+            self._psd_ingest_stop = threading.Event()
+        if self._psd_ingest_thread is None or not self._psd_ingest_thread.is_alive():
+            self._psd_ingest_thread = threading.Thread(target=self._psd_ingest_loop, daemon=True)
+            self._psd_ingest_thread.start()
+        self.psd_ws_hub.start()
+        self._psd_task = asyncio.create_task(self._psd_loop())
+
+    def stop_psd(self) -> None:
+        """
+        停止 PSD 后台计算与 WebSocket 推送，并清空缓存。
+        """
+        if self._psd_task is not None:
+            try:
+                self._psd_task.cancel()
+            except Exception:
+                pass
+            self._psd_task = None
+        self.psd_ws_hub.stop(clear_pending=True)
+        if self._psd_ingest_stop is not None:
+            try:
+                self._psd_ingest_stop.set()
+            except Exception:
+                pass
+        if self._psd_ingest_thread is not None:
+            try:
+                self._psd_ingest_thread.join(timeout=0.4)
+            except Exception:
+                pass
+        self._psd_ingest_thread = None
+        self._psd_ingest_stop = None
+        self._psd_ingest_queue = None
+        if self.psd_worker is not None:
+            try:
+                self.psd_worker.reset()
+            except Exception:
+                pass
+
+    def _psd_ingest_loop(self) -> None:
+        if self.psd_worker is None:
+            return
+        stop = self._psd_ingest_stop
+        q = self._psd_ingest_queue
+        if stop is None or q is None:
+            return
+        had_clients = False
+        while True:
+            if stop.is_set():
+                return
+            has_clients = bool(getattr(self.psd_ws_hub, "has_clients", None) and self.psd_ws_hub.has_clients())
+            if not has_clients:
+                if had_clients:
+                    had_clients = False
+                    try:
+                        self.psd_worker.reset()
+                    except Exception:
+                        pass
+                try:
+                    q.get(timeout=0.1)
+                except Exception:
+                    pass
+                continue
+            if not had_clients:
+                had_clients = True
+                try:
+                    self.psd_worker.reset()
+                except Exception:
+                    pass
+            try:
+                item = q.get(timeout=0.2)
+            except Exception:
+                continue
+            try:
+                if item:
+                    self.psd_worker.append_chunk(item)
+            except Exception:
+                continue
+
+    async def _psd_loop(self) -> None:
+        """
+        PSD 后台循环：按配置节流计算 Welch PSD，并通过 WebSocket 推送最新结果。
+        """
+        if self.psd_worker is None:
+            return
+        interval = float(self.psd_worker.get_update_interval_sec())
+        if interval <= 0:
+            interval = 0.5
+        while True:
+            try:
+                await asyncio.sleep(interval)
+                if not bool(getattr(self.psd_ws_hub, "has_clients", None) and self.psd_ws_hub.has_clients()):
+                    continue
+                window = self.psd_worker.snapshot_window()
+                if window is None:
+                    continue
+                payload = await asyncio.to_thread(self.psd_worker.compute_psd_payload, window)
+                if payload:
+                    self.psd_ws_hub.enqueue_latest(payload)  # type: ignore[arg-type]
+            except asyncio.CancelledError:
+                return
+            except Exception:
+                await asyncio.sleep(0.1)
 
     def _load_local_raw(self) -> Dict[str, Any]:
         return load_yaml_file(self.local_override_path)
@@ -392,6 +549,19 @@ class AppState:
             self.offline.append_chunk(chunk)
         except Exception:
             pass
+        if self.psd_worker is not None and self._psd_ingest_queue is not None:
+            if bool(getattr(self.psd_ws_hub, "has_clients", None) and self.psd_ws_hub.has_clients()):
+                try:
+                    self._psd_ingest_queue.put_nowait(chunk)
+                except queue.Full:
+                    try:
+                        self._psd_ingest_queue.get_nowait()
+                    except Exception:
+                        pass
+                    try:
+                        self._psd_ingest_queue.put_nowait(chunk)
+                    except Exception:
+                        pass
         self.eeg_ws_hub.enqueue(chunk)
 
     def on_imp_lsl_chunk(self, chunk: List[List[float]]) -> None:
@@ -589,6 +759,16 @@ async def get_config():
             "notch": {
                 "freq_hz": float(state.config.signal.notch.freq_hz),
                 "quality_factor": float(state.config.signal.notch.quality_factor),
+            },
+            "psd": {
+                "enabled": bool(getattr(state.config.signal.psd, "enabled", True)),
+                "window_sec": float(getattr(state.config.signal.psd, "window_sec", 2.0)),
+                "update_hz": float(getattr(state.config.signal.psd, "update_hz", 2.0)),
+                "nfft": int(getattr(state.config.signal.psd, "nfft", 512)),
+                "fmin_hz": float(getattr(state.config.signal.psd, "fmin_hz", 0.5)),
+                "fmax_hz": float(getattr(state.config.signal.psd, "fmax_hz", 80.0)),
+                "to_db": bool(getattr(state.config.signal.psd, "to_db", True)),
+                "apply_notch": bool(getattr(state.config.signal.psd, "apply_notch", True)),
             },
         },
         "offline": {
@@ -1025,6 +1205,7 @@ async def stop_mode(req: ModeRequest):
     """
     if req.mode == "eeg":
         state.eeg_ws_hub.stop(clear_pending=True)
+        state.stop_psd()
         state.streamer.stop()
         ok = state.controller.stop_mode("eeg")
         session = None
@@ -1178,6 +1359,23 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         state.eeg_ws_hub.unregister(websocket)
         logging.info("Frontend WebSocket disconnected.")
+
+
+@app.websocket("/ws/psd")
+async def psd_ws(websocket: WebSocket):
+    """
+    WebSocket 端点，前端连接以获取实时 PSD 频域数据。
+    """
+    await websocket.accept()
+    state.start_psd()
+    state.psd_ws_hub.register(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        state.psd_ws_hub.unregister(websocket)
+        if not state.psd_ws_hub.has_clients():
+            state.stop_psd()
 
 
 @app.websocket("/ws/impedance")

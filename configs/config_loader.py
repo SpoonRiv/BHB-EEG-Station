@@ -33,9 +33,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-16: 1.1.23 增加 EEG 波形 y 轴动态/固定缩放 UI 配置（默认开关与滑条范围）
 - 2026-05-17: 1.1.24 增加 10-20 电极位置布局文件配置与加载（供 UI 绘制地形图）
 - 2026-05-24: 1.1.25 增加 BLE 模块命名规则正则配置（MSM***S**）
+- 2026-05-29: 1.1.26 增加在线 PSD 频域分析配置（signal.psd）
+- 2026-05-30: 1.1.27 PSD 默认刷新频率下调（更低负载）
 
 作者: Spoon
-版本: 1.1.25
+版本: 1.1.27
 """
 
 import os
@@ -180,9 +182,36 @@ class BandpassConfig:
 
 
 @dataclass(frozen=True)
+class PsdConfig:
+    """
+    在线 PSD（频域分析）配置。
+
+    Attributes:
+        enabled: 是否启用频域分析推送。
+        window_sec: 计算窗口长度（秒）。
+        update_hz: 推送刷新频率（Hz）。
+        nfft: Welch/FFT 长度。
+        fmin_hz: 展示频段下限（Hz）。
+        fmax_hz: 展示频段上限（Hz）。
+        to_db: 是否转换为 dB（10*log10）。
+        apply_notch: 频域计算前是否对窗口应用陷波（窗口内零相位）。
+    """
+
+    enabled: bool
+    window_sec: float
+    update_hz: float
+    nfft: int
+    fmin_hz: float
+    fmax_hz: float
+    to_db: bool
+    apply_notch: bool
+
+
+@dataclass(frozen=True)
 class SignalConfig:
     notch: NotchConfig
     bandpass: BandpassConfig
+    psd: PsdConfig
 
 
 @dataclass(frozen=True)
@@ -728,6 +757,45 @@ def load_config(config_path: str) -> AppConfig:
         bandpass_highcut_hz = max(1.0, nyq - 1.0)
     if bandpass_lowcut_hz >= bandpass_highcut_hz:
         bandpass_lowcut_hz = min(0.5, max(0.01, bandpass_highcut_hz / 10.0))
+
+    psd_raw = signal_raw.get("psd", {}) or {}
+    psd_enabled = bool(psd_raw.get("enabled", True))
+    psd_window_sec = float(psd_raw.get("window_sec", 2.0))
+    psd_update_hz = float(psd_raw.get("update_hz", 1.0))
+    psd_nfft = int(psd_raw.get("nfft", 512))
+    psd_fmin_hz = float(psd_raw.get("fmin_hz", 0.5))
+    psd_fmax_hz = float(psd_raw.get("fmax_hz", 80.0))
+    psd_to_db = bool(psd_raw.get("to_db", True))
+    psd_apply_notch = bool(psd_raw.get("apply_notch", True))
+
+    if psd_window_sec <= 0:
+        psd_window_sec = 2.0
+    if psd_window_sec < 0.2:
+        psd_window_sec = 0.2
+    if psd_window_sec > 30.0:
+        psd_window_sec = 30.0
+
+    if psd_update_hz <= 0:
+        psd_update_hz = 2.0
+    if psd_update_hz < 0.1:
+        psd_update_hz = 0.1
+    if psd_update_hz > 20.0:
+        psd_update_hz = 20.0
+
+    if psd_nfft < 64:
+        psd_nfft = 64
+    if psd_nfft > 16384:
+        psd_nfft = 16384
+
+    if psd_fmin_hz < 0:
+        psd_fmin_hz = 0.0
+    if psd_fmax_hz <= 0:
+        psd_fmax_hz = 80.0
+    if psd_fmax_hz >= nyq:
+        psd_fmax_hz = max(1.0, nyq - 1.0)
+    if psd_fmin_hz >= psd_fmax_hz:
+        psd_fmin_hz = 0.0
+
     signal = SignalConfig(
         notch=NotchConfig(freq_hz=notch_freq_hz, quality_factor=notch_q),
         bandpass=BandpassConfig(
@@ -735,6 +803,16 @@ def load_config(config_path: str) -> AppConfig:
             lowcut_hz=bandpass_lowcut_hz,
             highcut_hz=bandpass_highcut_hz,
             order=bandpass_order,
+        ),
+        psd=PsdConfig(
+            enabled=psd_enabled,
+            window_sec=psd_window_sec,
+            update_hz=psd_update_hz,
+            nfft=psd_nfft,
+            fmin_hz=psd_fmin_hz,
+            fmax_hz=psd_fmax_hz,
+            to_db=psd_to_db,
+            apply_notch=psd_apply_notch,
         ),
     )
 

@@ -39,16 +39,23 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-17: 1.1.22 波形可视化自检：提示 ECharts 缺失与 LSL 解析状态，便于定位“无波形”
 - 2026-05-19: 1.1.23 移除页面副标题动态状态文案，仅保留固定说明文本
 - 2026-05-21: 1.1.24 移除实时波形展示带通滤波提示
+- 2026-05-29: 1.1.25 EEG 页面增加频域（PSD）切换与可视化
+- 2026-05-29: 1.1.26 频域视图与时域渲染隔离：频域时暂停波形消费并隐藏 y 轴控件
+- 2026-05-30: 1.1.27 频域切换改为单开关，并按视图启停 PSD WebSocket
+- 2026-05-30: 1.1.28 频域模式下禁用动态Y轴控件但保持布局位置不变
+- 2026-05-30: 1.1.29 频域横坐标上限跟随配置 fmax_hz（默认 80Hz）
 
 作者: Spoon
-版本: 1.1.24
+版本: 1.1.29
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
 import { navigate } from './router.js';
+import { EegPsdView } from './eeg_psd.js';
 
 let wsEeg = null;
 let wsDebug = null;
+let psdView = null;
 
 let charts = [];
 let channels = 8;
@@ -60,6 +67,7 @@ let eegWindowSec = 2.0;
 let eegRenderFps = 25;
 let eegMaxRenderPointsPerChannel = 800;
 let eegGlobalScale = true;
+let psdFmaxHz = null;
 let eegYAxisStep = 50;
 let eegYAxisUpdateHz = 2;
 let eegLastYAxisUpdateAtMs = 0;
@@ -114,6 +122,7 @@ let eegHasData = false;
 let eegStatusHint = '';
 let eegSessionLocked = false;
 let eegStopping = false;
+let eegViewMode = 'time';
 
 function renderBatteryBadge(battery, running, streaming) {
   const badge = document.getElementById('battery-badge');
@@ -662,10 +671,10 @@ function eegRenderLoop() {
     eegRenderLoopActive = false;
     return;
   }
-  consumePendingEegChunks(1);
+  if (eegViewMode === 'time') consumePendingEegChunks(1);
   const now = performance.now();
   const intervalMs = 1000 / Math.max(5, Number(eegRenderFps) || 25);
-  if (eegDataDirty && (now - eegLastRenderAtMs) >= intervalMs) {
+  if (eegViewMode === 'time' && eegDataDirty && (now - eegLastRenderAtMs) >= intervalMs) {
     eegDataDirty = false;
     eegLastRenderAtMs = now;
     renderCharts();
@@ -830,6 +839,7 @@ async function bootstrapDebug() {
 export async function enterEegPage() {
   eegPageActive = true;
   eegStopping = false;
+  eegViewMode = 'time';
   lastEegDataAtMs = 0;
   eegHasData = false;
   eegWsState = 'disconnected';
@@ -886,9 +896,29 @@ export async function enterEegPage() {
       const hz = notch && typeof notch.freq_hz === 'number' ? notch.freq_hz : 50;
       notchEl.textContent = ` ｜ 默认开启 ${hz}Hz 工频陷波`;
     }
+    const psdCfg = cfg && cfg.signal && cfg.signal.psd ? cfg.signal.psd : null;
+    const fmax = psdCfg && psdCfg.fmax_hz != null ? Number(psdCfg.fmax_hz) : null;
+    psdFmaxHz = Number.isFinite(fmax) ? fmax : null;
   } catch (_) {}
 
   buildYAxisControls();
+  if (psdView) {
+    try { psdView.dispose(); } catch (_) {}
+    psdView = null;
+  }
+  psdView = new EegPsdView({ channelNames, fmaxHz: psdFmaxHz });
+  psdView.mount({
+    controlsId: 'eeg-view-controls',
+    timeViewId: 'eeg-time-view',
+    psdViewId: 'eeg-psd-view',
+    chartId: 'psd-chart',
+    toolbarId: 'psd-toolbar',
+    onModeChange: (m) => {
+      eegViewMode = m === 'psd' ? 'psd' : 'time';
+      const yAxis = document.getElementById('eeg-yaxis-controls');
+      if (yAxis) yAxis.classList.toggle('eeg-yaxis-controls--disabled', eegViewMode === 'psd');
+    }
+  });
   initCharts();
   if (!eegGridScrollHandler) {
     eegGridScrollHandler = () => {
@@ -919,6 +949,7 @@ export async function enterEegPage() {
     requestAnimationFrame(eegRenderLoop);
   }
   applyThemeToCharts(document.documentElement.getAttribute('data-theme') || 'light');
+  if (psdView) psdView.setTheme(document.documentElement.getAttribute('data-theme') || 'light');
   renderEegSubtitle();
   await refreshEegStatusHint();
 
@@ -941,6 +972,7 @@ export async function enterEegPage() {
     themeChangeHandler = (ev) => {
       const t = ev && ev.detail && ev.detail.theme ? ev.detail.theme : (document.documentElement.getAttribute('data-theme') || 'light');
       applyThemeToCharts(t);
+      if (psdView) psdView.setTheme(t);
     };
     window.addEventListener('bhb-theme-change', themeChangeHandler);
   }
@@ -973,6 +1005,7 @@ export async function enterEegPage() {
       if (debugReconnectTimer) { try { clearTimeout(debugReconnectTimer); } catch (_) {} debugReconnectTimer = null; }
       if (wsEeg) { try { wsEeg.close(); } catch (_) {} wsEeg = null; }
       if (wsDebug) { try { wsDebug.close(); } catch (_) {} wsDebug = null; }
+      if (psdView) psdView.close();
       stopBtn.disabled = true;
       if (startBtn) startBtn.disabled = true;
       try {
@@ -1020,6 +1053,7 @@ export async function leaveEegPage() {
   if (eegDataWatchTimer) { try { clearInterval(eegDataWatchTimer); } catch (_) {} eegDataWatchTimer = null; }
   if (wsEeg) { try { wsEeg.close(); } catch (_) {} wsEeg = null; }
   if (wsDebug) { try { wsDebug.close(); } catch (_) {} wsDebug = null; }
+  if (psdView) { try { psdView.dispose(); } catch (_) {} psdView = null; }
   if (themeListenerAttached && themeChangeHandler) {
     window.removeEventListener('bhb-theme-change', themeChangeHandler);
     themeListenerAttached = false;

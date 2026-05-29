@@ -27,9 +27,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-17: 1.0.19 延长分段导航扫光时长并增强取消选中可见性
 - 2026-05-17: 1.0.20 统一按钮扫光触发（悬浮与取消选中参数一致，确保右->左可见）
 - 2026-05-29: 1.0.21 设备能力变化时自动刷新配置并通知模式页更新入口可用性
+- 2026-05-30: 1.0.22 日间/夜间切换按钮图标与主题语义对齐（日间显示太阳，夜间显示月亮）
 
 作者: Spoon , Fengye
-版本: 1.0.21
+版本: 1.0.22
 */
 
 import { getConfig, getStatus } from './api.js';
@@ -300,8 +301,8 @@ function setTheme(theme) {
   try { localStorage.setItem('bhb_theme', t); } catch (_) {}
   const btn = document.getElementById('theme-toggle');
   if (!btn) return;
-  btn.innerHTML = t === 'light' ? THEME_ICON_MOON : THEME_ICON_SUN;
-  btn.setAttribute('aria-label', t === 'light' ? '切换夜间模式' : '切换日间模式');
+  btn.innerHTML = t === 'light' ? THEME_ICON_SUN : THEME_ICON_MOON;
+  btn.setAttribute('aria-label', t === 'light' ? '日间模式（点击切换夜间模式）' : '夜间模式（点击切换日间模式）');
   try {
     window.dispatchEvent(new CustomEvent('bhb-theme-change', { detail: { theme: t } }));
   } catch (_) {}

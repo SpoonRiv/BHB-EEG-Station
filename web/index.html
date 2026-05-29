@@ -60,9 +60,15 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-17: 1.2.41 模式页移除说明/拓展文案并平铺六模式入口（含 SSVEP/MI/P300 占位）
 - 2026-05-19: 1.2.42 移除 tDCS 页面“后端未响应”等状态提示占位，保持页面简洁
 - 2026-05-19: 1.2.43 移除 EEG/阻抗页面副标题的动态状态文案，仅保留固定说明文本
+- 2026-05-29: 1.2.44 EEG 页面增加时域/频域（PSD）切换入口与频域布局
+- 2026-05-29: 1.2.45 EEG 频域视图移除左侧勾选列表并统一布局风格
+- 2026-05-30: 1.2.46 EEG 频域通道选择改为居中复选框条，并将切换控件改为单开关
+- 2026-05-30: 1.2.47 EEG 时域/频域切换控件移至波形说明行（不影响右侧电量与动态Y轴布局）
+- 2026-05-30: 1.2.48 修复阻抗检测/频域视图底部边框贴边，统一左/右/下留白
+- 2026-05-30: 1.2.49 修复内容区 height:100% 导致 padding 失效的底部边框重合
 
 作者: Spoon
-版本: 1.2.43
+版本: 1.2.49
 -->
 <html lang="zh-CN">
 <head>
@@ -271,11 +277,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                     </div>
                 </div>
 
-                <div class="card">
+                <div class="card card--col">
                     <div class="card-header">
                         <div>
                             <div class="card-title">EEG 波形</div>
-                            <div class="card-sub"><span id="eeg-sub">WebSocket 实时推送</span><span id="eeg-notch-hint"></span></div>
+                            <div class="card-sub eeg-subline"><span id="eeg-sub">WebSocket 实时推送</span><span id="eeg-notch-hint"></span><div id="eeg-view-controls"></div></div>
                         </div>
                         <div class="row eeg-wave-controls">
                             <div id="eeg-yaxis-controls"></div>
@@ -286,8 +292,16 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             </div>
                         </div>
                     </div>
-                    <div class="card-body" style="height: calc(100% - 54px); padding: 12px;">
-                        <div class="charts-grid" id="charts-grid"></div>
+                    <div class="card-body card-body--fill" style="padding: 12px;">
+                        <div id="eeg-time-view" class="eeg-view eeg-view--active">
+                            <div class="charts-grid" id="charts-grid"></div>
+                        </div>
+                        <div id="eeg-psd-view" class="eeg-view eeg-view--hidden">
+                            <div class="eeg-psd-panel">
+                                <div class="eeg-psd-toolbar" id="psd-toolbar"></div>
+                                <div id="psd-chart" class="eeg-psd-chart"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -393,14 +407,14 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                     </div>
                 </div>
 
-                <div class="card">
+                <div class="card card--col">
                     <div class="card-header">
                         <div>
                             <div class="card-title">阻抗可视化</div>
                             <div class="card-sub"><span id="imp-sub">用于上机前的电极接触检查</span></div>
                         </div>
                     </div>
-                    <div class="card-body" style="height: calc(100% - 54px);">
+                    <div class="card-body card-body--fill" style="padding: 12px;">
                         <div class="topomap-layout">
                             <div class="topomap-canvas">
                                 <div id="imp-topomap-svg" class="topomap-svg impedance-map"></div>
