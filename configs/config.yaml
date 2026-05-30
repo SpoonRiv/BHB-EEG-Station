@@ -1,5 +1,5 @@
 app:
-  ui_version: "1.6.0"
+  ui_version: "1.6.1"
 
 ui:
   waveform:
@@ -217,7 +217,7 @@ signal:
   psd:
     enabled: true
     window_sec: 2.0
-    update_hz: 1.0
+    update_hz: 0.5
     nfft: 512
     fmin_hz: 0.5
     fmax_hz: 80.0

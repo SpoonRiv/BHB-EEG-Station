@@ -16,9 +16,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-24: 1.2.5 状态接口增加设备能力：按模块命名规则识别是否带电刺激模块
 - 2026-05-24: 1.2.6 能力字段支持未知态（未解析到模块型号时 tdcs 设为 null）
 - 2026-05-24: 1.2.7 广播名仅为 MSM 时按“无电刺激模块”处理（tdcs=false）
+- 2026-05-30: 1.2.8 连接失败/超时时保留设备名，避免前端回退展示为配置名
+- 2026-05-30: 1.2.9 断开连接/停止进程时保留设备名，避免前端回退展示为配置名
 
 作者: Spoon
-版本: 1.2.7
+版本: 1.2.9
 """
 
 import multiprocessing
@@ -161,12 +163,12 @@ class EEGController:
                     return False
                 # connecting/battery/imu 等状态消息继续等待，直到 connected 或 error
 
-            self.last_status = {"type": "error", "message": "蓝牙连接超时（30秒）"}
+            self.last_status = {"type": "error", "message": "蓝牙连接超时（30秒）", "address": address, "name": name or self.config.bluetooth.target_device}
             logging.error("EEG device start error: 蓝牙连接超时（30秒）")
             return False
         except Exception as e:
             logging.error(f"Failed to start EEG device: {e}")
-            self.last_status = {"type": "error", "message": str(e)}
+            self.last_status = {"type": "error", "message": str(e), "address": address, "name": name or self.config.bluetooth.target_device}
             return False
 
     def select_mode(self, mode: str) -> bool:
@@ -284,9 +286,12 @@ class EEGController:
         Returns:
             bool: 停止是否成功
         """
+        last = self.last_status if isinstance(self.last_status, dict) else {}
+        last_name = str(last.get("name") or "").strip() or str(self.config.bluetooth.target_device or "")
+        last_address = str(last.get("address") or "").strip() or None
         if not self.process or not self.process.is_alive():
             logging.warning("EEG device process is not running.")
-            self.last_status = {"type": "stopped", "message": "采集未运行", "name": self.config.bluetooth.target_device}
+            self.last_status = {"type": "stopped", "message": "采集未运行", "name": last_name, "address": last_address}
             return True
 
         try:
@@ -305,7 +310,7 @@ class EEGController:
             self.command_queue = None
             self.debug_queue = None
             self.current_mode = "idle"
-            self.last_status = {"type": "stopped", "message": "采集已停止", "name": self.config.bluetooth.target_device}
+            self.last_status = {"type": "stopped", "message": "采集已停止", "name": last_name, "address": last_address}
             self.last_battery = None
             self.last_imu = None
             self.task_running = False
@@ -313,5 +318,5 @@ class EEGController:
             return True
         except Exception as e:
             logging.error(f"Failed to stop EEG device: {e}")
-            self.last_status = {"type": "error", "message": str(e), "name": self.config.bluetooth.target_device}
+            self.last_status = {"type": "error", "message": str(e), "name": last_name, "address": last_address}
             return False

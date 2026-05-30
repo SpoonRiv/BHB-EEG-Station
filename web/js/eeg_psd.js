@@ -17,9 +17,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-30: 1.0.10 时域/频域切换按钮不随状态变色，且文案按当前模式显示“时域/频域”
 - 2026-05-30: 1.0.11 频域横坐标上限跟随后端配置 fmax_hz（默认 80Hz）
 - 2026-05-30: 1.0.12 时域/频域切换按钮文案固定为“时域/频域”
+- 2026-05-30: 1.0.13 时域/频域切换按钮尺寸与“暂停输出”一致（自适应文本宽度）
 
 作者: Spoon
-版本: 1.0.12
+版本: 1.0.13
 */
 
 export class EegPsdView {
@@ -138,7 +139,7 @@ export class EegPsdView {
 
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'btn btn--sm btn--ghost eeg-mode-toggle-btn';
+    btn.className = 'btn btn--ghost eeg-mode-toggle-btn';
     btn.setAttribute('aria-pressed', 'false');
     btn.textContent = '时域/频域';
     btn.onclick = () => {

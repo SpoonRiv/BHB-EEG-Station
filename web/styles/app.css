@@ -101,9 +101,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-30: 1.0.94 时域/频域按钮在说明行内竖直居中对齐（修复轻微偏移）
 - 2026-05-30: 1.0.94 修复内容区使用 height:100% 导致 padding 失效的边框贴边问题
 - 2026-05-30: 1.0.95 时域按钮在 EEG 顶栏红框区域水平+竖直居中
+- 2026-05-30: 1.0.96 时域/频域按钮尺寸对齐“开始EEG采集”，并禁用悬停/按下变色
+- 2026-05-30: 1.0.97 时域/频域按钮尺寸改为自适应文本宽度，样式对齐“暂停输出”
 
 作者: Spoon
-版本: 1.0.95
+版本: 1.0.97
 */
 
 @import "./eeg_topomap.css";
@@ -1215,16 +1217,9 @@ select option {
 
 #eeg-view-controls .eeg-mode-toggle-btn {
   align-self: center;
-  border-color: rgba(148, 163, 184, 0.28);
-  background: rgba(148, 163, 184, 0.10);
   line-height: 1;
 }
 
-[data-theme="light"] #eeg-view-controls .eeg-mode-toggle-btn {
-  border-color: rgba(15, 23, 42, 0.18);
-  background: rgba(15, 23, 42, 0.06);
-  color: #111827;
-}
 
 .eeg-view {
   height: 100%;

@@ -25,9 +25,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-21: 1.1.15 LSL 初始化失败时返回结构化错误，避免采集进程崩溃
 - 2026-05-24: 1.1.16 按模块命名规则识别电刺激能力（无刺激模块时禁用 tDCS 与 tDCS 阻抗通道）
 - 2026-05-24: 1.1.17 广播名仅为 MSM 时按“无电刺激模块”处理（禁用 tDCS 与 tDCS 阻抗通道）
+- 2026-05-30: 1.1.18 连接异常上报包含设备名，避免前端回退展示为配置名
 
 作者: Spoon
-版本: 1.1.17
+版本: 1.1.18
 """
 
 import asyncio
@@ -732,7 +733,7 @@ async def _connect_and_stream(
                                 pass
                 break
         except Exception as e:
-            status_queue.put({"type": "error", "message": str(e)})
+            status_queue.put({"type": "error", "message": str(e), "address": address, "name": resolved_name})
             await asyncio.sleep(1.0)
 
 
