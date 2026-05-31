@@ -14,9 +14,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-17: 1.0.7 模式页新增 P300 占位入口点击提示
 - 2026-05-24: 1.0.8 按设备能力禁用电刺激入口（无电刺激模块时置灰）
 - 2026-05-29: 1.0.9 监听状态/配置变更，连接带刺激模块后自动更新电刺激入口可用性
+- 2026-05-31: 1.0.10 模式页移除 P300 占位入口绑定
 
 作者: Spoon
-版本: 1.0.9
+版本: 1.0.10
 */
 
 import { getConfig, getStatus, modeSelect } from './api.js';
@@ -84,7 +85,6 @@ export function initModePage() {
   const tdcs = document.getElementById('mode-tdcs');
   const ssvep = document.getElementById('mode-ssvep');
   const mi = document.getElementById('mode-mi');
-  const p300 = document.getElementById('mode-p300');
   if (!eeg || !imp || !tdcs) return;
 
   ensureDefaultDesc(tdcs);
@@ -140,5 +140,4 @@ export function initModePage() {
 
   bindComingSoon(ssvep, 'SSVEP');
   bindComingSoon(mi, 'MI');
-  bindComingSoon(p300, 'P300');
 }

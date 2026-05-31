@@ -18,13 +18,16 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-30: 1.0.11 频域横坐标上限跟随后端配置 fmax_hz（默认 80Hz）
 - 2026-05-30: 1.0.12 时域/频域切换按钮文案固定为“时域/频域”
 - 2026-05-30: 1.0.13 时域/频域切换按钮尺寸与“暂停输出”一致（自适应文本宽度）
+- 2026-05-30: 1.0.14 增加 trigger 开始/停止按钮
 
 作者: Spoon
-版本: 1.0.13
+版本: 1.0.14
 */
 
+import { triggerStart, triggerStop } from './api.js';
+
 export class EegPsdView {
-  constructor({ channelNames, fmaxHz }) {
+  constructor({ channelNames, fmaxHz, triggerEnabled = false, triggerActive = null }) {
     this.channelNames = Array.isArray(channelNames) ? channelNames.slice() : [];
     this.colorByName = new Map();
     this._initColors();
@@ -41,6 +44,11 @@ export class EegPsdView {
     this.theme = 'light';
     this.onModeChange = null;
     this.toggleBtn = null;
+    this.triggerStartBtn = null;
+    this.triggerStopBtn = null;
+    this.triggerEnabled = !!triggerEnabled;
+    this.triggerActive = triggerActive === null || triggerActive === undefined ? null : !!triggerActive;
+    this.triggerPending = false;
     this.chkAll = null;
     this.chkByName = new Map();
     this.fmaxHz = Number.isFinite(Number(fmaxHz)) ? Number(fmaxHz) : null;
@@ -146,8 +154,30 @@ export class EegPsdView {
       this.setMode(this.mode === 'psd' ? 'time' : 'psd');
     };
     wrap.appendChild(btn);
+
+    const btnStart = document.createElement('button');
+    btnStart.type = 'button';
+    btnStart.className = 'btn btn--ghost eeg-view-btn eeg-trigger-start-btn';
+    btnStart.textContent = '开始trigger';
+    btnStart.onclick = async () => {
+      await this._sendTriggerStart();
+    };
+    wrap.appendChild(btnStart);
+
+    const btnStop = document.createElement('button');
+    btnStop.type = 'button';
+    btnStop.className = 'btn btn--ghost eeg-view-btn eeg-trigger-stop-btn';
+    btnStop.textContent = '停止trigger';
+    btnStop.onclick = async () => {
+      await this._sendTriggerStop();
+    };
+    wrap.appendChild(btnStop);
+
     this.elControls.appendChild(wrap);
     this.toggleBtn = btn;
+    this.triggerStartBtn = btnStart;
+    this.triggerStopBtn = btnStop;
+    this._syncTriggerButtons();
   }
 
   _syncButtons() {
@@ -157,6 +187,50 @@ export class EegPsdView {
       this.toggleBtn.textContent = '时域/频域';
     }
     if (this.elToolbar) this.elToolbar.style.display = isPsd ? '' : 'none';
+    this._syncTriggerButtons();
+  }
+
+  _syncTriggerButtons() {
+    const enabled = !!this.triggerEnabled;
+    const active = this.triggerActive;
+    const pending = !!this.triggerPending;
+
+    if (this.triggerStartBtn) {
+      this.triggerStartBtn.disabled = !enabled || pending || active === true;
+    }
+    if (this.triggerStopBtn) {
+      this.triggerStopBtn.disabled = !enabled || pending || active === false;
+    }
+  }
+
+  async _sendTriggerStart() {
+    if (!this.triggerEnabled || this.triggerPending) return;
+    this.triggerPending = true;
+    this._syncTriggerButtons();
+    try {
+      await triggerStart();
+      this.triggerActive = true;
+    } catch (e) {
+      try { console.warn(e); } catch (_) {}
+    } finally {
+      this.triggerPending = false;
+      this._syncTriggerButtons();
+    }
+  }
+
+  async _sendTriggerStop() {
+    if (!this.triggerEnabled || this.triggerPending) return;
+    this.triggerPending = true;
+    this._syncTriggerButtons();
+    try {
+      await triggerStop();
+      this.triggerActive = false;
+    } catch (e) {
+      try { console.warn(e); } catch (_) {}
+    } finally {
+      this.triggerPending = false;
+      this._syncTriggerButtons();
+    }
   }
 
   selectAll() {

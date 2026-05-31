@@ -10,9 +10,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.3 增加 10-20 通道选择与常用组合接口封装
 - 2026-05-09: 1.0.4 (Alice)补充模式 start/stop 的兼容封装（postModeStart/postModeStop）
 - 2026-05-12: 1.0.5 增加两级指令控制面板接口封装（指令列表/下发指令）
+- 2026-05-30: 1.0.6 增加 trigger 开始/停止接口封装
 
 作者: Spoon
-版本: 1.0.5
+版本: 1.0.6
 */
 
 async function fetchJson(url, options) {
@@ -29,6 +30,14 @@ async function fetchJson(url, options) {
 
 export async function getConfig() {
   return fetchJson('/api/config');
+}
+
+export async function triggerStart() {
+  return fetchJson('/api/trigger/start', { method: 'POST' });
+}
+
+export async function triggerStop() {
+  return fetchJson('/api/trigger/stop', { method: 'POST' });
 }
 
 export async function getStatus() {

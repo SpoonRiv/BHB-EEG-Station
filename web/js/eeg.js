@@ -44,9 +44,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-30: 1.1.27 频域切换改为单开关，并按视图启停 PSD WebSocket
 - 2026-05-30: 1.1.28 频域模式下禁用动态Y轴控件但保持布局位置不变
 - 2026-05-30: 1.1.29 频域横坐标上限跟随配置 fmax_hz（默认 80Hz）
+- 2026-05-30: 1.1.30 频域切换旁增加 trigger 开始/停止按钮
 
 作者: Spoon
-版本: 1.1.29
+版本: 1.1.30
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -68,6 +69,8 @@ let eegRenderFps = 25;
 let eegMaxRenderPointsPerChannel = 800;
 let eegGlobalScale = true;
 let psdFmaxHz = null;
+let triggerEnabled = false;
+let triggerActive = null;
 let eegYAxisStep = 50;
 let eegYAxisUpdateHz = 2;
 let eegLastYAxisUpdateAtMs = 0;
@@ -899,6 +902,9 @@ export async function enterEegPage() {
     const psdCfg = cfg && cfg.signal && cfg.signal.psd ? cfg.signal.psd : null;
     const fmax = psdCfg && psdCfg.fmax_hz != null ? Number(psdCfg.fmax_hz) : null;
     psdFmaxHz = Number.isFinite(fmax) ? fmax : null;
+    const trg = cfg && cfg.trigger ? cfg.trigger : null;
+    triggerEnabled = trg && typeof trg.enabled === 'boolean' ? !!trg.enabled : false;
+    triggerActive = (!trg || trg.active === null || trg.active === undefined) ? null : !!trg.active;
   } catch (_) {}
 
   buildYAxisControls();
@@ -906,7 +912,7 @@ export async function enterEegPage() {
     try { psdView.dispose(); } catch (_) {}
     psdView = null;
   }
-  psdView = new EegPsdView({ channelNames, fmaxHz: psdFmaxHz });
+  psdView = new EegPsdView({ channelNames, fmaxHz: psdFmaxHz, triggerEnabled, triggerActive });
   psdView.mount({
     controlsId: 'eeg-view-controls',
     timeViewId: 'eeg-time-view',

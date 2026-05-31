@@ -18,9 +18,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-24: 1.2.7 广播名仅为 MSM 时按“无电刺激模块”处理（tdcs=false）
 - 2026-05-30: 1.2.8 连接失败/超时时保留设备名，避免前端回退展示为配置名
 - 2026-05-30: 1.2.9 断开连接/停止进程时保留设备名，避免前端回退展示为配置名
+- 2026-05-31: 1.2.10 增加 trigger 指令投递接口，用于将 start/end 同步到采集进程注入触发通道
 
 作者: Spoon
-版本: 1.2.9
+版本: 1.2.10
 """
 
 import multiprocessing
@@ -242,6 +243,30 @@ class EEGController:
             for x in data:
                 cmd.append(int(x) & 0xFF)
         self.command_queue.put({"type": "send_cmd", "cmd": cmd})
+        return True
+
+    def send_trigger_command(self, command: str, source: str) -> bool:
+        """
+        向采集进程投递 trigger 指令（start/end），用于在采集侧注入触发通道值。
+
+        Args:
+            command: trigger 命令字符串（支持 start/end/stop 前缀）。
+            source: 触发来源（例如 api/tcp），仅用于调试事件标注。
+
+        Returns:
+            bool: 是否成功投递到采集进程
+        """
+
+        if not self.command_queue or not self.is_running():
+            return False
+        cmd = str(command or "").strip().lower()
+        if cmd.startswith("start"):
+            norm = "start"
+        elif cmd.startswith("end") or cmd.startswith("stop"):
+            norm = "end"
+        else:
+            return False
+        self.command_queue.put({"type": "trigger_cmd", "command": norm, "source": str(source)})
         return True
 
     def _drain_status_queue(self) -> None:

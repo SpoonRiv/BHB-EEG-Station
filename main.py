@@ -48,9 +48,12 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-29: 1.4.2 EEG 采集模式增加频域分析（PSD WebSocket 推送与前端切换）
 - 2026-05-29: 1.4.3 频域分析与时域链路隔离：PSD 仅在前端订阅时启用且不占用主回调
 - 2026-05-30: 1.4.4 PSD 按“视图开关”启停：仅 PSD WS 在线时启动后台线程/任务，关闭后完整释放
+- 2026-05-30: 1.4.5 增加 trigger 控制 API（开始/停止）
+- 2026-05-30: 1.4.6 开始采集时自动启动 trigger TCP 服务端
+- 2026-05-31: 1.4.7 EEG 模式启动时自动启动 trigger 服务端，并将 trigger start/end 同步到采集进程注入触发通道
 
 作者: Spoon
-版本: 1.4.4
+版本: 1.4.7
 """
 
 import asyncio
@@ -79,6 +82,7 @@ from core.ble.module_naming import parse_ble_module_name
 from core.offline.offline_service import BandpassConfig, ExportTarget, OfflineService
 from core.signal.notch_filter import NotchFilter, NotchFilterConfig
 from core.signal.psd_worker import PsdWorker, PsdWorkerConfig
+from core.trigger.trigger_service import TriggerService, TriggerServiceConfig
 from ws_hub_eeg import EegWsHub, EegWsHubConfig
 from ws_hub_impedance import ImpedanceWsHub, ImpedanceWsHubConfig
 from ws_hub_psd import PsdWsHub, PsdWsHubConfig
@@ -110,6 +114,23 @@ class AppState:
         self.controller = EEGController(config_path=self.config_path)
         self.debug_bus = DebugEventBus(max_events=self.config.debug.max_events)
         self._debug_forward_started = False
+        def _on_trigger_event(command: str, source: str) -> None:
+            try:
+                self.controller.send_trigger_command(command=str(command), source=str(source))
+            except Exception:
+                pass
+            if not bool(self.config.debug.ui_enabled):
+                return
+            self.debug_bus.publish(tag="TRIGGER", message=f"收到 {command}", data={"source": str(source)})
+        self.trigger = TriggerService(
+            TriggerServiceConfig(
+                enabled=bool(self.config.trigger.enabled),
+                host=str(self.config.trigger.host),
+                port=int(self.config.trigger.port),
+                timeout_sec=float(self.config.trigger.timeout_sec),
+            ),
+            on_event=_on_trigger_event,
+        )
 
         lsl_name = self.config.eeg.lsl.stream_name
         lsl_type = self.config.eeg.lsl.stream_type
@@ -632,6 +653,10 @@ async def lifespan(app: FastAPI):
     state.streamer.stop()
     state.imp_ws_hub.stop(clear_pending=True)
     state.imp_streamer.stop()
+    try:
+        state.trigger.stop_server()
+    except Exception:
+        pass
     await asyncio.to_thread(state.controller.stop_device)
     await state.debug_bus.stop_forward()
 
@@ -659,6 +684,13 @@ async def start_eeg():
     """启动蓝牙设备与 LSL 数据流"""
     if state.config.debug.ui_enabled:
         state.debug_bus.publish(tag="UI", message="点击开始采集", data={})
+    if bool(getattr(state.config, "trigger", None) and state.config.trigger.enabled):
+        try:
+            await asyncio.to_thread(state.trigger.start_server)
+        except Exception as e:
+            if state.config.debug.ui_enabled:
+                state.debug_bus.publish(tag="UI", message="trigger 服务端启动失败", data={})
+            return {"status": "error", "message": "trigger 服务端启动失败，请检查端口占用或配置。", "detail": str(e)}
     success = True
     if not state.controller.is_running():
         success = await asyncio.to_thread(state.controller.start_device)
@@ -753,6 +785,11 @@ async def get_config():
                 "show_reserved": bool(getattr(state.config, "tdcs", None) and state.config.tdcs.ui.show_reserved),
             },
         },
+        "trigger": {
+            "enabled": bool(getattr(state.config, "trigger", None) and state.config.trigger.enabled),
+            "active": getattr(state.trigger, "active", None),
+            "server_running": bool(getattr(state.trigger, "server_running", False)),
+        },
         "buffer_size": state.config.streaming.buffer_size,
         "ws_send_fps_hz": state.config.streaming.ws_send_fps_hz,
         "signal": {
@@ -783,6 +820,34 @@ async def get_config():
             },
         },
     }
+
+
+@app.post("/api/trigger/start")
+async def trigger_start():
+    if state.config.debug.ui_enabled:
+        state.debug_bus.publish(tag="UI", message="点击开始 trigger", data={})
+    try:
+        if bool(getattr(state.config, "trigger", None) and state.config.trigger.enabled) and not bool(getattr(state.trigger, "server_running", False)):
+            await asyncio.to_thread(state.trigger.start_server)
+        await asyncio.to_thread(state.trigger.start)
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"trigger start 失败: {e}") from e
+    return {"status": "success", "message": "trigger start 已发送"}
+
+
+@app.post("/api/trigger/stop")
+async def trigger_stop():
+    if state.config.debug.ui_enabled:
+        state.debug_bus.publish(tag="UI", message="点击停止 trigger", data={})
+    try:
+        await asyncio.to_thread(state.trigger.stop)
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"trigger stop 失败: {e}") from e
+    return {"status": "success", "message": "trigger end 已发送"}
 
 
 class ChannelSelectionRequest(BaseModel):
@@ -1001,6 +1066,10 @@ async def stop_eeg():
     state.eeg_ws_hub.stop(clear_pending=False)
     state.streamer.stop()
     state.controller.stop_mode("eeg")
+    try:
+        state.trigger.stop_server()
+    except Exception:
+        pass
     session = None
     try:
         session = state.offline.stop_session()
@@ -1170,6 +1239,11 @@ async def start_mode(req: ModeRequest):
     if req.mode == "eeg":
         if bool(getattr(state.streamer, "is_streaming", False)):
             return {"status": "error", "message": "EEG 正在采集中，请先停止采集", "device": state.controller.get_status()}
+        if bool(getattr(state.config, "trigger", None) and state.config.trigger.enabled):
+            try:
+                await asyncio.to_thread(state.trigger.start_server)
+            except Exception as e:
+                return {"status": "error", "message": "trigger 服务端启动失败，请检查端口占用或配置。", "detail": str(e), "device": state.controller.get_status()}
         state.controller.select_mode("eeg")
         ok = state.controller.start_mode("eeg")
         if ok:

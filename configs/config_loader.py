@@ -35,9 +35,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-24: 1.1.25 增加 BLE 模块命名规则正则配置（MSM***S**）
 - 2026-05-29: 1.1.26 增加在线 PSD 频域分析配置（signal.psd）
 - 2026-05-30: 1.1.27 PSD 默认刷新频率下调（更低负载）
+- 2026-05-30: 1.1.28 增加 trigger 配置段（TCP 触发服务）
 
 作者: Spoon
-版本: 1.1.27
+版本: 1.1.28
 """
 
 import os
@@ -149,6 +150,14 @@ class EegProtocolConfig:
 class ServerConfig:
     host: str
     port: int
+
+
+@dataclass(frozen=True)
+class TriggerConfig:
+    enabled: bool
+    host: str
+    port: int
+    timeout_sec: float
 
 
 @dataclass(frozen=True)
@@ -319,6 +328,7 @@ class AppConfig:
     eeg: EegConfig
     impedance: ImpedanceConfig
     tdcs: TdcsConfig
+    trigger: TriggerConfig
     server: ServerConfig
     streaming: StreamingConfig
     debug: DebugConfig
@@ -365,6 +375,8 @@ def load_config(config_path: str) -> AppConfig:
 
     tdcs_raw = raw.get("tdcs", {}) or {}
     tdcs_ui_raw = tdcs_raw.get("ui", {}) or {}
+
+    trigger_raw = raw.get("trigger", {}) or {}
 
     server_raw = raw.get("server", {})
     streaming_raw = raw.get("streaming", {})
@@ -717,6 +729,19 @@ def load_config(config_path: str) -> AppConfig:
         port=int(server_raw.get("port", 8000)),
     )
 
+    trigger_timeout_sec = float(trigger_raw.get("timeout_sec", trigger_raw.get("connect_timeout_sec", 1.0)))
+    if trigger_timeout_sec < 0.05:
+        trigger_timeout_sec = 0.05
+    if trigger_timeout_sec > 10.0:
+        trigger_timeout_sec = 10.0
+
+    trigger = TriggerConfig(
+        enabled=bool(trigger_raw.get("enabled", False)),
+        host=str(trigger_raw.get("host", "127.0.0.1") or "127.0.0.1"),
+        port=int(trigger_raw.get("port", 8888)),
+        timeout_sec=trigger_timeout_sec,
+    )
+
     streaming = StreamingConfig(
         ws_send_fps_hz=ws_send_fps_hz,
         buffer_size=buffer_size,
@@ -880,6 +905,7 @@ def load_config(config_path: str) -> AppConfig:
         eeg=eeg,
         impedance=impedance,
         tdcs=tdcs,
+        trigger=trigger,
         server=server,
         streaming=streaming,
         debug=debug,

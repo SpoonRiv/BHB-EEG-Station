@@ -1,5 +1,5 @@
 app:
-  ui_version: "1.6.1"
+  ui_version: "1.7.0"
 
 ui:
   waveform:
@@ -187,6 +187,12 @@ tdcs:
   supported_channel_modes: [8]
   ui:
     show_reserved: true
+
+trigger:
+  enabled: true
+  host: "127.0.0.1"
+  port: 8002
+  timeout_sec: 1.0
 
 server:
   host: "127.0.0.1"
