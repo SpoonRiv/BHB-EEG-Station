@@ -52,6 +52,8 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-30: 1.4.6 开始采集时自动启动 trigger TCP 服务端
 - 2026-05-31: 1.4.7 EEG 模式启动时自动启动 trigger 服务端，并将 trigger start/end 同步到采集进程注入触发通道
 
+
+
 作者: Spoon
 版本: 1.4.7
 """

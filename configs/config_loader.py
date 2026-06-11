@@ -36,9 +36,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-29: 1.1.26 增加在线 PSD 频域分析配置（signal.psd）
 - 2026-05-30: 1.1.27 PSD 默认刷新频率下调（更低负载）
 - 2026-05-30: 1.1.28 增加 trigger 配置段（TCP 触发服务）
+- 2026-06-10: 1.1.29 (Spoon) BLE GATT 支持配置 notify/write 特征 UUID，运行时优先使用 uuid，兼容旧 handle
 
 作者: Spoon
-版本: 1.1.28
+版本: 1.1.29
 """
 
 import os
@@ -53,7 +54,9 @@ from configs.local_overrides import deep_merge_dict, get_local_override_path, lo
 
 @dataclass(frozen=True)
 class BluetoothGattConfig:
+    notify_char_uuid: Optional[str]
     notify_char_handle: int
+    write_char_uuid: Optional[str]
     write_char_handle: int
 
 
@@ -590,7 +593,9 @@ def load_config(config_path: str) -> AppConfig:
             retry_interval_sec=float(scan_raw.get("retry_interval_sec", 1.0)),
         ),
         gatt=BluetoothGattConfig(
+            notify_char_uuid=str(gatt_raw.get("notify_char_uuid", "") or "").strip() or None,
             notify_char_handle=int(gatt_raw.get("notify_char_handle", 5)),
+            write_char_uuid=str(gatt_raw.get("write_char_uuid", "") or "").strip() or None,
             write_char_handle=int(gatt_raw.get("write_char_handle", 8)),
         ),
         commands=BluetoothCommandConfig(

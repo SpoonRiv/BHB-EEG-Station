@@ -1,5 +1,5 @@
 app:
-  ui_version: "1.7.0"
+  ui_version: "2.0.0"
 
 ui:
   waveform:
@@ -39,7 +39,9 @@ bluetooth:
     retry_interval_sec: 1.0
   gatt:
     # notify 与 write 的特征值（可以使用 handle 或 uuid；默认取旧版脚本的 handle）
+    notify_char_uuid: "0xFFF1"
     notify_char_handle: 5
+    write_char_uuid: "0xFFF2"
     write_char_handle: 8
   commands:
     init: []

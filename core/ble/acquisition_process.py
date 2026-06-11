@@ -27,9 +27,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-24: 1.1.17 广播名仅为 MSM 时按“无电刺激模块”处理（禁用 tDCS 与 tDCS 阻抗通道）
 - 2026-05-30: 1.1.18 连接异常上报包含设备名，避免前端回退展示为配置名
 - 2026-05-31: 1.1.19 增加采集侧 trigger 指令处理，并将 start/end 注入触发通道（不阻塞采集）
+- 2026-06-10: 1.1.20 (Spoon) BLE GATT 支持按 UUID 指定 notify/write 特征，优先使用 uuid，兼容旧 handle
 
 作者: Spoon
-版本: 1.1.19
+版本: 1.1.20
 """
 
 import asyncio
@@ -47,6 +48,39 @@ from core.ble.frame_parser import FrameSpec, parse_frame_to_samples
 from core.ble.impedance_parser import ImpedanceFrameSpec, build_impedance_vector, parse_impedance_frame
 from core.ble.lsl_outlet import LslOutletConfig, LslOutletWriter
 from core.ble.module_naming import BleModuleNameInfo, parse_ble_module_name
+
+
+def _normalize_ble_uuid(value: Optional[str]) -> Optional[str]:
+    """
+    归一化 BLE 特征 UUID 字符串。
+
+    支持输入：
+    - "0xFFF1" / "FFF1"（16-bit UUID）
+    - "12345678"（32-bit UUID）
+    - "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"（128-bit UUID）
+
+    Returns:
+        Optional[str]: 归一化后的 128-bit UUID（小写），或 None（表示未配置）
+    """
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    s = s.lower()
+    if s.startswith("0x"):
+        s = s[2:].strip()
+    if not s:
+        return None
+    if "-" in s:
+        return s
+    if len(s) == 4:
+        return f"0000{s}-0000-1000-8000-00805f9b34fb"
+    if len(s) == 8:
+        return f"{s}-0000-1000-8000-00805f9b34fb"
+    if len(s) == 32:
+        return f"{s[0:8]}-{s[8:12]}-{s[12:16]}-{s[16:20]}-{s[20:32]}"
+    return s
 
 
 async def _connect_and_stream(
@@ -135,8 +169,10 @@ async def _connect_and_stream(
     imp_include_tdcs = bool(cfg.impedance.frame.include_tdcs_if_ch8) and imp_n_channels == 8 and bool(device_has_stim)
     imp_tail_channels = (1 if bool(cfg.impedance.frame.include_bias) else 0) + (1 if imp_include_tdcs else 0)
 
-    notify_handle = cfg.bluetooth.gatt.notify_char_handle
-    write_handle = cfg.bluetooth.gatt.write_char_handle
+    notify_uuid = _normalize_ble_uuid(getattr(cfg.bluetooth.gatt, "notify_char_uuid", None))
+    write_uuid = _normalize_ble_uuid(getattr(cfg.bluetooth.gatt, "write_char_uuid", None))
+    notify_char: Any = notify_uuid if notify_uuid is not None else int(cfg.bluetooth.gatt.notify_char_handle)
+    write_char: Any = write_uuid if write_uuid is not None else int(cfg.bluetooth.gatt.write_char_handle)
 
     def ensure_eeg_lsl_ready() -> None:
         nonlocal spec, outlet
@@ -450,7 +486,7 @@ async def _connect_and_stream(
                 if module_info is not None:
                     status_payload["module"] = {"eeg_channels": int(module_info.eeg_channels), "stim_channels": int(module_info.stim_channels)}
                 status_queue.put(status_payload)
-                await client.start_notify(notify_handle, on_notify)
+                await client.start_notify(notify_char, on_notify)
                 notify_counter = 0
                 last_notify_ts = time.time()
                 no_data_reported = False
@@ -472,7 +508,7 @@ async def _connect_and_stream(
 
                 async def _send_cmd(cmd: List[int], action: str) -> None:
                     payload = bytearray(cmd)
-                    await client.write_gatt_char(write_handle, payload, response=False)
+                    await client.write_gatt_char(write_char, payload, response=False)
                     if debug_queue is not None:
                         try:
                             cmd_hex = " ".join(f"0x{int(x) & 0xFF:02X}" for x in cmd)
@@ -481,7 +517,7 @@ async def _connect_and_stream(
                                 {
                                     "tag": "CMD_TX",
                                     "message": f"发送控制指令: {action}",
-                                    "data": {"cmd_hex": cmd_hex, "write_handle": int(write_handle), **cmd_info},
+                                    "data": {"cmd_hex": cmd_hex, "write_char": str(write_char), **cmd_info},
                                 }
                             )
                         except Exception:
@@ -499,7 +535,7 @@ async def _connect_and_stream(
                                 {
                                     "tag": "CMD_TX",
                                     "message": "发送 init 指令失败",
-                                    "data": {"error": str(e), "write_handle": int(write_handle)},
+                                    "data": {"error": str(e), "write_char": str(write_char)},
                                 }
                             )
                         except Exception:
@@ -615,7 +651,7 @@ async def _connect_and_stream(
                                                 {
                                                     "tag": "CMD_TX",
                                                     "message": "发送 stop_eeg 指令失败",
-                                                    "data": {"error": str(e), "write_handle": int(write_handle)},
+                                                "data": {"error": str(e), "write_char": str(write_char)},
                                                 }
                                             )
                                         except Exception:
@@ -637,7 +673,7 @@ async def _connect_and_stream(
                                                 {
                                                     "tag": "CMD_TX",
                                                     "message": "发送 stop_impedance 指令失败",
-                                                    "data": {"error": str(e), "write_handle": int(write_handle)},
+                                                "data": {"error": str(e), "write_char": str(write_char)},
                                                 }
                                             )
                                         except Exception:
@@ -661,7 +697,7 @@ async def _connect_and_stream(
                                                 {
                                                     "tag": "CMD_TX",
                                                     "message": "发送 stop_tdcs 指令失败",
-                                                    "data": {"error": str(e), "write_handle": int(write_handle)},
+                                                "data": {"error": str(e), "write_char": str(write_char)},
                                                 }
                                             )
                                         except Exception:
@@ -691,8 +727,8 @@ async def _connect_and_stream(
                                 debug_queue.put(
                                     {
                                         "tag": "EEG_NODATA",
-                                        "message": "3秒未收到EEG通知数据（可能 notify_handle/write_handle 不匹配，或设备未开始传输）",
-                                        "data": {"notify_handle": int(notify_handle), "write_handle": int(write_handle)},
+                                        "message": "3秒未收到EEG通知数据（可能 notify/write 特征不匹配，或设备未开始传输）",
+                                        "data": {"notify_char": str(notify_char), "write_char": str(write_char)},
                                     }
                                 )
                             except Exception:
@@ -705,8 +741,8 @@ async def _connect_and_stream(
                                 debug_queue.put(
                                     {
                                         "tag": "IMP_NODATA",
-                                        "message": "3秒未收到阻抗通知数据（可能 notify_handle/write_handle 不匹配，或设备未开始传输）",
-                                        "data": {"notify_handle": int(notify_handle), "write_handle": int(write_handle)},
+                                        "message": "3秒未收到阻抗通知数据（可能 notify/write 特征不匹配，或设备未开始传输）",
+                                        "data": {"notify_char": str(notify_char), "write_char": str(write_char)},
                                     }
                                 )
                             except Exception:
@@ -719,8 +755,8 @@ async def _connect_and_stream(
                                 debug_queue.put(
                                     {
                                         "tag": "TDCS_NODATA",
-                                        "message": "3秒未收到tDCS通知数据（可能 notify_handle/write_handle 不匹配，或设备未开始传输）",
-                                        "data": {"notify_handle": int(notify_handle), "write_handle": int(write_handle)},
+                                        "message": "3秒未收到tDCS通知数据（可能 notify/write 特征不匹配，或设备未开始传输）",
+                                        "data": {"notify_char": str(notify_char), "write_char": str(write_char)},
                                     }
                                 )
                             except Exception:
@@ -738,13 +774,13 @@ async def _connect_and_stream(
                                         {
                                             "tag": "CMD_TX",
                                             "message": "重发 start_eeg 指令失败",
-                                            "data": {"retry": int(start_retry_count), "error": str(e), "write_handle": int(write_handle)},
+                                            "data": {"retry": int(start_retry_count), "error": str(e), "write_char": str(write_char)},
                                         }
                                     )
                                 except Exception:
                                     pass
                     await asyncio.sleep(0.05)
-                await client.stop_notify(notify_handle)
+                await client.stop_notify(notify_char)
                 if eeg_streaming_enabled:
                     try:
                         await _send_cmd(cfg.bluetooth.commands.stop_eeg, action="stop_eeg")
@@ -755,7 +791,7 @@ async def _connect_and_stream(
                                     {
                                         "tag": "CMD_TX",
                                         "message": "发送 stop_eeg 指令失败",
-                                        "data": {"error": str(e), "write_handle": int(write_handle)},
+                                        "data": {"error": str(e), "write_char": str(write_char)},
                                     }
                                 )
                             except Exception:
