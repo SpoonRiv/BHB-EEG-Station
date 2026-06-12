@@ -67,9 +67,15 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-30: 1.2.48 修复阻抗检测/频域视图底部边框贴边，统一左/右/下留白
 - 2026-05-30: 1.2.49 修复内容区 height:100% 导致 padding 失效的底部边框重合
 - 2026-05-31: 1.2.50 模式页移除 P300 占位入口，布局调整为上二下三（电刺激下移）
+- 2026-06-11: 1.2.51 头部工作区重构并统一页面元信息，提升整体产品化视觉质感
+- 2026-06-11: 1.2.52 移除顶栏工作区概览卡片，顶栏更简洁聚焦
+- 2026-06-11: 1.2.53 移除顶栏英文标语，统一中文语境与品牌呈现
+- 2026-06-11: 1.2.54 模式页接入 SSVEP 与 MI 新封面图，统一五张模式配图
+- 2026-06-11: 1.2.55 设备列表增加自定义下拉容器，支持圆角展开菜单
+- 2026-06-11: 1.2.56 模式选择标题下增加简短说明文字，提升页面完整度
 
 作者: Spoon
-版本: 1.2.50
+版本: 1.2.56
 -->
 <html lang="zh-CN">
 <head>
@@ -84,24 +90,33 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 <body>
 <div class="app">
     <header class="app-header">
-        <div class="brand">
-            <img class="brand-logo" src="logo.png" alt="BHB Logo" />
-            <div class="brand-title">BHB-EEG Station</div>
-            <div class="brand-sub" id="brand-sub">v1.0.1</div>
+        <div class="brand-panel">
+            <div class="brand-mark">
+                <img class="brand-logo" src="logo.png" alt="BHB Logo" />
+            </div>
+            <div class="brand-copy">
+                <div class="brand-mainline">
+                    <div class="brand-title">BHB-EEG Station</div>
+                    <div class="brand-sub" id="brand-sub">v2.0.1</div>
+                </div>
+                <div class="brand-caption">脑机接口采集、阻抗检查与刺激控制一体化工作站</div>
+            </div>
         </div>
         <div class="header-actions">
-            <div class="badge plain error" id="conn-badge">
+            <div class="badge conn-badge error" id="conn-badge">
                 <div class="badge-dot"></div>
                 <div id="conn-text">未连接</div>
             </div>
+            <div class="header-nav segmented" role="tablist" aria-label="主导航">
+                <button class="btn btn--sm btn--ghost seg-btn" id="nav-device" type="button">设备</button>
+                <button class="btn btn--sm btn--ghost seg-btn" id="nav-mode" type="button">模式</button>
+            </div>
             <button class="btn btn--sm btn--icon btn--ghost" id="theme-toggle" aria-label="切换日夜模式"></button>
-            <button class="btn btn--sm btn--ghost" id="nav-device">设备</button>
-            <button class="btn btn--sm btn--ghost" id="nav-mode">模式</button>
         </div>
     </header>
 
     <div class="app-body">
-        <section class="page" id="page-device">
+        <section class="page" id="page-device" data-page-title="设备准备" data-page-desc="完成设备扫描、通道配置与参考电极设置">
             <div class="page-grid">
                 <div class="card">
                     <div class="card-header">
@@ -115,9 +130,16 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                         <div class="stack">
                             <div class="field">
                                 <div class="label">设备列表</div>
-                                <select id="device-select" disabled>
-                                    <option value="" selected>请先点击“扫描”</option>
-                                </select>
+                                <div class="custom-select" id="device-select-shell">
+                                    <button class="custom-select__trigger" id="device-select-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" disabled>
+                                        <span class="custom-select__text" id="device-select-text">请先点击“扫描”</span>
+                                        <span class="custom-select__arrow" aria-hidden="true"></span>
+                                    </button>
+                                    <div class="custom-select__menu" id="device-select-menu" role="listbox" hidden></div>
+                                    <select id="device-select" class="custom-select__native" disabled tabindex="-1" aria-hidden="true">
+                                        <option value="" selected>请先点击“扫描”</option>
+                                    </select>
+                                </div>
                             </div>
                             <div class="row">
                                 <button class="btn btn--primary" id="btn-connect">连接</button>
@@ -180,11 +202,12 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
             </div>
         </section>
 
-        <section class="page" id="page-mode">
+        <section class="page" id="page-mode" data-page-title="模式选择" data-page-desc="选择阻抗、脑电或电刺激等工作模式">
             <div class="card" style="width: 100%;">
                 <div class="card-header">
                     <div>
                         <div class="card-title">模式选择</div>
+                        <div class="card-sub">请选择本次会话需要进入的工作模式</div>
                     </div>
                 </div>
                 <div class="card-body">
@@ -218,10 +241,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                         </button>
                         <button type="button" class="mode-card mode-card--bottom mode-card--coming" id="mode-ssvep">
                             <div class="mode-hero-wrap">
-                                <div class="mode-mini-hero">
-                                    <div class="mode-mini-badge">开发中</div>
-                                    <div class="mode-mini-label">SSVEP</div>
-                                </div>
+                                <img class="mode-hero" src="image/ssvep_mode.png" alt="SSVEP 模式" />
                             </div>
                             <div class="mode-meta">
                                 <div class="mode-title">SSVEP</div>
@@ -230,10 +250,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                         </button>
                         <button type="button" class="mode-card mode-card--bottom mode-card--coming" id="mode-mi">
                             <div class="mode-hero-wrap">
-                                <div class="mode-mini-hero">
-                                    <div class="mode-mini-badge">开发中</div>
-                                    <div class="mode-mini-label">MI</div>
-                                </div>
+                                <img class="mode-hero" src="image/mi_mode.png" alt="MI 模式" />
                             </div>
                             <div class="mode-meta">
                                 <div class="mode-title">MI</div>
@@ -245,7 +262,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
             </div>
         </section>
 
-        <section class="page" id="page-eeg">
+        <section class="page" id="page-eeg" data-page-title="脑电采集" data-page-desc="查看实时波形、频域信息与结构化调试事件">
             <div class="eeg-layout">
                 <div class="card" style="height: 100%; display: flex; flex-direction: column;">
                     <div class="card-header">
@@ -296,7 +313,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
             </div>
         </section>
 
-        <section class="page" id="page-offline">
+        <section class="page" id="page-offline" data-page-title="数据存储" data-page-desc="按会话导出原始或滤波后的脑电数据文件">
             <div class="card" style="width: 100%;">
                 <div class="card-header">
                     <div>
@@ -375,7 +392,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
             </div>
         </section>
 
-        <section class="page" id="page-impedance">
+        <section class="page" id="page-impedance" data-page-title="阻抗检测" data-page-desc="通过地形图与阻抗列表快速检查电极接触状态">
             <div class="eeg-layout">
                 <div class="card" style="height: 100%; display: flex; flex-direction: column;">
                     <div class="card-header">
@@ -425,7 +442,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
             </div>
         </section>
 
-        <section class="page" id="page-tdcs">
+        <section class="page" id="page-tdcs" data-page-title="电刺激控制" data-page-desc="实时监测刺激状态并下发 tDCS 控制指令">
             <div class="eeg-layout">
                 <div class="card" style="height: 100%; display: flex; flex-direction: column;">
                     <div class="card-header">

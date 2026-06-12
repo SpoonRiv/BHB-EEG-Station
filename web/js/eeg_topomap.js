@@ -42,9 +42,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-29: 1.0.34 清空按钮同步清空参考电极选择状态
 - 2026-05-29: 1.0.35 工作通道为空时展示占位虚线框
 - 2026-05-29: 1.0.36 工作通道占位虚线框数量与通道数一致（不足部分补齐）
+- 2026-06-11: 1.0.37 复用通用圆角下拉组件到通道模式与常用组合下拉
 
 作者: Spoon
-版本: 1.0.36
+版本: 1.0.37
 */
 
 import {
@@ -54,6 +55,7 @@ import {
   eegChannelPresetUpsertLocal,
   eegChannelSetSelection,
 } from './api.js';
+import { enhanceCustomSelect } from './custom_select.js';
 
 const DEFAULT_ELECTRODE_POS = {
   Fpz: { x: 50, y: 6 },
@@ -297,6 +299,8 @@ export function initTopomapPanel() {
   if (!modeSel || !btnApply || !svgHost || !listHost || !btnClear || !badge || !refPills || !presetSel || !btnPresetApply || !btnPresetSave || !btnPresetDelete || !presetNameInput) {
     return;
   }
+  enhanceCustomSelect(modeSel);
+  enhanceCustomSelect(presetSel);
   if (sub) {
     sub.textContent = '左键点击选择工作通道与顺序 | 右键点击选择参考通道';
   }

@@ -28,9 +28,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-17: 1.0.20 统一按钮扫光触发（悬浮与取消选中参数一致，确保右->左可见）
 - 2026-05-29: 1.0.21 设备能力变化时自动刷新配置并通知模式页更新入口可用性
 - 2026-05-30: 1.0.22 日间/夜间切换按钮图标与主题语义对齐（日间显示太阳，夜间显示月亮）
+- 2026-06-11: 1.0.23 同步头部工作区的页面信息与系统状态，配合 UI 视觉焕新
 
 作者: Spoon , Fengye
-版本: 1.0.22
+版本: 1.0.23
 */
 
 import { getConfig, getStatus } from './api.js';
@@ -93,6 +94,33 @@ function normalizeDeviceMessage(msg) {
   return replaced;
 }
 
+function setHeaderStatusText(text) {
+  const el = document.getElementById('header-status-text');
+  if (!el) return;
+  el.textContent = String(text || '等待连接');
+}
+
+function updateHeaderPageMeta() {
+  const titleEl = document.getElementById('header-page-title');
+  const descEl = document.getElementById('header-page-desc');
+  if (!titleEl || !descEl) return;
+
+  const raw = String(window.location.hash || '').trim();
+  const hash = raw ? (raw.startsWith('#') ? raw : `#${raw}`) : '#device';
+  const pageId = `page-${hash.replace(/^#/, '')}`;
+  const pageEl = document.getElementById(pageId);
+
+  const title = pageEl && pageEl.dataset && pageEl.dataset.pageTitle
+    ? String(pageEl.dataset.pageTitle)
+    : '设备准备';
+  const desc = pageEl && pageEl.dataset && pageEl.dataset.pageDesc
+    ? String(pageEl.dataset.pageDesc)
+    : '完成设备扫描、通道配置与参考电极设置';
+
+  titleEl.textContent = title;
+  descEl.textContent = desc;
+}
+
 function applyConnBadge(deviceStatus) {
   const last = deviceStatus && deviceStatus.last ? deviceStatus.last : null;
   const configured = deviceStatus && deviceStatus.configured_name ? String(deviceStatus.configured_name) : '';
@@ -102,23 +130,28 @@ function applyConnBadge(deviceStatus) {
 
   if (t === 'connected' || t === 'ready') {
     setConnBadge('active', `已连接：${name}`);
+    setHeaderStatusText(`已连接 ${name}`);
     return;
   }
   if (t === 'connecting') {
     setConnBadge('error', `连接中：${name}`);
+    setHeaderStatusText(`连接中 ${name}`);
     return;
   }
   if (t === 'error') {
     void msg;
     setConnBadge('error', `连接失败：${name}`);
+    setHeaderStatusText(`连接失败 ${name}`);
     return;
   }
   if (t === 'disconnected' || t === 'stopped') {
     setConnBadge('error', `连接已断开：${name}`);
+    setHeaderStatusText(`连接已断开 ${name}`);
     return;
   }
   void configured;
   setConnBadge('error', '未连接');
+  setHeaderStatusText('等待连接');
 }
 
 function applyNavLock(deviceStatus) {
@@ -177,6 +210,7 @@ async function refreshStatusOnce() {
     }
   } catch (_) {
     setConnBadge('error', '后端未响应');
+    setHeaderStatusText('后端未响应');
   }
 }
 
@@ -239,6 +273,8 @@ function updateHeaderNavActive() {
     if (wasActive && !modeActive) applyBtnShine(navMode, 'btn-shine-out');
     if (!wasActive && modeActive) applyBtnShine(navMode, 'btn-shine-in');
   }
+
+  updateHeaderPageMeta();
 }
 
 function parseDurationMs(value, fallbackMs) {
@@ -326,7 +362,7 @@ async function initVersionLabel() {
   if (!el) return;
   try {
     const cfg = await getConfig();
-    const v = cfg && cfg.ui_version ? String(cfg.ui_version) : '1.0.0';
+    const v = cfg && cfg.ui_version ? String(cfg.ui_version) : '2.0.1';
     el.textContent = `v${v}`;
   } catch (_) {}
 }

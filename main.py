@@ -77,7 +77,7 @@ from configs.config_loader import load_config
 from configs.local_overrides import get_local_override_path, load_yaml_file, write_yaml_file_atomic
 from core.eeg_controller import EEGController
 from core.lsl_streamer import LSLStreamer
-from core.debug_bus import DebugEventBus
+from core.debug_bus import DebugEventBus 
 from core.ble.commands import L1_COMMANDS, L2_COMMANDS
 from core.ble.scanner import scan_devices
 from core.ble.module_naming import parse_ble_module_name

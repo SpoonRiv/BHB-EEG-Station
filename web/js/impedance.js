@@ -20,9 +20,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-17: 1.0.13 阻抗地形图电极位置由后端配置下发，前端仅做渲染与回退
 - 2026-05-17: 1.0.14 阻抗可视化自检：补充 LSL 解析状态提示，便于定位“无阻抗值”
 - 2026-05-19: 1.0.15 移除页面副标题动态状态文案，仅保留固定说明文本
+- 2026-06-11: 1.0.16 阻抗列表标题改为 x10Ω，并移除单元格内单位显示
 
 作者: Spoon
-版本: 1.0.15
+版本: 1.0.16
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -315,7 +316,7 @@ function createCell(name, disabled) {
 
   const value = document.createElement('div');
   value.className = 'imp-cell-value';
-  value.textContent = disabled ? '' : '-- Ω';
+  value.textContent = disabled ? '' : '--';
 
   cell.appendChild(top);
   cell.appendChild(value);
@@ -399,7 +400,7 @@ function updateList(valuesByName) {
     const stateEl = cell.querySelector('.imp-cell-state');
     if (valueEl) {
       const x = Number(value);
-      valueEl.textContent = Number.isFinite(x) ? `${Math.round(x)} Ω` : '-- Ω';
+      valueEl.textContent = Number.isFinite(x) ? `${Math.round(x)}` : '--';
     }
     if (stateEl) {
       stateEl.textContent = kind === 'good' ? '良好' : (kind === 'warn' ? '可用' : (kind === 'bad' ? '偏高' : '未知'));
