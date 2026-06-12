@@ -28,9 +28,12 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-30: 1.1.18 连接异常上报包含设备名，避免前端回退展示为配置名
 - 2026-05-31: 1.1.19 增加采集侧 trigger 指令处理，并将 start/end 注入触发通道（不阻塞采集）
 - 2026-06-10: 1.1.20 (Spoon) BLE GATT 支持按 UUID 指定 notify/write 特征，优先使用 uuid，兼容旧 handle
+- 2026-06-12: 1.1.21 回撤 BLE GATT 的 UUID 选择逻辑，恢复仅使用特征 handle
+- 2026-06-12: 1.1.22 (Spoon) 恢复 BLE GATT 的 UUID 选择逻辑，运行时优先使用 uuid，handle 作为兜底
+- 2026-06-12: 1.1.23 (Spoon) 增加 write_with_response，支持按需使用 Write With Response 下发指令
 
 作者: Spoon
-版本: 1.1.20
+版本: 1.1.23
 """
 
 import asyncio
@@ -173,6 +176,7 @@ async def _connect_and_stream(
     write_uuid = _normalize_ble_uuid(getattr(cfg.bluetooth.gatt, "write_char_uuid", None))
     notify_char: Any = notify_uuid if notify_uuid is not None else int(cfg.bluetooth.gatt.notify_char_handle)
     write_char: Any = write_uuid if write_uuid is not None else int(cfg.bluetooth.gatt.write_char_handle)
+    write_with_response = bool(getattr(cfg.bluetooth.gatt, "write_with_response", False))
 
     def ensure_eeg_lsl_ready() -> None:
         nonlocal spec, outlet
@@ -508,7 +512,7 @@ async def _connect_and_stream(
 
                 async def _send_cmd(cmd: List[int], action: str) -> None:
                     payload = bytearray(cmd)
-                    await client.write_gatt_char(write_char, payload, response=False)
+                    await client.write_gatt_char(write_char, payload, response=write_with_response)
                     if debug_queue is not None:
                         try:
                             cmd_hex = " ".join(f"0x{int(x) & 0xFF:02X}" for x in cmd)
@@ -517,7 +521,7 @@ async def _connect_and_stream(
                                 {
                                     "tag": "CMD_TX",
                                     "message": f"发送控制指令: {action}",
-                                    "data": {"cmd_hex": cmd_hex, "write_char": str(write_char), **cmd_info},
+                                    "data": {"cmd_hex": cmd_hex, "write_char": str(write_char), "write_with_response": bool(write_with_response), **cmd_info},
                                 }
                             )
                         except Exception:
@@ -535,7 +539,7 @@ async def _connect_and_stream(
                                 {
                                     "tag": "CMD_TX",
                                     "message": "发送 init 指令失败",
-                                    "data": {"error": str(e), "write_char": str(write_char)},
+                                            "data": {"error": str(e), "write_char": str(write_char)},
                                 }
                             )
                         except Exception:
@@ -651,7 +655,7 @@ async def _connect_and_stream(
                                                 {
                                                     "tag": "CMD_TX",
                                                     "message": "发送 stop_eeg 指令失败",
-                                                "data": {"error": str(e), "write_char": str(write_char)},
+                                                    "data": {"error": str(e), "write_char": str(write_char)},
                                                 }
                                             )
                                         except Exception:
@@ -673,7 +677,7 @@ async def _connect_and_stream(
                                                 {
                                                     "tag": "CMD_TX",
                                                     "message": "发送 stop_impedance 指令失败",
-                                                "data": {"error": str(e), "write_char": str(write_char)},
+                                                    "data": {"error": str(e), "write_char": str(write_char)},
                                                 }
                                             )
                                         except Exception:
@@ -697,7 +701,7 @@ async def _connect_and_stream(
                                                 {
                                                     "tag": "CMD_TX",
                                                     "message": "发送 stop_tdcs 指令失败",
-                                                "data": {"error": str(e), "write_char": str(write_char)},
+                                                    "data": {"error": str(e), "write_char": str(write_char)},
                                                 }
                                             )
                                         except Exception:

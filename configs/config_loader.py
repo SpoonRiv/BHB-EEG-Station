@@ -37,9 +37,12 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-30: 1.1.27 PSD 默认刷新频率下调（更低负载）
 - 2026-05-30: 1.1.28 增加 trigger 配置段（TCP 触发服务）
 - 2026-06-10: 1.1.29 (Spoon) BLE GATT 支持配置 notify/write 特征 UUID，运行时优先使用 uuid，兼容旧 handle
+- 2026-06-12: 1.1.30 回撤 BLE GATT 的 UUID 配置项，恢复仅使用 handle
+- 2026-06-12: 1.1.31 (Spoon) 恢复 BLE GATT 的 UUID 配置项，运行时优先使用 uuid，handle 作为兜底
+- 2026-06-12: 1.1.32 (Spoon) 增加 write_with_response 配置，支持按需使用 Write With Response 下发 BLE 指令
 
 作者: Spoon
-版本: 1.1.29
+版本: 1.1.32
 """
 
 import os
@@ -58,6 +61,7 @@ class BluetoothGattConfig:
     notify_char_handle: int
     write_char_uuid: Optional[str]
     write_char_handle: int
+    write_with_response: bool
 
 
 @dataclass(frozen=True)
@@ -597,6 +601,7 @@ def load_config(config_path: str) -> AppConfig:
             notify_char_handle=int(gatt_raw.get("notify_char_handle", 5)),
             write_char_uuid=str(gatt_raw.get("write_char_uuid", "") or "").strip() or None,
             write_char_handle=int(gatt_raw.get("write_char_handle", 8)),
+            write_with_response=bool(gatt_raw.get("write_with_response", False)),
         ),
         commands=BluetoothCommandConfig(
             init_commands=init_commands_cfg,
