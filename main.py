@@ -51,11 +51,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-30: 1.4.5 增加 trigger 控制 API（开始/停止）
 - 2026-05-30: 1.4.6 开始采集时自动启动 trigger TCP 服务端
 - 2026-05-31: 1.4.7 EEG 模式启动时自动启动 trigger 服务端，并将 trigger start/end 同步到采集进程注入触发通道
-
+- 2026-06-17: 1.4.8 下发当前参考电极名，供阻抗页将 BIAS 显示为实际参考通道
 
 
 作者: Spoon
-版本: 1.4.7
+版本: 1.4.8
 """
 
 import asyncio
@@ -723,6 +723,7 @@ async def get_config():
     """
     获取前端渲染所需的基础配置（通道数、通道名等）。
     """
+    _, _, pending_ref = state.get_pending_channel_selection()
     ui_version = getattr(state.config, "app_ui_version", "1.0.0")
     eeg_n_channels = int(state.config.eeg.n_channels)
     device_status = state.controller.get_status()
@@ -746,6 +747,7 @@ async def get_config():
         }
     return {
         "ui_version": ui_version,
+        "ref_channel_name": str(pending_ref or ""),
         "ui": {
             "waveform": {
                 "time_window_sec": float(state.config.ui.waveform.time_window_sec),

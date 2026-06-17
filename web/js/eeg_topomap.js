@@ -43,9 +43,15 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-29: 1.0.35 工作通道为空时展示占位虚线框
 - 2026-05-29: 1.0.36 工作通道占位虚线框数量与通道数一致（不足部分补齐）
 - 2026-06-11: 1.0.37 复用通用圆角下拉组件到通道模式与常用组合下拉
+- 2026-06-17: 1.0.38 通道模式下拉去掉“16通道”文案括号
+- 2026-06-17: 1.0.39 16 通道已选通道卡片启用紧凑间距与字号，减少通道名被截断
+- 2026-06-17: 1.0.40 移除“已应用：通道列表｜参考”提示行文本，仅保留颜色状态与计数
+- 2026-06-17: 1.0.41 顶部提示条改为文本状态框：仅“已应用到系统”为绿色，其余状态为红色
+- 2026-06-17: 1.0.42 顶部提示条计数文案统一为“工作通道/参考通道”，避免混合表达
+- 2026-06-17: 1.0.43 顶部提示条文案统一为“电极通道”，并在括号中细分工作/参考通道计数
 
 作者: Spoon
-版本: 1.0.37
+版本: 1.0.43
 */
 
 import {
@@ -320,91 +326,71 @@ export function initTopomapPanel() {
   let dragPlaceholderEl = null;
   let dragPreviewEl = null;
   let badgeMsg = '';
-  let badgeMsgEl = null;
   let badgeMsgKind = '';
-  let badgeCountEl = null;
-  let badgeStrongCur = null;
-  let badgeStrongTotal = null;
-  let badgeStrongRef = null;
   let electrodePositions = DEFAULT_ELECTRODE_POS;
   let electrodeAliases = {};
   let refPickArmed = false;
 
   function setStatus() {}
 
-  function ensureBadgeMsgEl() {
-    if (badgeMsgEl) return badgeMsgEl;
-    const span = el('span', 'topomap-badge-msg', '');
-    badge.appendChild(span);
-    badgeMsgEl = span;
-    return span;
-  }
-
-  function ensureBadgeCountEls() {
-    if (badgeCountEl && badgeStrongCur && badgeStrongTotal && badgeStrongRef) return;
-    badge.innerHTML = '';
-    badgeMsgEl = null;
-
-    const count = el('span', 'topomap-badge-count', '');
-    count.appendChild(document.createTextNode('已选 '));
-    const cur = document.createElement('strong');
-    cur.textContent = String(selected.length);
-    count.appendChild(cur);
-    count.appendChild(document.createTextNode(' / '));
-    const total = document.createElement('strong');
-    total.textContent = String(pendingMode);
-    count.appendChild(total);
-    count.appendChild(document.createTextNode(' + 参考 '));
-    const ref = document.createElement('strong');
-    ref.textContent = String(String(pendingRef || '').trim() ? 1 : 0);
-    count.appendChild(ref);
-    badge.appendChild(count);
-
-    badgeCountEl = count;
-    badgeStrongCur = cur;
-    badgeStrongTotal = total;
-    badgeStrongRef = ref;
-
-    ensureBadgeMsgEl();
-  }
-
   function setBadgeMsg(text, kind) {
     badgeMsg = String(text || '');
     badgeMsgKind = String(kind || '');
-    ensureBadgeCountEls();
-    const span = ensureBadgeMsgEl();
-    span.classList.toggle('ok', badgeMsgKind === 'success');
-    if (!badgeMsg) {
-      span.textContent = '';
-      span.hidden = true;
-      return;
-    }
-    span.hidden = false;
-    span.textContent = ` ${badgeMsg}`;
+    updateBadge();
   }
 
   function updateBadge() {
-    ensureBadgeCountEls();
-    const a = (badge.querySelectorAll('strong') || []);
-    if (a.length >= 3) {
-      a[0].textContent = String(selected.length);
-      a[1].textContent = String(pendingMode);
-      a[2].textContent = String(String(pendingRef || '').trim() ? 1 : 0);
+    badge.classList.remove('success');
+    badge.classList.remove('error');
+
+    if (badgeMsgKind === 'error' && badgeMsg) {
+      badge.classList.add('error');
+      badge.textContent = `状态：${badgeMsg}`;
+      return;
     }
+
     const hasRef = Boolean(String(pendingRef || '').trim());
-    const isFull = selected.length === pendingMode && hasRef;
-    const isWarn = selected.length < pendingMode || selected.length > pendingMode || !hasRef;
-    badge.classList.toggle('warn', isWarn);
-    badge.classList.toggle('ok', isFull);
-    if (isFull && badgeMsgKind === 'error') setBadgeMsg('', '');
+    const isFullPending = selected.length === pendingMode && hasRef;
+    const effMode = intOr(effective.n_channels, pendingMode);
+    const effNames = normalizeUnique(effective.channel_names || []);
+    const effRef = String(effective.ref_channel_name || '').trim();
+    const sameMode = effMode === pendingMode;
+    const sameRef = String(effRef || '') === String(pendingRef || '');
+    const sameNames = effNames.length === selected.length && effNames.every((v, i) => String(v) === String(selected[i]));
+    const isApplied = isFullPending && sameMode && sameRef && sameNames;
+    const refCount = hasRef ? 1 : 0;
+
+    if (isApplied) {
+      badge.classList.add('success');
+      badge.textContent = `状态：已应用到系统（已选工作通道 ${pendingMode}/${pendingMode}，参考通道 1/1）`;
+      return;
+    }
+
+    badge.classList.add('error');
+    if (selected.length < pendingMode) {
+      badge.textContent = `状态：请选择电极通道（已选工作通道 ${selected.length}/${pendingMode}，参考通道 ${refCount}/1）`;
+      return;
+    }
+    if (selected.length > pendingMode) {
+      badge.textContent = `状态：电极通道数异常（已选工作通道 ${selected.length}/${pendingMode}）`;
+      return;
+    }
+    if (!hasRef) {
+      badge.textContent = `状态：请选择参考通道（已选工作通道 ${selected.length}/${pendingMode}）`;
+      return;
+    }
+    badge.textContent = `状态：已就绪，请点击“应用到系统”（已选工作通道 ${pendingMode}/${pendingMode}，参考通道 1/1）`;
   }
 
   function updateSelectedGridCols() {
+    const dense = pendingMode >= 16;
     const cols = pendingMode >= 16 ? 4 : 2;
     const rows = Math.ceil(Math.max(pendingMode, 1) / Math.max(cols, 1));
     listHost.style.setProperty('--ch-selected-cols', String(cols));
     listHost.style.setProperty('--ch-selected-rows', String(rows));
     refPills.style.setProperty('--ch-selected-cols', String(cols));
+    listHost.classList.toggle('chip-list--dense', dense);
+    refPills.classList.toggle('chip-list--dense', dense);
   }
 
   function renderModeSelect() {
@@ -412,7 +398,7 @@ export function initTopomapPanel() {
     const opt8 = el('option', '', '8通道');
     opt8.value = '8';
     if (supportedModes.length && !supportedModes.includes(8)) opt8.disabled = true;
-    const opt16 = el('option', '', '16通道（预留）');
+    const opt16 = el('option', '', '16通道');
     opt16.value = '16';
     if (supportedModes.length && !supportedModes.includes(16)) opt16.disabled = true;
     modeSel.appendChild(opt8);
@@ -908,14 +894,14 @@ export function initTopomapPanel() {
       if (res && res.status === 'success') {
         lastError = '';
         await loadAll();
-        const effMode = intOr(effective.n_channels, pendingMode);
-        const effNames = normalizeUnique(effective.channel_names || []);
-        const ref = String(effective.ref_channel_name || '').trim();
-        const hint = `已应用：${effMode}ch [${effNames.join(', ')}]${ref ? ` ｜ 参考：${ref}` : ''}`;
-        setBadgeMsg(hint, 'success');
+        setBadgeMsg('', '');
         try {
           window.dispatchEvent(new CustomEvent('bhb-channel-applied', {
-            detail: { n_channels: effMode, channel_names: effNames, ref_channel_name: ref },
+            detail: {
+              n_channels: intOr(effective.n_channels, pendingMode),
+              channel_names: normalizeUnique(effective.channel_names || []),
+              ref_channel_name: String(effective.ref_channel_name || '').trim(),
+            },
           }));
         } catch (_) {}
       } else {

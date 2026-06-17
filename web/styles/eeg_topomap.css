@@ -37,9 +37,16 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-29: 1.0.28 工作通道占位框禁用鼠标事件，避免影响拖拽命中
 - 2026-05-30: 1.0.29 阻抗地形图画布容器补充 box-sizing，避免边框贴底重合
 - 2026-05-30: 1.0.30 阻抗页地形图容器按 flex 填充，避免 height:100% 覆盖外层 padding
+- 2026-06-17: 1.0.31 16 通道已选通道卡片启用紧凑间距与字号变量，减少通道名被截断
+- 2026-06-17: 1.0.32 修复 8 通道参考通道编号 R 变形：chip 相关尺寸变量增加默认回退
+- 2026-06-17: 1.0.33 顶部“已选”提示条与设备状态提示条统一为成功绿/非成功红视觉
+- 2026-06-17: 1.0.34 顶部“已选”提示条成功/失败去除红绿渐变，改为纯色底
+- 2026-06-17: 1.0.35 16 通道紧凑模式不再改变列表行高与间距，确保 8/16 模式等高
+- 2026-06-17: 1.0.36 顶部“已选”提示条文本布局对齐设备状态条（字号与垂直居中一致）
+- 2026-06-17: 1.0.37 删除阻抗页底部提示后让右侧列表区域自动填充剩余空间
 
 作者: Spoon
-版本: 1.0.30
+版本: 1.0.37
 */
 
 .device-right {
@@ -114,6 +121,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
   padding-right: 0;
 }
 
+#page-impedance .topomap-side .field {
+  flex: 1;
+  min-height: 0;
+}
+
 #ch-selected-field {
   flex: 1;
   min-height: 0;
@@ -133,10 +145,16 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 .chip-list {
   --ch-chip-row-h: 44px;
   --ch-chip-gap: 8px;
+  --ch-chip-padding-y: 8px;
+  --ch-chip-padding-x: 10px;
+  --ch-chip-left-gap: 10px;
+  --ch-chip-font-size: 14px;
+  --ch-chip-index-size: 22px;
+  --ch-chip-index-font-size: 12px;
   display: grid;
   grid-template-columns: repeat(var(--ch-selected-cols, 2), minmax(0, 1fr));
-  grid-auto-rows: minmax(44px, auto);
-  gap: 8px;
+  grid-auto-rows: minmax(var(--ch-chip-row-h), auto);
+  gap: var(--ch-chip-gap);
   flex: 1;
   min-height: calc(var(--ch-selected-rows, 4) * var(--ch-chip-row-h) + (var(--ch-selected-rows, 4) - 1) * var(--ch-chip-gap));
   max-height: calc(var(--ch-selected-rows, 4) * var(--ch-chip-row-h) + (var(--ch-selected-rows, 4) - 1) * var(--ch-chip-gap));
@@ -146,12 +164,21 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
   align-content: start;
 }
 
+.chip-list--dense {
+  --ch-chip-padding-y: 6px;
+  --ch-chip-padding-x: 8px;
+  --ch-chip-left-gap: 8px;
+  --ch-chip-font-size: 13px;
+  --ch-chip-index-size: 20px;
+  --ch-chip-index-font-size: 11px;
+}
+
 .chip {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 8px 10px;
+  gap: var(--ch-chip-gap, 8px);
+  padding: var(--ch-chip-padding-y, 8px) var(--ch-chip-padding-x, 10px);
   border-radius: var(--radius);
   border: 1px solid rgba(120, 170, 210, 0.16);
   background: rgba(0, 0, 0, 0.10);
@@ -167,7 +194,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 .chip-left {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--ch-chip-left-gap, 10px);
   min-width: 0;
 }
 
@@ -220,14 +247,14 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 }
 
 .chip-index {
-  width: 22px;
-  height: 22px;
+  width: var(--ch-chip-index-size, 22px);
+  height: var(--ch-chip-index-size, 22px);
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-weight: 800;
-  font-size: 12px;
+  font-size: var(--ch-chip-index-font-size, 12px);
   color: rgba(0, 0, 0, 0.82);
   background: rgba(var(--accent-rgb), 0.85);
 }
@@ -239,6 +266,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 .chip-name {
   font-weight: 800;
+  font-size: var(--ch-chip-font-size, 14px);
   letter-spacing: 0.2px;
   white-space: nowrap;
   overflow: hidden;
@@ -251,10 +279,18 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 }
 
 .ref-pills {
+  --ch-chip-row-h: 44px;
+  --ch-chip-gap: 8px;
+  --ch-chip-padding-y: 8px;
+  --ch-chip-padding-x: 10px;
+  --ch-chip-left-gap: 10px;
+  --ch-chip-font-size: 14px;
+  --ch-chip-index-size: 22px;
+  --ch-chip-index-font-size: 12px;
   display: grid;
   grid-template-columns: repeat(var(--ch-selected-cols, 2), minmax(0, 1fr));
-  grid-auto-rows: minmax(44px, auto);
-  gap: 8px;
+  grid-auto-rows: minmax(var(--ch-chip-row-h, 44px), auto);
+  gap: var(--ch-chip-gap, 8px);
   align-content: start;
   padding-left: 6px;
   padding-right: 6px;
@@ -341,20 +377,20 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 }
 
 .topomap-badge {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  column-gap: 10px;
-  row-gap: 4px;
+  display: flex;
   align-items: center;
-  align-content: center;
-  padding: 7px 10px;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 14px;
   min-height: 44px;
-  border: 1px solid var(--border);
+  border: 1px solid rgba(140, 170, 210, 0.16);
   border-radius: var(--radius);
-  background: rgba(0, 0, 0, 0.12);
-  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.06) inset;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.00) 72%),
+    rgba(0, 0, 0, 0.14);
   font-size: 13px;
-  color: var(--muted);
+  color: var(--text);
+  line-height: 1.5;
 }
 
 .topomap-badge.warn {

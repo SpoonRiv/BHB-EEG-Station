@@ -21,9 +21,13 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-17: 1.0.14 阻抗可视化自检：补充 LSL 解析状态提示，便于定位“无阻抗值”
 - 2026-05-19: 1.0.15 移除页面副标题动态状态文案，仅保留固定说明文本
 - 2026-06-11: 1.0.16 阻抗列表标题改为 x10Ω，并移除单元格内单位显示
+- 2026-06-17: 1.0.17 BIAS 参考电极按当前参考通道名显示（如 Pz），并用于地形图定位
+- 2026-06-17: 1.0.18 阻抗单位标识调整为 ✖10Ω，并优化分组标题样式（去掉括号）
+- 2026-06-17: 1.0.19 阻抗列表文案调整：*10 Ω 与工作电极阻抗
+- 2026-06-17: 1.0.20 去掉工作电极阻抗标题中的通道数字样
 
 作者: Spoon
-版本: 1.0.16
+版本: 1.0.20
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -45,6 +49,7 @@ let impLastRecvAtMs = 0;
 let impValuesByName = {};
 let impValuesDirty = false;
 let impTaskActive = false;
+let impRefName = '';
 
 let topo = null;
 let listHost = null;
@@ -166,13 +171,13 @@ function renderLegend() {
   pills.className = 'imp-th-pills';
   const pillG = document.createElement('span');
   pillG.className = 'imp-pill good';
-  pillG.textContent = `0~${t.g}Ω`;
+  pillG.textContent = `0~${t.g}*10 Ω`;
   const pillW = document.createElement('span');
   pillW.className = 'imp-pill warn';
-  pillW.textContent = `${t.g}~${t.w}Ω`;
+  pillW.textContent = `${t.g}~${t.w}*10 Ω`;
   const pillB = document.createElement('span');
   pillB.className = 'imp-pill bad';
-  pillB.textContent = `>${t.w}Ω`;
+  pillB.textContent = `>${t.w}*10 Ω`;
   pills.appendChild(pillG);
   pills.appendChild(pillW);
   pills.appendChild(pillB);
@@ -220,9 +225,9 @@ function renderLegend() {
     impUi.good_max_ohm = next.g;
     impUi.warn_max_ohm = next.w;
     if (topo) topo.setThresholds({ goodMaxOhm: next.g, warnMaxOhm: next.w });
-    pillG.textContent = `0~${next.g}Ω`;
-    pillW.textContent = `${next.g}~${next.w}Ω`;
-    pillB.textContent = `>${next.w}Ω`;
+    pillG.textContent = `0~${next.g}*10 Ω`;
+    pillW.textContent = `${next.g}~${next.w}*10 Ω`;
+    pillB.textContent = `>${next.w}*10 Ω`;
     if (topo) topo.update(impValuesByName);
     updateList(impValuesByName);
   };
@@ -235,9 +240,9 @@ function renderLegend() {
     impUi.good_max_ohm = next.g;
     impUi.warn_max_ohm = next.w;
     if (topo) topo.setThresholds({ goodMaxOhm: next.g, warnMaxOhm: next.w });
-    pillG.textContent = `0~${next.g}Ω`;
-    pillW.textContent = `${next.g}~${next.w}Ω`;
-    pillB.textContent = `>${next.w}Ω`;
+    pillG.textContent = `0~${next.g}*10 Ω`;
+    pillW.textContent = `${next.g}~${next.w}*10 Ω`;
+    pillB.textContent = `>${next.w}*10 Ω`;
     if (topo) topo.update(impValuesByName);
     updateList(impValuesByName);
   };
@@ -341,12 +346,12 @@ function ensureList() {
   for (const x of all) {
     const s = String(x || '').trim();
     if (!s) continue;
-    if (s.toUpperCase() === 'BIAS' || s.toUpperCase() === 'TDCS') extras.push(s);
+    if ((impRefName && s.toUpperCase() === impRefName.toUpperCase()) || s.toUpperCase() === 'BIAS' || s.toUpperCase() === 'TDCS') extras.push(s);
     else mains.push(s);
   }
 
   const slots = Math.max(1, Math.min(16, Math.round(Number(impModeChannels) || mains.length || 8)));
-  if (listTitleMainEl) listTitleMainEl.textContent = `电极阻抗（${slots}通道）`;
+  if (listTitleMainEl) listTitleMainEl.textContent = '工作电极阻抗';
   if (listTitleExtraEl) listTitleExtraEl.textContent = '参考电极阻抗';
   const cols = slots <= 8 ? 2 : 4;
   gridMainEl.style.setProperty('--imp-grid-cols', String(cols));
@@ -363,13 +368,13 @@ function ensureList() {
     if (!s) continue;
     if (!extraNames.includes(s)) extraNames.push(s);
   }
-  for (const s of ['BIAS', 'tDCS']) {
+  for (const s of [(impRefName || 'BIAS'), 'tDCS']) {
     if (extraNames.includes(s) || extraNames.includes(s.toUpperCase())) {
       if (!extraNames.includes(s)) extraNames.push(s);
     }
   }
   const orderedExtras = [];
-  for (const want of ['BIAS', 'tDCS']) {
+  for (const want of [(impRefName || 'BIAS'), 'tDCS']) {
     const hit = extraNames.find(x => String(x).toUpperCase() === want.toUpperCase());
     if (hit) orderedExtras.push(hit);
   }
@@ -578,9 +583,17 @@ async function initImpedanceUiOnce() {
   let electrodeAliases = null;
   try {
     const cfg = await getConfig();
+    impRefName = cfg && typeof cfg.ref_channel_name === 'string' ? String(cfg.ref_channel_name || '').trim() : '';
     const imp = cfg && cfg.impedance ? cfg.impedance : null;
     const names = imp && Array.isArray(imp.channel_names) ? imp.channel_names : [];
     impNames = names.map(x => String(x || '').trim()).filter(Boolean);
+    if (impRefName) {
+      const idx = impNames.findIndex(x => String(x).toUpperCase() === 'BIAS');
+      if (idx >= 0) {
+        const hasDup = impNames.some((x, i) => i !== idx && String(x).toUpperCase() === impRefName.toUpperCase());
+        if (!hasDup) impNames[idx] = impRefName;
+      }
+    }
     impModeChannels = imp && Number.isFinite(Number(imp.n_channels)) ? Math.round(Number(imp.n_channels)) : impModeChannels;
     impUi = imp && imp.ui ? {
       refresh_hz: Number(imp.ui.refresh_hz) || 1,

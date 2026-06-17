@@ -73,9 +73,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-06-11: 1.2.54 模式页接入 SSVEP 与 MI 新封面图，统一五张模式配图
 - 2026-06-11: 1.2.55 设备列表增加自定义下拉容器，支持圆角展开菜单
 - 2026-06-11: 1.2.56 模式选择标题下增加简短说明文字，提升页面完整度
+- 2026-06-17: 1.2.57 阻抗页列表单位标识调整为 ✖10Ω，并优化分组标题文案
+- 2026-06-17: 1.2.58 通道选择顶部提示条改为与蓝牙状态一致的文本状态框
 
 作者: Spoon
-版本: 1.2.56
+版本: 1.2.58
 -->
 <html lang="zh-CN">
 <head>
@@ -167,7 +169,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                                     <div id="topomap-svg" class="topomap-svg"></div>
                                 </div>
                                 <div class="topomap-side">
-                                    <div class="topomap-badge" id="ch-count-badge">已选 <strong>0</strong> / <strong>8</strong></div>
+                                    <div class="status-box error" id="ch-count-badge">状态：加载中…</div>
                                     <div class="field">
                                         <div class="label">参考通道（右键点选）</div>
                                         <div class="ref-pills" id="ch-ref-pills" role="group" aria-label="参考电极"></div>
@@ -227,7 +229,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             </div>
                             <div class="mode-meta">
                                 <div class="mode-title">脑电采集</div>
-                                <div class="mode-desc">用于实时脑电采集与可视化：开始采集后通过 WebSocket 显示多通道波形与调试事件，同时按会话录制数据；停止后可在“数据存储”页导出 CSV/EDF，并可选带通滤波另存。</div>
+                                <div class="mode-desc">用于实时脑电采集与可视化：开始采集后通过 WebSocket 显示多通道波形，并支持 PSD 分析和离线保存，可选择使用带通滤波器。</div>
                             </div>
                         </button>
                         <button type="button" class="mode-card mode-card--bottom" id="mode-tdcs">
@@ -428,7 +430,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             <div class="topomap-side">
                                 <div class="imp-legend" id="imp-legend"></div>
                                 <div class="field" style="min-height: 0;">
-                                    <div class="label">阻抗列表（Ω）</div>
+                                    <div class="label">阻抗列表（✖10Ω）</div>
                                     <div class="imp-grid-wrap" id="imp-list">
                                         <div class="imp-grid" id="imp-grid-main"></div>
                                         <div class="imp-grid imp-grid-extra" id="imp-grid-extra"></div>

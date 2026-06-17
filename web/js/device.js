@@ -19,9 +19,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-17: 1.0.12 设备页状态文案规范统一（扫描/选择/连接）
 - 2026-05-17: 1.0.13 “请选择设备”作为占位提示不出现在下拉选项中
 - 2026-06-11: 1.0.14 设备列表接入自定义圆角下拉菜单，并保持与原生 select 值同步
+- 2026-06-17: 1.0.15 设备页状态提示条按“成功绿/非成功红”统一配色
+- 2026-06-17: 1.0.16 扫描成功/已选择设备不再标记为成功态，仅连接成功显示绿色
 
 作者: Spoon
-版本: 1.0.14
+版本: 1.0.16
 */
 
 import { bleConnect, bleDevices, bleDisconnect, eegChannelOptions, getStatus } from './api.js';
@@ -236,7 +238,7 @@ export function initDevicePage() {
   function renderIdleHint() {
     const sel = getSelectedDeviceInfo(selectEl);
     if (scanState.status === 'scanning') {
-      setDeviceStatus('', '状态：正在扫描中');
+      setDeviceStatus('error', '状态：正在扫描中');
       return;
     }
     if (scanState.status === 'failed') {
@@ -250,13 +252,13 @@ export function initDevicePage() {
     }
     if (scanState.status === 'success') {
       if (sel) {
-        setDeviceStatus('success', `状态：已选择：${sel.name || sel.address}`);
+        setDeviceStatus('error', `状态：已选择：${sel.name || sel.address}`);
       } else {
-        setDeviceStatus('success', `状态：成功扫描到 ${scanState.count} 个设备，请选择`);
+        setDeviceStatus('error', `状态：成功扫描到 ${scanState.count} 个设备，请选择`);
       }
       return;
     }
-    setDeviceStatus('', '状态：请点击“扫描”');
+    setDeviceStatus('error', '状态：请点击“扫描”');
   }
 
   renderIdleHint();
@@ -355,7 +357,7 @@ export function initDevicePage() {
         setDeviceStatus('error', '状态：请先选择设备');
         return;
       }
-      setDeviceStatus('', `状态：连接中：${sel.name || sel.address}`);
+      setDeviceStatus('error', `状态：连接中：${sel.name || sel.address}`);
       const res = await bleConnect(sel.address, sel.name);
       if (res && res.status === 'success') {
         setRecentBleAddress(sel.address);
@@ -383,7 +385,7 @@ export function initDevicePage() {
 
   btnDisconnect.addEventListener('click', async () => {
     btnDisconnect.disabled = true;
-    setDeviceStatus('', '状态：断开中…');
+    setDeviceStatus('error', '状态：断开中…');
     try {
       const res = await bleDisconnect();
       if (res && res.status === 'success') {
@@ -431,7 +433,7 @@ export function initDevicePage() {
           autoNavigated = false;
         }
       }
-      else if (t === 'connecting') setDeviceStatus('', `状态：连接中：${name || '设备'}`);
+      else if (t === 'connecting') setDeviceStatus('error', `状态：连接中：${name || '设备'}`);
       else if (t === 'error') setDeviceStatus('error', `状态：连接失败${name ? `：${name}` : ''}${msg ? `：${msg}` : ''}`.trim());
       else if (t === 'disconnected' || t === 'stopped') {
         autoNavigated = false;

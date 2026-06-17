@@ -116,9 +116,19 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-06-11: 1.0.108 模式页图片改为 cover 铺满上半区，并允许圆角裁切
 - 2026-06-11: 1.0.109 模式页说明文案收紧为单行显示，提升卡片整齐度
 - 2026-06-11: 1.0.110 设备列表接入自定义圆角下拉菜单样式，支持展开面板圆角
+- 2026-06-17: 1.0.111 修复下拉菜单被卡片内容遮挡（层叠顺序）
+- 2026-06-17: 1.0.112 统一下拉菜单选项字号与触发器一致
+- 2026-06-17: 1.0.113 下拉触发器与菜单间距加大，避免高亮边框相切
+- 2026-06-17: 1.0.114 下拉菜单选项之间增加间距，避免高亮框重叠
+- 2026-06-17: 1.0.115 修复下拉菜单无法折叠（hidden 样式被覆盖）
+- 2026-06-17: 1.0.116 状态提示条统一为“成功绿/非成功红”视觉（与通道已选提示一致）
+- 2026-06-17: 1.0.117 状态提示条成功/失败去除红绿渐变，改为纯色底
+- 2026-06-17: 1.0.118 统一状态提示条文字字号与垂直居中布局（设备状态/已选计数）
+- 2026-06-17: 1.0.118 阻抗列表区域改为自适应高度并允许内部滚动，避免底部参考电极卡片被裁切
+- 2026-06-17: 1.0.119 阻抗页降低调试区固定高度并移除阻抗列表内部滚动条，保证右侧元素平铺不裁切
 
 作者: Spoon
-版本: 1.0.110
+版本: 1.0.119
 */
 
 @import "./eeg_topomap.css";
@@ -799,6 +809,7 @@ body::after {
   backdrop-filter: blur(18px) saturate(120%);
   overflow: hidden;
   position: relative;
+  isolation: isolate;
 }
 
 .card.card--col {
@@ -815,10 +826,10 @@ body::after {
     linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.00) 28%),
     radial-gradient(420px 180px at 100% 0%, rgba(var(--accent-rgb), 0.10), rgba(0, 0, 0, 0) 65%);
   pointer-events: none;
-  z-index: 0;
+  z-index: -1;
 }
 
-.card > * { position: relative; z-index: 1; }
+.card > * { position: relative; }
 
 [data-theme="light"] .card {
   box-shadow: var(--shadow), 0 0 0 1px rgba(12, 18, 28, 0.04) inset;
@@ -1074,11 +1085,14 @@ select option {
 
 .custom-select__menu {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + 14px);
   left: 0;
   right: 0;
   z-index: 40;
   padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   border-radius: 22px;
   border: 1px solid rgba(140, 170, 210, 0.20);
   background:
@@ -1090,6 +1104,8 @@ select option {
   overflow: auto;
 }
 
+.custom-select__menu[hidden] { display: none; }
+
 .custom-select__option {
   width: 100%;
   min-height: 44px;
@@ -1098,6 +1114,7 @@ select option {
   border-radius: 16px;
   background: transparent;
   color: var(--text);
+  font-size: 15px;
   text-align: left;
   display: flex;
   align-items: center;
@@ -1163,6 +1180,8 @@ select option {
 .status-box {
   width: 100%;
   padding: 12px 14px;
+  display: flex;
+  align-items: center;
   border-radius: var(--radius);
   border: 1px solid rgba(140, 170, 210, 0.16);
   background:
@@ -1170,16 +1189,32 @@ select option {
     rgba(0, 0, 0, 0.14);
   color: var(--text);
   line-height: 1.5;
+  font-size: 13px;
+  min-height: 44px;
 }
 
 .status-box.success {
-  border-color: rgba(47, 229, 139, 0.35);
+  border-color: rgba(47, 229, 139, 0.26);
+  background: rgba(47, 229, 139, 0.10);
   box-shadow: 0 0 0 1px rgba(47, 229, 139, 0.08) inset;
 }
 
 .status-box.error {
-  border-color: rgba(255, 77, 109, 0.38);
+  border-color: rgba(255, 77, 109, 0.28);
+  background: rgba(255, 77, 109, 0.10);
   box-shadow: 0 0 0 1px rgba(255, 77, 109, 0.08) inset;
+}
+
+[data-theme="light"] .status-box.success {
+  background: rgba(47, 229, 139, 0.08);
+  border-color: rgba(47, 229, 139, 0.22);
+  box-shadow: 0 0 0 1px rgba(47, 229, 139, 0.06) inset;
+}
+
+[data-theme="light"] .status-box.error {
+  background: rgba(255, 77, 109, 0.08);
+  border-color: rgba(255, 77, 109, 0.24);
+  box-shadow: 0 0 0 1px rgba(255, 77, 109, 0.06) inset;
 }
 
 .hint-strip {
@@ -1436,6 +1471,10 @@ select option {
   display: grid;
   grid-template-rows: 260px 1fr;
   gap: 14px;
+}
+
+#page-impedance .eeg-layout {
+  grid-template-rows: 220px 1fr;
 }
 
 .debug-log {

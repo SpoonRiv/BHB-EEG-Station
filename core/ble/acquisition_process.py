@@ -31,9 +31,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-06-12: 1.1.21 回撤 BLE GATT 的 UUID 选择逻辑，恢复仅使用特征 handle
 - 2026-06-12: 1.1.22 (Spoon) 恢复 BLE GATT 的 UUID 选择逻辑，运行时优先使用 uuid，handle 作为兜底
 - 2026-06-12: 1.1.23 (Spoon) 增加 write_with_response，支持按需使用 Write With Response 下发指令
+- 2026-06-17: 1.1.24 EEG 帧头/帧尾/长度校验，基于帧序号统计丢包率与实际帧率（每10秒上报调试事件）
 
 作者: Spoon
-版本: 1.1.23
+版本: 1.1.24
 """
 
 import asyncio
@@ -238,6 +239,13 @@ async def _connect_and_stream(
     notify_counter = 0
     last_notify_ts: float = 0.0
     no_data_reported = False
+    eeg_last_seq: Optional[int] = None
+    eeg_stats_window_start_ts: float = time.time()
+    eeg_stats_last_report_ts: float = time.time()
+    eeg_window_valid_frames: int = 0
+    eeg_window_invalid_frames: int = 0
+    eeg_window_lost_by_seq: int = 0
+    eeg_window_dropped_bytes: int = 0
     start_retry_count = 0
     last_start_cmd_ts: float = 0.0
     current_mode: str = "idle"
@@ -256,8 +264,72 @@ async def _connect_and_stream(
     tdcs_no_data_reported = False
     tdcs_streaming_enabled = False
 
+    def _reset_eeg_stats_window(now_ts: float) -> None:
+        """
+        重置 EEG 统计窗口计数器（用于周期性输出丢包率与实际帧率）。
+        """
+        nonlocal eeg_stats_window_start_ts, eeg_window_valid_frames, eeg_window_invalid_frames, eeg_window_lost_by_seq, eeg_window_dropped_bytes
+        eeg_stats_window_start_ts = float(now_ts)
+        eeg_window_valid_frames = 0
+        eeg_window_invalid_frames = 0
+        eeg_window_lost_by_seq = 0
+        eeg_window_dropped_bytes = 0
+
+    def _extract_frame_seq(frame: bytes, spec_: FrameSpec) -> Optional[int]:
+        """
+        从 EEG 帧头中提取帧序号（若协议未包含序号则返回 None）。
+        """
+        if int(spec_.header_len_bytes) >= 3 and len(frame) >= 3:
+            return int(frame[2]) & 0xFF
+        return None
+
+    def _maybe_report_eeg_stats(now_ts: float) -> None:
+        """
+        每 10 秒输出一次 EEG 丢包率与实际采样帧率（通过 debug_queue 转发到调试窗口）。
+        """
+        nonlocal eeg_stats_last_report_ts
+        if debug_queue is None:
+            return
+        if (now_ts - eeg_stats_last_report_ts) < 10.0:
+            return
+        elapsed = max(1e-6, now_ts - eeg_stats_window_start_ts)
+        expected_fps = 0.0
+        try:
+            expected_fps = float(cfg.eeg.sampling_rate_hz) / float(eeg_proto.frame.samples_per_frame)
+        except Exception:
+            expected_fps = 0.0
+        valid_fps = float(eeg_window_valid_frames) / float(elapsed)
+        actual_hz = valid_fps * float(eeg_proto.frame.samples_per_frame)
+        lost_total = int(eeg_window_lost_by_seq) + int(eeg_window_invalid_frames)
+        expected_total = int(eeg_window_valid_frames) + int(lost_total)
+        loss_rate = float(lost_total) / float(expected_total) if expected_total > 0 else 0.0
+        try:
+            debug_queue.put(
+                {
+                    "tag": "EEG_STATS",
+                    "message": "EEG 丢包率与帧率统计（10秒）",
+                    "data": {
+                        "window_sec": float(elapsed),
+                        "valid_frames": int(eeg_window_valid_frames),
+                        "invalid_frames": int(eeg_window_invalid_frames),
+                        "lost_by_seq": int(eeg_window_lost_by_seq),
+                        "loss_rate": float(loss_rate),
+                        "valid_fps": float(valid_fps),
+                        "expected_fps": float(expected_fps),
+                        "actual_sampling_hz": float(actual_hz),
+                        "expected_sampling_hz": float(cfg.eeg.sampling_rate_hz),
+                        "dropped_bytes": int(eeg_window_dropped_bytes),
+                    },
+                }
+            )
+        except Exception:
+            return
+        eeg_stats_last_report_ts = float(now_ts)
+        _reset_eeg_stats_window(now_ts)
+
     def on_notify(_: int, data: bytearray) -> None:
         nonlocal frame_counter, notify_counter, last_notify_ts, no_data_reported, eeg_streaming_enabled
+        nonlocal eeg_last_seq, eeg_stats_last_report_ts, eeg_window_valid_frames, eeg_window_invalid_frames, eeg_window_lost_by_seq, eeg_window_dropped_bytes
         nonlocal imp_frame_counter, imp_notify_counter, imp_last_notify_ts, imp_no_data_reported, impedance_streaming_enabled
         nonlocal tdcs_buf, tdcs_notify_counter, tdcs_last_notify_ts, tdcs_no_data_reported, tdcs_streaming_enabled
 
@@ -441,26 +513,23 @@ async def _connect_and_stream(
                     )
             except Exception:
                 pass
-        # 参考旧版已验证逻辑：若收到长度刚好为一帧（140字节）的数据包，则清空缓存，避免错位累积
-        if len(data) == spec.frame_len_bytes:
-            if debug_queue is not None:
-                try:
-                    debug_queue.put(
-                        {
-                            "tag": "EEG_ALIGN",
-                            "message": "收到完整帧长度数据包，清空缓存以重新对齐",
-                            "data": {"frame_len": int(spec.frame_len_bytes)},
-                        }
-                    )
-                except Exception:
-                    pass
-            buf.clear()
-        buf.extend(data)
-        while len(buf) >= spec.frame_len_bytes:
-            frame = bytes(buf[: spec.frame_len_bytes])
-            del buf[: spec.frame_len_bytes]
-            samples, battery, imu = parse_frame_to_samples(frame, spec)
+        now_ts = time.time()
+        _maybe_report_eeg_stats(now_ts)
+
+        def _push_one_frame(one_frame: bytes) -> None:
+            nonlocal frame_counter, eeg_last_seq, eeg_window_valid_frames, eeg_window_lost_by_seq
+
+            seq = _extract_frame_seq(one_frame, spec)
+            if seq is not None and eeg_last_seq is not None:
+                gap = (int(seq) - int(eeg_last_seq) - 1) & 0xFF
+                if gap > 0:
+                    eeg_window_lost_by_seq += int(gap)
+            if seq is not None:
+                eeg_last_seq = int(seq)
+
+            samples, battery, imu = parse_frame_to_samples(one_frame, spec)
             frame_counter += 1
+            eeg_window_valid_frames += 1
             if cfg.eeg.lsl.include_trigger_channel:
                 v = float(soft_trigger_value)
                 if v != 0.0:
@@ -478,6 +547,54 @@ async def _connect_and_stream(
             if imu and frame_counter % 50 == 0:
                 status_queue.put({"type": "imu", "value": imu})
 
+        expected = int(spec.frame_len_bytes)
+        if len(data) == expected:
+            if len(buf) > 0:
+                eeg_window_dropped_bytes += int(len(buf))
+                buf.clear()
+                if debug_queue is not None:
+                    try:
+                        debug_queue.put(
+                            {
+                                "tag": "EEG_ALIGN",
+                                "message": "收到完整帧长度数据包，清空缓存以重新对齐",
+                                "data": {"frame_len": int(spec.frame_len_bytes)},
+                            }
+                        )
+                    except Exception:
+                        pass
+            one = bytes(data)
+            if spec.validate_checksum(one):
+                _push_one_frame(one)
+                return
+
+        buf.extend(data)
+        header_bytes = bytes([0xAA, 0xBB])
+        for _ in range(200):
+            if len(buf) < 2:
+                break
+            pos = buf.find(header_bytes)
+            if pos < 0:
+                if len(buf) > 1:
+                    drop_n = int(len(buf) - 1)
+                    eeg_window_dropped_bytes += drop_n
+                    del buf[:-1]
+                break
+            if pos > 0:
+                eeg_window_dropped_bytes += int(pos)
+                del buf[:pos]
+            if len(buf) < expected:
+                break
+            candidate = bytes(buf[:expected])
+            if not spec.validate_checksum(candidate):
+                eeg_window_invalid_frames += 1
+                eeg_window_dropped_bytes += 1
+                del buf[:1]
+                continue
+            del buf[:expected]
+            _push_one_frame(candidate)
+        _maybe_report_eeg_stats(time.time())
+
     status_payload: Dict[str, Any] = {"type": "connecting", "address": address, "name": resolved_name}
     if module_info is not None:
         status_payload["module"] = {"eeg_channels": int(module_info.eeg_channels), "stim_channels": int(module_info.stim_channels)}
@@ -494,6 +611,9 @@ async def _connect_and_stream(
                 notify_counter = 0
                 last_notify_ts = time.time()
                 no_data_reported = False
+                eeg_last_seq = None
+                eeg_stats_last_report_ts = time.time()
+                _reset_eeg_stats_window(eeg_stats_last_report_ts)
                 start_retry_count = 0
                 last_start_cmd_ts = 0.0
                 current_mode = "idle"
@@ -566,6 +686,9 @@ async def _connect_and_stream(
                                 impedance_streaming_enabled = False
                                 imp_buf.clear()
                                 buf.clear()
+                                eeg_last_seq = None
+                                eeg_stats_last_report_ts = time.time()
+                                _reset_eeg_stats_window(eeg_stats_last_report_ts)
                                 notify_counter = 0
                                 last_notify_ts = time.time()
                                 no_data_reported = False

@@ -8,9 +8,12 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-17: 1.0.1 电极位置由外部传入（后端配置下发），保留默认回退
 - 2026-05-17: 1.0.2 电极默认回退与按钮命名切换为标准 10-20（T7/T8），移除扩展电极
 - 2026-05-17: 1.0.3 电极默认回退扩展为 64 通道帽布局（10-10），支持完整电极分布绘制
+- 2026-06-17: 1.0.4 增加参考电极（BIAS/tDCS）默认位置，保证阻抗地形图可见
+- 2026-06-17: 1.0.5 Tooltip 单位标识调整为 ✖10Ω
+- 2026-06-17: 1.0.6 Tooltip 单位标识调整为 *10 Ω
 
 作者: Spoon
-版本: 1.0.3
+版本: 1.0.6
 */
 
 const DEFAULT_ELECTRODE_POS = {
@@ -76,6 +79,8 @@ const DEFAULT_ELECTRODE_POS = {
   O2: { x: 58, y: 84 },
   CB1: { x: 46, y: 92 },
   CB2: { x: 54, y: 92 },
+  BIAS: { x: 24, y: 95.5 },
+  tDCS: { x: 76, y: 95.5 },
   A1: { x: 4, y: 50 },
   A2: { x: 96, y: 50 },
 };
@@ -259,7 +264,7 @@ export function createImpedanceTopomap(hostEl, channelNames, ui, positions, alia
       g.classList.add(`imp-${kind}`);
       const c = circles.get(n);
       if (c) {
-        const title = `${n}: ${Number.isFinite(Number(v)) ? Math.round(Number(v)) : '--'} Ω`;
+        const title = `${n}: ${Number.isFinite(Number(v)) ? Math.round(Number(v)) : '--'} *10 Ω`;
         c.setAttribute('data-title', title);
       }
     }
