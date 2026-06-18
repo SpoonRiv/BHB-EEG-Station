@@ -44,9 +44,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-06-17: 1.0.35 16 通道紧凑模式不再改变列表行高与间距，确保 8/16 模式等高
 - 2026-06-17: 1.0.36 顶部“已选”提示条文本布局对齐设备状态条（字号与垂直居中一致）
 - 2026-06-17: 1.0.37 删除阻抗页底部提示后让右侧列表区域自动填充剩余空间
+- 2026-06-18: 1.0.38 已选通道与参考通道左侧圆标改为与地形图一致的蓝色/绿色
 
 作者: Spoon
-版本: 1.0.37
+版本: 1.0.38
 */
 
 .device-right {
@@ -255,13 +256,27 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
   justify-content: center;
   font-weight: 800;
   font-size: var(--ch-chip-index-font-size, 12px);
-  color: rgba(0, 0, 0, 0.82);
+  color: rgba(236, 242, 255, 0.96);
   background: rgba(var(--accent-rgb), 0.85);
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.18) inset;
 }
 
 [data-theme="light"] .chip-index {
-  color: rgba(255, 255, 255, 0.94);
-  background: rgba(12, 18, 28, 0.75);
+  color: rgba(255, 255, 255, 0.96);
+  background: rgba(var(--accent-rgb), 0.82);
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.12) inset;
+}
+
+.chip.chip-ref .chip-index {
+  color: rgba(236, 242, 255, 0.96);
+  background: rgba(47, 229, 139, 0.82);
+  box-shadow: 0 0 0 1px rgba(47, 229, 139, 0.18) inset;
+}
+
+[data-theme="light"] .chip.chip-ref .chip-index {
+  color: rgba(255, 255, 255, 0.96);
+  background: rgba(47, 229, 139, 0.88);
+  box-shadow: 0 0 0 1px rgba(47, 229, 139, 0.12) inset;
 }
 
 .chip-name {

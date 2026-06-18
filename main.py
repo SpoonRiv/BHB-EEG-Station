@@ -52,10 +52,12 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-30: 1.4.6 开始采集时自动启动 trigger TCP 服务端
 - 2026-05-31: 1.4.7 EEG 模式启动时自动启动 trigger 服务端，并将 trigger start/end 同步到采集进程注入触发通道
 - 2026-06-17: 1.4.8 下发当前参考电极名，供阻抗页将 BIAS 显示为实际参考通道
+- 2026-06-18: 1.4.9 增加应用关机接口，统一断开蓝牙并在响应后退出服务进程
+- 2026-06-18: 1.5.0 直接运行 main.py 时自动使用系统默认浏览器打开上位机首页
 
 
 作者: Spoon
-版本: 1.4.8
+版本: 1.5.0
 """
 
 import asyncio
@@ -63,6 +65,9 @@ import queue
 import threading
 import os
 import logging
+import time
+import socket
+import webbrowser
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -600,6 +605,101 @@ class AppState:
             pass
 
 state = AppState()
+
+
+def shutdown_runtime() -> None:
+    """
+    关闭运行中的数据流、后台服务与采集进程。
+
+    职责边界：
+        - 统一停止 WebSocket Hub、LSL 读取、PSD 任务、trigger 服务与离线会话；
+        - 最后停止 BLE 采集进程，确保蓝牙连接被断开；
+        - 该函数不直接退出 Python 进程，便于在 HTTP 响应返回后再执行真正的进程退出。
+    """
+    state.eeg_ws_hub.stop(clear_pending=True)
+    state.stop_psd()
+    state.streamer.stop()
+    state.imp_ws_hub.stop(clear_pending=True)
+    state.imp_streamer.stop()
+    try:
+        state.trigger.stop_server()
+    except Exception:
+        pass
+    try:
+        state.offline.stop_session()
+    except Exception:
+        pass
+    state.controller.stop_mode("eeg")
+    state.controller.stop_mode("impedance")
+    state.controller.stop_mode("tdcs")
+    state.controller.stop_device()
+
+
+def schedule_process_exit(delay_sec: float = 0.6) -> None:
+    """
+    在短延时后强制退出当前服务进程。
+
+    Args:
+        delay_sec: 延时时长（秒），用于给 HTTP 响应留出发送时间。
+    """
+
+    def _exit_later() -> None:
+        """
+        等待响应发出后退出进程，避免前端请求在网络层中断。
+        """
+        try:
+            time.sleep(max(0.1, float(delay_sec)))
+        finally:
+            os._exit(0)
+
+    threading.Thread(target=_exit_later, daemon=True).start()
+
+
+def get_browser_launch_url(host: str, port: int) -> str:
+    """
+    根据监听地址生成适合本机浏览器访问的 URL。
+
+    Args:
+        host: 服务监听地址。
+        port: 服务监听端口。
+
+    Returns:
+        str: 用于打开首页的完整 URL。
+    """
+    normalized_host = str(host or "").strip()
+    if normalized_host in {"", "0.0.0.0", "::", "[::]"}:
+        normalized_host = "127.0.0.1"
+    return f"http://{normalized_host}:{int(port)}/"
+
+
+def open_browser_when_server_ready(host: str, port: int, timeout_sec: float = 15.0) -> None:
+    """
+    在服务端口就绪后，使用系统默认浏览器打开上位机首页。
+
+    设计说明：
+        - 仅用于 `python main.py` 的本地直接启动场景；
+        - 通过后台线程轮询端口可用性，避免浏览器过早打开导致页面不可访问；
+        - 若超时仍未监听成功，则静默放弃，不影响后端正常启动。
+
+    Args:
+        host: 服务监听地址。
+        port: 服务监听端口。
+        timeout_sec: 等待端口就绪的最长时长（秒）。
+    """
+    browser_host = str(host or "").strip()
+    connect_host = browser_host
+    if connect_host in {"", "0.0.0.0", "::", "[::]"}:
+        connect_host = "127.0.0.1"
+    launch_url = get_browser_launch_url(host=browser_host, port=port)
+    deadline = time.time() + max(1.0, float(timeout_sec))
+
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((connect_host, int(port)), timeout=0.5):
+                webbrowser.open(launch_url, new=2)
+                return
+        except Exception:
+            time.sleep(0.25)
 
 class BleConnectRequest(BaseModel):
     address: Optional[str] = None
@@ -1158,6 +1258,25 @@ async def ble_disconnect():
     return {"status": "error", "message": "断开失败。", "device": state.controller.get_status()}
 
 
+@app.post("/api/app/shutdown")
+async def app_shutdown():
+    """
+    执行应用关机：断开蓝牙、停止后台任务，并在响应后退出当前服务进程。
+    """
+    try:
+        await asyncio.to_thread(shutdown_runtime)
+        if state.config.debug.ui_enabled:
+            try:
+                await state.debug_bus.stop_forward()
+            except Exception:
+                pass
+        schedule_process_exit()
+        return {"status": "success", "message": "系统关闭中。"}
+    except Exception as e:
+        logging.exception("Application shutdown failed")
+        raise HTTPException(status_code=500, detail=f"系统关闭失败：{e}") from e
+
+
 @app.get("/api/control/commands")
 async def get_two_level_commands():
     """
@@ -1473,4 +1592,9 @@ if __name__ == "__main__":
     import uvicorn
     host = state.config.server.host
     port = state.config.server.port
+    threading.Thread(
+        target=open_browser_when_server_ready,
+        args=(str(host), int(port)),
+        daemon=True,
+    ).start()
     uvicorn.run(app, host=host, port=port)

@@ -29,12 +29,14 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-29: 1.0.21 设备能力变化时自动刷新配置并通知模式页更新入口可用性
 - 2026-05-30: 1.0.22 日间/夜间切换按钮图标与主题语义对齐（日间显示太阳，夜间显示月亮）
 - 2026-06-11: 1.0.23 同步头部工作区的页面信息与系统状态，配合 UI 视觉焕新
+- 2026-06-18: 1.0.24 增加顶栏关机按钮，支持断开蓝牙并关闭后端
+- 2026-06-18: 1.0.25 关机确认改为页面内自定义弹窗，替代系统确认框
 
 作者: Spoon , Fengye
-版本: 1.0.23
+版本: 1.0.25
 */
 
-import { getConfig, getStatus } from './api.js';
+import { appShutdown, getConfig, getStatus } from './api.js';
 import { initDevicePage } from './device.js';
 import { initModePage } from './mode.js';
 import { enterEegPage, leaveEegPage } from './eeg.js';
@@ -237,6 +239,61 @@ function bindHeaderNav() {
   }
 }
 
+function bindPowerButton() {
+  const powerBtn = document.getElementById('app-power');
+  const modal = document.getElementById('power-modal');
+  const confirmBtn = document.getElementById('power-modal-confirm');
+  const cancelBtn = document.getElementById('power-modal-cancel');
+  if (!powerBtn || !modal || !confirmBtn || !cancelBtn) return;
+
+  const closeModal = () => {
+    modal.hidden = true;
+  };
+
+  const openModal = () => {
+    modal.hidden = false;
+    window.requestAnimationFrame(() => {
+      confirmBtn.focus();
+    });
+  };
+
+  powerBtn.addEventListener('click', () => {
+    if (powerBtn.disabled) return;
+    openModal();
+  });
+
+  cancelBtn.addEventListener('click', () => {
+    closeModal();
+  });
+
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) closeModal();
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !modal.hidden) {
+      closeModal();
+    }
+  });
+
+  confirmBtn.addEventListener('click', async () => {
+    closeModal();
+    powerBtn.disabled = true;
+    setConnBadge('error', '系统关闭中…');
+    try {
+      await appShutdown();
+    } catch (_) {
+      setConnBadge('error', '关机失败');
+      powerBtn.disabled = false;
+      return;
+    }
+    window.clearInterval(statusTimer);
+    statusTimer = null;
+    setConnBadge('error', '系统已关闭');
+    powerBtn.setAttribute('aria-label', '系统关闭中');
+  });
+}
+
 function updateHeaderNavActive() {
   const navDevice = document.getElementById('nav-device');
   const navMode = document.getElementById('nav-mode');
@@ -382,6 +439,7 @@ function init() {
   initModePage();
   initRoutes();
   bindHeaderNav();
+  bindPowerButton();
   updateHeaderNavActive();
   window.addEventListener('hashchange', updateHeaderNavActive);
   initButtonShine();

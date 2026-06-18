@@ -9,9 +9,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.2 增加采集时长与数据尺寸展示（在导出选项之前）
 - 2026-05-03: 1.0.3 移除陷波提示行；时间戳去除 T；不再展示预估文件尺寸
 - 2026-05-03: 1.0.4 移除采集时间区间；数据尺寸增加预估大小；提示条成功字色由样式层修复
+- 2026-06-18: 1.0.5 离线页状态框统一为成功绿/非成功红，并固定高度避免跳变
 
 作者: Spoon
-版本: 1.0.4
+版本: 1.0.5
 */
 
 import { getConfig, offlineExport, offlineSession } from './api.js';
@@ -35,7 +36,7 @@ function setStatus(text, kind) {
   if (!box) return;
   box.classList.remove('success', 'error');
   if (kind === 'success') box.classList.add('success');
-  if (kind === 'error') box.classList.add('error');
+  else box.classList.add('error');
   box.textContent = text || '';
 }
 

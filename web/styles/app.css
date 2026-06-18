@@ -126,9 +126,18 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-06-17: 1.0.118 统一状态提示条文字字号与垂直居中布局（设备状态/已选计数）
 - 2026-06-17: 1.0.118 阻抗列表区域改为自适应高度并允许内部滚动，避免底部参考电极卡片被裁切
 - 2026-06-17: 1.0.119 阻抗页降低调试区固定高度并移除阻抗列表内部滚动条，保证右侧元素平铺不裁切
+- 2026-06-18: 1.0.120 顶栏蓝牙连接提示灯去掉外框与固定宽度，视觉与电量提示灯一致
+- 2026-06-18: 1.0.121 修复浅色主题下连接提示灯仍被 conn-badge 规则覆盖而显示白底
+- 2026-06-18: 1.0.122 顶栏增加红色关机按钮，并补充关机图标样式
+- 2026-06-18: 1.0.123 增加页面内居中确认弹窗样式，用于关机确认
+- 2026-06-18: 1.0.124 固定顶栏连接提示灯位置，并让文本在右侧左对齐显示
+- 2026-06-18: 1.0.125 优化离线导出页面排版，重组会话概览与双列导出配置
+- 2026-06-18: 1.0.126 离线页顶部提示改为状态框样式，并保留多行导出结果显示
+- 2026-06-18: 1.0.127 离线页状态框固定高度，并统一为红绿两态
+- 2026-06-18: 1.0.128 提高离线页状态框固定高度，保证至少可见三行文本
 
 作者: Spoon
-版本: 1.0.119
+版本: 1.0.128
 */
 
 @import "./eeg_topomap.css";
@@ -425,16 +434,24 @@ body::after {
 }
 
 #conn-badge {
-  min-width: 240px;
-  max-width: 260px;
-  justify-content: flex-start;
+  width: 232px;
+  min-width: 232px;
+  max-width: 232px;
+  flex: 0 0 232px;
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: center;
+  justify-content: stretch;
 }
 
 #conn-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: 0;
+  overflow: visible;
+  text-overflow: clip;
   white-space: nowrap;
   font-weight: 650;
+  text-align: left;
 }
 
 .header-nav {
@@ -538,6 +555,11 @@ body::after {
 [data-theme="light"] .badge.conn-badge {
   background: rgba(255, 255, 255, 0.72);
   box-shadow: 0 10px 24px rgba(10, 18, 32, 0.10), 0 0 0 1px rgba(10, 18, 32, 0.04) inset;
+}
+
+[data-theme="light"] .badge.conn-badge.plain {
+  background: transparent;
+  box-shadow: none;
 }
 
 .badge.plain {
@@ -725,6 +747,12 @@ body::after {
   display: block;
 }
 
+.power-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
 .btn.danger,
 .btn.btn--danger {
   border-color: rgba(255, 77, 109, 0.32);
@@ -738,6 +766,38 @@ body::after {
 .btn.btn--danger:active { border-color: rgba(255, 77, 109, 0.68); background: rgba(255, 77, 109, 0.14); box-shadow: none; }
 .btn.danger:focus-visible,
 .btn.btn--danger:focus-visible { box-shadow: var(--focus-ring-danger), var(--shadow-sm); border-color: rgba(255, 77, 109, 0.72); }
+
+.btn.btn--power {
+  color: #fff1f4;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.00) 68%),
+    rgba(255, 77, 109, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    0 12px 24px rgba(255, 77, 109, 0.18);
+}
+
+.btn.btn--power:hover {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.00) 68%),
+    rgba(255, 77, 109, 0.24);
+  box-shadow:
+    var(--shadow-sm),
+    0 0 0 1px rgba(255, 77, 109, 0.16) inset,
+    0 14px 28px rgba(255, 77, 109, 0.22);
+}
+
+.btn.btn--power:active {
+  background: rgba(255, 77, 109, 0.28);
+  box-shadow: none;
+}
+
+[data-theme="light"] .btn.btn--power {
+  color: #8b102b;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.20) 68%),
+    rgba(255, 77, 109, 0.14);
+}
 
 .btn.ghost,
 .btn.btn--ghost {
@@ -875,6 +935,67 @@ body::after {
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(6, 8, 13, 0.42);
+  backdrop-filter: blur(10px) saturate(120%);
+}
+
+.modal-backdrop[hidden] {
+  display: none;
+}
+
+.modal-card {
+  width: min(560px, calc(100vw - 48px));
+  padding: 28px;
+  border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.00) 64%),
+    var(--panel-strong);
+  box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.modal-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.modal-desc {
+  margin-top: 14px;
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--text-soft);
+}
+
+.modal-actions {
+  margin-top: 28px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+[data-theme="light"] .modal-backdrop {
+  background: rgba(245, 245, 247, 0.40);
+}
+
+[data-theme="light"] .modal-card {
+  border-color: rgba(12, 18, 28, 0.10);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.56) 68%),
+    var(--panel-strong);
+  box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.78);
 }
 
 .stack { display: flex; flex-direction: column; gap: var(--space-3); }
@@ -1259,6 +1380,115 @@ select option {
   color: var(--text);
   line-height: 1.6;
   font-size: 13px;
+}
+
+.offline-page-stack {
+  gap: 18px;
+}
+
+.offline-status-box {
+  height: 88px;
+  min-height: 88px;
+  max-height: 88px;
+  align-items: flex-start;
+  white-space: pre-line;
+  line-height: 1.6;
+  padding: 14px 16px;
+  overflow: auto;
+}
+
+.offline-session-panel,
+.offline-panel {
+  border-radius: var(--radius);
+  border: 1px solid rgba(140, 170, 210, 0.16);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.00) 72%),
+    rgba(0, 0, 0, 0.10);
+  padding: 18px;
+}
+
+[data-theme="light"] .offline-session-panel,
+[data-theme="light"] .offline-panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.40) 72%),
+    rgba(255, 255, 255, 0.78);
+}
+
+.offline-section-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.offline-section-title {
+  font-size: 15px;
+  font-weight: 760;
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+
+.offline-section-sub {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.offline-session-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.95fr) minmax(320px, 2.05fr);
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.offline-session-grid__dir {
+  min-width: 0;
+}
+
+.offline-session-grid .status-box {
+  min-height: 46px;
+}
+
+#offline-session-dir {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.offline-export-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+
+.offline-form-stack {
+  gap: 14px;
+}
+
+.offline-check-row {
+  min-height: 46px;
+}
+
+.offline-toggle-row {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+}
+
+.offline-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+#offline-filter-block,
+#offline-filtered-block {
+  width: 100%;
+}
+
+#offline-filtered-block > .offline-form-stack {
+  margin-top: 2px;
 }
 
 .mode-grid {
@@ -2265,6 +2495,9 @@ select option {
   .mode-card.mode-card--top { grid-column: auto; }
   .mode-card.mode-card--bottom { grid-column: auto; }
   .page#page-mode .card-body { padding: 22px; }
+  .offline-session-grid,
+  .offline-export-grid,
+  .offline-filter-grid { grid-template-columns: 1fr; }
 }
 
 .tdcs-main-body {

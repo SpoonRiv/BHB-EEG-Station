@@ -75,9 +75,15 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-06-11: 1.2.56 模式选择标题下增加简短说明文字，提升页面完整度
 - 2026-06-17: 1.2.57 阻抗页列表单位标识调整为 ✖10Ω，并优化分组标题文案
 - 2026-06-17: 1.2.58 通道选择顶部提示条改为与蓝牙状态一致的文本状态框
+- 2026-06-18: 1.2.59 阻抗列表单位文案调整为 *10 Ω
+- 2026-06-18: 1.2.60 顶栏蓝牙连接提示灯改为与电量提示灯一致的无装饰样式
+- 2026-06-18: 1.2.61 顶栏最右侧增加关机按钮，用于断开蓝牙并关闭后端
+- 2026-06-18: 1.2.62 关机确认改为页面内居中弹窗，替代系统确认框
+- 2026-06-18: 1.2.63 优化离线导出页面排版，重组会话信息与导出配置布局
+- 2026-06-18: 1.2.64 离线页顶部提示改为状态框样式，视觉参考设备页状态框
 
 作者: Spoon
-版本: 1.2.58
+版本: 1.2.64
 -->
 <html lang="zh-CN">
 <head>
@@ -105,7 +111,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
             </div>
         </div>
         <div class="header-actions">
-            <div class="badge conn-badge error" id="conn-badge">
+            <div class="badge plain conn-badge error" id="conn-badge">
                 <div class="badge-dot"></div>
                 <div id="conn-text">未连接</div>
             </div>
@@ -114,6 +120,12 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                 <button class="btn btn--sm btn--ghost seg-btn" id="nav-mode" type="button">模式</button>
             </div>
             <button class="btn btn--sm btn--icon btn--ghost" id="theme-toggle" aria-label="切换日夜模式"></button>
+            <button class="btn btn--sm btn--icon btn--danger btn--power" id="app-power" type="button" aria-label="断开蓝牙并关闭系统">
+                <svg class="power-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M12 3v7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                    <path d="M7.05 5.82a8 8 0 1 0 9.9 0" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </button>
         </div>
     </header>
 
@@ -329,62 +341,83 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                     </div>
                 </div>
                 <div class="card-body">
-                    <div class="stack">
-                        <div class="hint-strip" id="offline-status"></div>
-                        <div class="row">
-                            <div class="field" style="flex: 1; min-width: 240px;">
-                                <div class="label">会话ID</div>
-                                <div class="status-box" id="offline-session-id">--</div>
+                    <div class="stack offline-page-stack">
+                        <div class="status-box offline-status-box" id="offline-status"></div>
+                        <div class="offline-session-panel">
+                            <div class="offline-section-head">
+                                <div class="offline-section-title">会话概览</div>
+                                <div class="offline-section-sub">确认最近一次采集会话与数据规模后，再选择导出方式</div>
                             </div>
-                            <div class="field" style="flex: 2; min-width: 420px;">
-                                <div class="label">会话目录</div>
-                                <div class="status-box" id="offline-session-dir">--</div>
-                            </div>
-                        </div>
-                        <div class="hint-metrics" id="offline-metrics" style="display: none;"></div>
-
-                        <div class="row">
-                            <div class="field" style="flex: 1; min-width: 260px;">
-                                <div class="label">原始文件名（不含扩展名）</div>
-                                <input id="offline-base-raw" placeholder="例如：subject01_run1" />
-                            </div>
-                            <div class="field" style="flex: 1; min-width: 260px;">
-                                <div class="label">导出原始数据（已包含工频陷波）</div>
-                                <div class="check-row">
-                                    <label class="check"><input type="checkbox" id="offline-raw-csv" checked /> CSV</label>
-                                    <label class="check"><input type="checkbox" id="offline-raw-edf" /> EDF</label>
+                            <div class="offline-session-grid">
+                                <div class="field">
+                                    <div class="label">会话ID</div>
+                                    <div class="status-box" id="offline-session-id">--</div>
+                                </div>
+                                <div class="field offline-session-grid__dir">
+                                    <div class="label">会话目录</div>
+                                    <div class="status-box" id="offline-session-dir">--</div>
                                 </div>
                             </div>
+                            <div class="hint-metrics" id="offline-metrics" style="display: none;"></div>
                         </div>
 
-                        <div class="row">
-                            <label class="check"><input type="checkbox" id="offline-filter-enable" /> 启用带通滤波</label>
-                        </div>
-
-                        <div id="offline-filter-block" style="display: none;">
-                            <div class="row">
-                                <div class="field" style="flex: 1; min-width: 220px;">
-                                    <div class="label">低频截止（Hz）</div>
-                                    <input id="offline-lowcut" type="number" min="0" step="0.1" />
+                        <div class="offline-export-grid">
+                            <div class="offline-panel">
+                                <div class="offline-section-head">
+                                    <div class="offline-section-title">原始导出</div>
+                                    <div class="offline-section-sub">导出已包含 50Hz 工频陷波的原始会话数据</div>
                                 </div>
-                                <div class="field" style="flex: 1; min-width: 220px;">
-                                    <div class="label">高频截止（Hz）</div>
-                                    <input id="offline-highcut" type="number" min="0" step="0.1" />
+                                <div class="stack offline-form-stack">
+                                    <div class="field">
+                                        <div class="label">原始文件名（不含扩展名）</div>
+                                        <input id="offline-base-raw" placeholder="例如：subject01_run1" />
+                                    </div>
+                                    <div class="field">
+                                        <div class="label">导出原始数据（已包含工频陷波）</div>
+                                        <div class="check-row offline-check-row">
+                                            <label class="check"><input type="checkbox" id="offline-raw-csv" checked /> CSV</label>
+                                            <label class="check"><input type="checkbox" id="offline-raw-edf" /> EDF</label>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
 
-                        <div id="offline-filtered-block" style="display: none;">
-                            <div class="row">
-                                <div class="field" style="flex: 1; min-width: 260px;">
-                                    <div class="label">滤波后文件名（不含扩展名）</div>
-                                    <input id="offline-base-filtered" placeholder="例如：subject01_run1_filtered" />
+                            <div class="offline-panel">
+                                <div class="offline-section-head">
+                                    <div class="offline-section-title">滤波导出</div>
+                                    <div class="offline-section-sub">按带通参数另存一份滤波后数据，便于后续分析</div>
                                 </div>
-                                <div class="field" style="flex: 1; min-width: 260px;">
-                                    <div class="label">导出带通滤波后数据</div>
-                                    <div class="check-row">
-                                        <label class="check"><input type="checkbox" id="offline-fil-csv" /> CSV</label>
-                                        <label class="check"><input type="checkbox" id="offline-fil-edf" /> EDF</label>
+                                <div class="stack offline-form-stack">
+                                    <div class="offline-toggle-row">
+                                        <label class="check"><input type="checkbox" id="offline-filter-enable" /> 启用带通滤波</label>
+                                    </div>
+                                    <div id="offline-filter-block" style="display: none;">
+                                        <div class="offline-filter-grid">
+                                            <div class="field">
+                                                <div class="label">低频截止（Hz）</div>
+                                                <input id="offline-lowcut" type="number" min="0" step="0.1" />
+                                            </div>
+                                            <div class="field">
+                                                <div class="label">高频截止（Hz）</div>
+                                                <input id="offline-highcut" type="number" min="0" step="0.1" />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div id="offline-filtered-block" style="display: none;">
+                                        <div class="stack offline-form-stack">
+                                            <div class="field">
+                                                <div class="label">滤波后文件名（不含扩展名）</div>
+                                                <input id="offline-base-filtered" placeholder="例如：subject01_run1_filtered" />
+                                            </div>
+                                            <div class="field">
+                                                <div class="label">导出带通滤波后数据</div>
+                                                <div class="check-row offline-check-row">
+                                                    <label class="check"><input type="checkbox" id="offline-fil-csv" /> CSV</label>
+                                                    <label class="check"><input type="checkbox" id="offline-fil-edf" /> EDF</label>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -430,7 +463,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             <div class="topomap-side">
                                 <div class="imp-legend" id="imp-legend"></div>
                                 <div class="field" style="min-height: 0;">
-                                    <div class="label">阻抗列表（✖10Ω）</div>
+                                    <div class="label">阻抗列表（*10 Ω）</div>
                                     <div class="imp-grid-wrap" id="imp-list">
                                         <div class="imp-grid" id="imp-grid-main"></div>
                                         <div class="imp-grid imp-grid-extra" id="imp-grid-extra"></div>
@@ -536,6 +569,17 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
             </div>
         </section>
         
+    </div>
+</div>
+
+<div class="modal-backdrop" id="power-modal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="power-modal-title" aria-describedby="power-modal-desc">
+        <div class="modal-title" id="power-modal-title">确认操作</div>
+        <div class="modal-desc" id="power-modal-desc">确认断开蓝牙并关闭系统吗？</div>
+        <div class="modal-actions">
+            <button class="btn btn--primary btn--lg" id="power-modal-confirm" type="button">确定</button>
+            <button class="btn btn--ghost btn--lg" id="power-modal-cancel" type="button">取消</button>
+        </div>
     </div>
 </div>
 

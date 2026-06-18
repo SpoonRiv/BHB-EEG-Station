@@ -11,9 +11,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-09: 1.0.4 (Alice)补充模式 start/stop 的兼容封装（postModeStart/postModeStop）
 - 2026-05-12: 1.0.5 增加两级指令控制面板接口封装（指令列表/下发指令）
 - 2026-05-30: 1.0.6 增加 trigger 开始/停止接口封装
+- 2026-06-18: 1.0.7 增加应用关机接口封装
 
 作者: Spoon
-版本: 1.0.6
+版本: 1.0.7
 */
 
 async function fetchJson(url, options) {
@@ -62,6 +63,10 @@ export async function bleConnect(address, name) {
 
 export async function bleDisconnect() {
   return fetchJson('/api/ble/disconnect', { method: 'POST' });
+}
+
+export async function appShutdown() {
+  return fetchJson('/api/app/shutdown', { method: 'POST' });
 }
 
 export async function modeSelect(mode) {

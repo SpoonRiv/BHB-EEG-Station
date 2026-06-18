@@ -19,9 +19,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-30: 1.0.12 时域/频域切换按钮文案固定为“时域/频域”
 - 2026-05-30: 1.0.13 时域/频域切换按钮尺寸与“暂停输出”一致（自适应文本宽度）
 - 2026-05-30: 1.0.14 增加 trigger 开始/停止按钮
+- 2026-06-18: 1.0.15 PSD 分析图补充横纵坐标名称与单位信息
+- 2026-06-18: 1.0.16 调整轴标题位置与图表边距，确保横纵坐标标题可见
 
 作者: Spoon
-版本: 1.0.14
+版本: 1.0.16
 */
 
 import { triggerStart, triggerStop } from './api.js';
@@ -342,7 +344,7 @@ export class EegPsdView {
     const xAxisMax = Number.isFinite(this.fmaxHz) ? this.fmaxHz : null;
     this.chart.setOption({
       backgroundColor: 'transparent',
-      grid: { top: 14, bottom: 14, left: 14, right: 14, containLabel: true },
+      grid: { top: 28, bottom: 52, left: 72, right: 24, containLabel: true },
       tooltip: { trigger: 'axis', axisPointer: { type: 'line' } },
       legend: {
         show: false,
@@ -354,7 +356,9 @@ export class EegPsdView {
       },
       xAxis: {
         type: 'value',
-        name: 'Hz',
+        name: '频率 (Hz)',
+        nameLocation: 'middle',
+        nameGap: 34,
         nameTextStyle: { color: axisColor, fontWeight: 900 },
         min: 0,
         ...(xAxisMax === null ? {} : { max: xAxisMax }),
@@ -365,6 +369,8 @@ export class EegPsdView {
       },
       yAxis: {
         type: 'value',
+        nameLocation: 'middle',
+        nameGap: 58,
         axisLine: { show: true, lineStyle: { color: splitColor } },
         axisTick: { show: false },
         axisLabel: { color: axisColor },
@@ -382,6 +388,7 @@ export class EegPsdView {
     const freq = p.freq_hz;
     if (freq.length <= 0) return;
     const unit = p.unit ? String(p.unit) : '';
+    const yAxisName = unit ? `功率谱密度 (${unit})` : '功率谱密度';
     const cfgMax = Number.isFinite(this.fmaxHz) ? this.fmaxHz : null;
     let xMax = null;
     if (cfgMax !== null) {
@@ -412,7 +419,12 @@ export class EegPsdView {
 
     this.chart.setOption({
       xAxis: xMax === null ? {} : { max: xMax },
-      yAxis: { name: unit, nameTextStyle: { color: this.theme === 'light' ? '#111827' : 'rgba(255, 255, 255, 0.78)', fontWeight: 900 } },
+      yAxis: {
+        name: yAxisName,
+        nameLocation: 'middle',
+        nameGap: 58,
+        nameTextStyle: { color: this.theme === 'light' ? '#111827' : 'rgba(255, 255, 255, 0.78)', fontWeight: 900 },
+      },
       legend: this.legendSelected ? { selected: this.legendSelected } : {},
       series,
     }, false, false);

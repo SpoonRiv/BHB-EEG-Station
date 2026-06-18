@@ -25,9 +25,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-06-17: 1.0.18 阻抗单位标识调整为 ✖10Ω，并优化分组标题样式（去掉括号）
 - 2026-06-17: 1.0.19 阻抗列表文案调整：*10 Ω 与工作电极阻抗
 - 2026-06-17: 1.0.20 去掉工作电极阻抗标题中的通道数字样
+- 2026-06-18: 1.0.21 阻抗阈值三色滑条去掉单位，仅保留数值范围
 
 作者: Spoon
-版本: 1.0.20
+版本: 1.0.21
 */
 
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
@@ -171,13 +172,13 @@ function renderLegend() {
   pills.className = 'imp-th-pills';
   const pillG = document.createElement('span');
   pillG.className = 'imp-pill good';
-  pillG.textContent = `0~${t.g}*10 Ω`;
+  pillG.textContent = `0~${t.g}`;
   const pillW = document.createElement('span');
   pillW.className = 'imp-pill warn';
-  pillW.textContent = `${t.g}~${t.w}*10 Ω`;
+  pillW.textContent = `${t.g}~${t.w}`;
   const pillB = document.createElement('span');
   pillB.className = 'imp-pill bad';
-  pillB.textContent = `>${t.w}*10 Ω`;
+  pillB.textContent = `>${t.w}`;
   pills.appendChild(pillG);
   pills.appendChild(pillW);
   pills.appendChild(pillB);
@@ -225,9 +226,9 @@ function renderLegend() {
     impUi.good_max_ohm = next.g;
     impUi.warn_max_ohm = next.w;
     if (topo) topo.setThresholds({ goodMaxOhm: next.g, warnMaxOhm: next.w });
-    pillG.textContent = `0~${next.g}*10 Ω`;
-    pillW.textContent = `${next.g}~${next.w}*10 Ω`;
-    pillB.textContent = `>${next.w}*10 Ω`;
+    pillG.textContent = `0~${next.g}`;
+    pillW.textContent = `${next.g}~${next.w}`;
+    pillB.textContent = `>${next.w}`;
     if (topo) topo.update(impValuesByName);
     updateList(impValuesByName);
   };
@@ -240,9 +241,9 @@ function renderLegend() {
     impUi.good_max_ohm = next.g;
     impUi.warn_max_ohm = next.w;
     if (topo) topo.setThresholds({ goodMaxOhm: next.g, warnMaxOhm: next.w });
-    pillG.textContent = `0~${next.g}*10 Ω`;
-    pillW.textContent = `${next.g}~${next.w}*10 Ω`;
-    pillB.textContent = `>${next.w}*10 Ω`;
+    pillG.textContent = `0~${next.g}`;
+    pillW.textContent = `${next.g}~${next.w}`;
+    pillB.textContent = `>${next.w}`;
     if (topo) topo.update(impValuesByName);
     updateList(impValuesByName);
   };
