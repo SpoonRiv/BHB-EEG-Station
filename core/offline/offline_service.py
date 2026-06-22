@@ -15,9 +15,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-15: 1.0.6 离线导出缩放配置改为 count_divisor（与旧版 /120 对齐）
 - 2026-05-15: 1.0.7 缩放实现改为 /count_divisor（不使用乘法），并兼容旧 meta.json 字段
 - 2026-05-16: 1.0.8 离线会话目录默认不再追加 _00 后缀，仅在重名时追加序号
+- 2026-06-20: 1.0.9 精简内部注释与 Docstring，便于软著代码展示
 
 作者: Spoon
-版本: 1.0.8
+版本: 1.0.9
 """
 
 from __future__ import annotations
@@ -40,17 +41,6 @@ from scipy.signal import butter, iirnotch, lfilter, lfilter_zi
 class OfflineSessionInfo:
     """
     离线录制会话信息。
-
-    Attributes:
-        session_id: 会话唯一标识（用于前端/接口传递）。
-        session_dir: 会话目录绝对路径。
-        started_at_iso: 会话开始时间（ISO8601）。
-        stopped_at_iso: 会话停止时间（ISO8601，未停止则为 None）。
-        sampling_rate_hz: 采样率。
-        channel_names: 通道名列表（含可选触发通道）。
-        total_samples: 总采样点数（逐采样点计数）。
-        physical_unit: 物理单位（用于 EDF 元信息与 CSV 表头提示）。
-        count_divisor: 原始计数到物理单位的缩放除数（导出/展示时按 /count_divisor 应用）。
     """
 
     session_id: str
@@ -81,12 +71,6 @@ class OfflineSessionInfo:
 class BandpassConfig:
     """
     带通滤波配置。
-
-    Attributes:
-        enabled: 是否启用滤波。
-        lowcut_hz: 低频截止（Hz）。
-        highcut_hz: 高频截止（Hz）。
-        order: 滤波器阶数。
     """
 
     enabled: bool
@@ -99,11 +83,6 @@ class BandpassConfig:
 class ExportTarget:
     """
     导出目标描述。
-
-    Attributes:
-        kind: "raw" 或 "filtered"。
-        fmt: "csv" 或 "edf"。
-        filename: 目标文件名（不含路径）。
     """
 
     kind: str
@@ -113,11 +92,7 @@ class ExportTarget:
 
 class _ChunkBinaryWriter:
     """
-    raw 数据追加写入器：以 float32 行优先方式写入文件。
-
-    设计要点：
-        - append() 只做轻量队列入队，避免阻塞 FastAPI 事件循环；
-        - 后台线程按入队顺序写入，保证样本顺序不乱。
+    raw 数据追加写入器。
     """
 
     def __init__(self, file_path: str, max_pending_chunks: int, queue_full_policy: str):
@@ -233,12 +208,6 @@ def _iter_blocks(total: int, block_size: int) -> Iterable[Tuple[int, int]]:
 class OfflineService:
     """
     EEG 离线录制与导出服务。
-
-    职责边界：
-        - 管理“录制会话目录”的唯一确定性与元数据；
-        - 在采集/推送过程中追加写入 raw 数据（float32）；
-        - 在采集停止后按用户选择导出 CSV/EDF，并可另存滤波文件；
-        - 不负责 BLE/LSL 的采集控制，仅消费上层传入的 chunk。
     """
 
     def __init__(
@@ -299,12 +268,6 @@ class OfflineService:
     def start_session(self) -> OfflineSessionInfo:
         """
         开始离线录制会话。
-
-        Returns:
-            OfflineSessionInfo: 新创建的会话信息。
-
-        Raises:
-            RuntimeError: 已存在进行中的会话。
         """
         with self._lock:
             if self._active is not None:
@@ -361,10 +324,7 @@ class OfflineService:
 
     def append_chunk(self, chunk: List[List[float]]) -> None:
         """
-        追加一个 LSL chunk 到当前会话。
-
-        Args:
-            chunk: 形如 [sample][channel] 的二维数组。
+        追加一个数据块到当前会话。
         """
         with self._lock:
             if self._active is None or self._writer is None:
@@ -402,9 +362,6 @@ class OfflineService:
     def stop_session(self) -> Optional[OfflineSessionInfo]:
         """
         停止当前会话并落盘元信息。
-
-        Returns:
-            Optional[OfflineSessionInfo]: 若存在会话则返回停止后的会话信息，否则返回 None。
         """
         with self._lock:
             if self._active is None:
@@ -459,16 +416,6 @@ class OfflineService:
     def load_session(self, session_id: str) -> OfflineSessionInfo:
         """
         读取会话元信息。
-
-        Args:
-            session_id: 会话 ID。
-
-        Returns:
-            OfflineSessionInfo: 会话信息。
-
-        Raises:
-            FileNotFoundError: meta.json 不存在或会话目录不存在。
-            ValueError: meta.json 内容非法。
         """
         sid = str(session_id or "").strip()
         if not sid:
@@ -514,18 +461,7 @@ class OfflineService:
         block_size_samples: int = 20000,
     ) -> Dict[str, Any]:
         """
-        导出会话数据为 CSV/EDF。
-
-        Args:
-            session_id: 会话 ID。
-            base_name_raw: 原始数据基名（不含扩展名）。
-            targets: 导出目标列表。
-            bandpass: 滤波配置（None 视为禁用）。
-            base_name_filtered: 滤波文件基名（不含扩展名），为空则使用 base_name_raw + '_filtered'。
-            block_size_samples: 逐块处理的采样点数，用于降低内存占用。
-
-        Returns:
-            Dict[str, Any]: {session_id, outputs:[{kind, fmt, path, samples, channels}]}。
+        导出会话数据为 CSV 或 EDF。
         """
         info = self.load_session(session_id)
         session_dir = info.session_dir

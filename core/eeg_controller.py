@@ -19,9 +19,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-30: 1.2.8 连接失败/超时时保留设备名，避免前端回退展示为配置名
 - 2026-05-30: 1.2.9 断开连接/停止进程时保留设备名，避免前端回退展示为配置名
 - 2026-05-31: 1.2.10 增加 trigger 指令投递接口，用于将 start/end 同步到采集进程注入触发通道
+- 2026-06-20: 1.2.11 精简内部注释与 Docstring，便于软著代码展示
 
 作者: Spoon
-版本: 1.2.10
+版本: 1.2.11
 """
 
 import multiprocessing
@@ -38,11 +39,7 @@ from core.ble.module_naming import parse_ble_module_name
 
 class EEGController:
     """
-    蓝牙 EEG 采集控制器。
-
-    - 采集逻辑运行在独立的 multiprocessing.Process 中（避免阻塞主事件循环）
-    - 进程通过 LSL 推流，FastAPI 再从 LSL 异步读取并通过 WebSocket 广播给前端
-    - 预留 8/16 通道模式：由 configs/config.yaml 的 eeg.n_channels 控制
+    蓝牙 EEG 采集控制器，统一管理采集进程与模式切换。
     """
 
     def __init__(self, config_path: Optional[str] = None):
@@ -66,23 +63,13 @@ class EEGController:
 
     def is_running(self) -> bool:
         """
-        判断采集进程是否处于运行状态。
-
-        Returns:
-            bool: 采集进程是否存活
+        返回采集进程是否仍在运行。
         """
         return bool(self.process and self.process.is_alive())
 
     def get_status(self) -> Dict[str, Any]:
         """
-        获取采集侧状态快照（用于前端状态指示）。
-
-        返回约定：
-        - running: 采集进程是否存活（仅表示进程存在，不等价于“已连接并开始推流”）
-        - last: 最近一次来自采集进程的状态消息（connected/connecting/error/stopped/idle 等）
-        - configured_name: 配置中期望匹配的设备名（用于用户核对）
-        - battery: 最近一次电量上报（来自采集进程），结构为 {value, ts}
-        - imu: 最近一次 IMU 上报（来自采集进程），结构为 {value, ts}
+        获取采集侧状态快照。
         """
         self._drain_status_queue()
         configured_name = self.config.bluetooth.target_device
@@ -123,10 +110,7 @@ class EEGController:
 
     def start_device(self, address: Optional[str] = None, name: Optional[str] = None) -> bool:
         """
-        启动蓝牙采集进程并建立 BLE 连接（连接常驻，不自动进入具体业务模式）。
-
-        Returns:
-            bool: 启动是否成功
+        启动采集进程并建立 BLE 连接。
         """
         if self.process and self.process.is_alive():
             logging.warning("EEG device process is already running.")
@@ -162,8 +146,6 @@ class EEGController:
                 if msg.get("type") == "error":
                     logging.error(f"EEG device start error: {msg.get('message')}")
                     return False
-                # connecting/battery/imu 等状态消息继续等待，直到 connected 或 error
-
             self.last_status = {"type": "error", "message": "蓝牙连接超时（30秒）", "address": address, "name": name or self.config.bluetooth.target_device}
             logging.error("EEG device start error: 蓝牙连接超时（30秒）")
             return False
@@ -174,13 +156,7 @@ class EEGController:
 
     def select_mode(self, mode: str) -> bool:
         """
-        选择设备业务模式（仅切换状态，不自动下发 start 指令）。
-
-        Args:
-            mode: 目标模式。当前支持：idle/eeg/impedance/tdcs
-
-        Returns:
-            bool: 命令是否成功投递到采集进程
+        选择业务模式，不自动下发启动指令。
         """
         if not self.command_queue or not self.is_running():
             return False
@@ -190,13 +166,7 @@ class EEGController:
 
     def start_mode(self, mode: str) -> bool:
         """
-        启动指定模式（向设备下发对应 start 指令）。
-
-        Args:
-            mode: 模式。当前支持：eeg/impedance/tdcs
-
-        Returns:
-            bool: 命令是否成功投递到采集进程
+        启动指定模式。
         """
         if not self.command_queue or not self.is_running():
             return False
@@ -206,13 +176,7 @@ class EEGController:
 
     def stop_mode(self, mode: str) -> bool:
         """
-        停止指定模式（向设备下发对应 stop 指令）。
-
-        Args:
-            mode: 模式。当前支持：eeg/impedance/tdcs
-
-        Returns:
-            bool: 命令是否成功投递到采集进程
+        停止指定模式。
         """
         if not self.command_queue or not self.is_running():
             return False
@@ -222,19 +186,7 @@ class EEGController:
 
     def send_two_level_command(self, l1: int, l2: int, data: Optional[list[int]] = None) -> bool:
         """
-        下发两级控制指令（一级指令 + 二级指令 + 附加数据）。
-
-        说明：
-        - 指令格式参考协议文档： [L1, L2, DATA...]
-        - 本函数仅负责将指令投递到采集进程，由采集进程完成 BLE 写入与调试事件上报
-
-        Args:
-            l1: 一级指令（0-255）
-            l2: 二级指令（0-255）
-            data: 附加数据字节列表（可选，元素 0-255）
-
-        Returns:
-            bool: 是否成功投递到采集进程
+        向采集进程投递两级控制指令。
         """
         if not self.command_queue or not self.is_running():
             return False
@@ -247,14 +199,7 @@ class EEGController:
 
     def send_trigger_command(self, command: str, source: str) -> bool:
         """
-        向采集进程投递 trigger 指令（start/end），用于在采集侧注入触发通道值。
-
-        Args:
-            command: trigger 命令字符串（支持 start/end/stop 前缀）。
-            source: 触发来源（例如 api/tcp），仅用于调试事件标注。
-
-        Returns:
-            bool: 是否成功投递到采集进程
+        向采集进程投递 trigger 指令。
         """
 
         if not self.command_queue or not self.is_running():
@@ -271,10 +216,7 @@ class EEGController:
 
     def _drain_status_queue(self) -> None:
         """
-        尝试无阻塞地清空状态队列，将最新状态缓存到 last_status。
-
-        该函数用于解决“连接后持续更新状态”的需求：主进程不应为状态更新创建额外阻塞循环，
-        而由 get_status() 在被调用时顺手拉取最新状态即可。
+        无阻塞读取状态队列，并更新本地缓存。
         """
         if not self.status_queue:
             return
@@ -308,8 +250,6 @@ class EEGController:
     def stop_device(self) -> bool:
         """
         停止蓝牙采集进程。
-        Returns:
-            bool: 停止是否成功
         """
         last = self.last_status if isinstance(self.last_status, dict) else {}
         last_name = str(last.get("name") or "").strip() or str(self.config.bluetooth.target_device or "")

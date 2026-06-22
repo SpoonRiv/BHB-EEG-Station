@@ -10,9 +10,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-03: 1.0.1 广播改为顺序发送全部 chunk；队列满时合并旧 chunk，避免丢包
 - 2026-05-04: 1.0.2 文件更名为 ws_hub_eeg，命名与 impedance/tdcs 保持一致
 - 2026-05-07: 1.0.3 发送前变换（如陷波）移至线程执行，降低事件循环阻塞与长时间卡顿
+- 2026-06-20: 1.0.4 精简内部注释与 Docstring，便于软著代码展示
 
 作者: Spoon
-版本: 1.0.3
+版本: 1.0.4
 """
 
 from __future__ import annotations
@@ -29,10 +30,6 @@ from fastapi import WebSocket
 class EegWsHubConfig:
     """
     EEG WebSocket 广播枢纽配置。
-
-    Attributes:
-        max_pending_chunks: 允许排队的最大 chunk 数。满时合并旧 chunk（扩大单 chunk 样本数），避免丢包且控制积压。
-        send_timeout_sec: 单个 WebSocket 发送超时（秒）。避免某个慢连接拖垮整体。
     """
 
     max_pending_chunks: int
@@ -42,11 +39,6 @@ class EegWsHubConfig:
 class EegWsHub:
     """
     EEG WebSocket 广播枢纽。
-
-    设计目标：
-    - 在不丢包的前提下，控制 WebSocket 发送积压并避免事件循环被大量小任务打爆；
-    - 队列满时通过合并 chunk（扩大单次 payload）削峰填谷；
-    - 对慢连接设置发送超时并自动剔除，避免拖累主链路。
     """
 
     def __init__(self, cfg: EegWsHubConfig):
@@ -59,14 +51,14 @@ class EegWsHub:
 
     def set_transform(self, fn: Optional[Callable[[List[List[float]]], List[List[float]]]]) -> None:
         """
-        设置发送前的变换函数（如陷波/缩放）。在发送任务线程内执行。
+        设置发送前的变换函数。
         """
 
         self._transform = fn
 
     def register(self, ws: WebSocket) -> None:
         """
-        注册一个 WebSocket 客户端。
+        注册 WebSocket 客户端。
         """
 
         if ws not in self._clients:
@@ -74,7 +66,7 @@ class EegWsHub:
 
     def unregister(self, ws: WebSocket) -> None:
         """
-        取消注册一个 WebSocket 客户端。
+        取消注册 WebSocket 客户端。
         """
 
         try:
@@ -84,7 +76,7 @@ class EegWsHub:
 
     def start(self) -> None:
         """
-        启动后台发送任务（幂等）。
+        启动后台发送任务。
         """
 
         if self._task and not self._task.done():
@@ -96,11 +88,7 @@ class EegWsHub:
 
     def stop(self, clear_pending: bool = True) -> None:
         """
-        请求停止后台发送任务，并可选清空排队数据。
-
-        说明：
-            - clear_pending=True：用于“立即止波形”，会丢弃尚未发送的待发 chunk。
-            - clear_pending=False：发送线程会把已入队数据顺序发送完后退出，保证不丢包。
+        请求停止后台发送任务，并可选清空待发数据。
         """
 
         self._stopping = True
@@ -113,11 +101,7 @@ class EegWsHub:
 
     def enqueue(self, chunk: List[List[float]]) -> None:
         """
-        入队一个待发送的 EEG chunk。
-
-        说明：
-        - 队列满时通过合并旧 chunk（扩大单 chunk 样本数）保证不丢包，并控制队列长度。
-        - 该方法必须在事件循环线程中调用（由 LSLStreamer 回调触发）。
+        入队一个待发送的 EEG 数据块。
         """
 
         if self._stopping:

@@ -7,9 +7,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 修改日志:
 - 2026-04-30: 1.0.0 创建文件
+- 2026-06-20: 1.0.1 精简内部注释与 Docstring，便于软著代码展示
 
 作者: Spoon
-版本: 1.0.0
+版本: 1.0.1
 """
 
 from dataclasses import dataclass
@@ -19,7 +20,7 @@ from typing import Dict, List, Tuple
 @dataclass(frozen=True)
 class FrameSpec:
     """
-    BLE EEG 帧协议描述（配置化，支持 8/16 通道扩展）。
+    BLE EEG 帧协议描述。
     """
     channels: int
     header_len_bytes: int
@@ -47,11 +48,7 @@ class FrameSpec:
 
     def validate_checksum(self, frame: bytes) -> bool:
         """
-        校验帧的基础完整性。
-
-        说明：
-            为避免在 BLE 粘包/丢包/错位场景下“误判而丢弃大量有效数据”，此处只做帧头与帧尾检查，
-            不强制校验累加和字段；上层通过对齐（寻找 0xAA 0xBB）与定长截取来保证数据可持续解析。
+        校验帧长、帧头和帧尾。
         """
         if len(frame) != self.frame_len_bytes:
             return False
@@ -66,7 +63,7 @@ class FrameSpec:
 
 def parse_imu(imu_bytes: bytes) -> Dict[str, int]:
     """
-    解析 IMU 姿态数据（兼容旧版：取前 6 字节分别为 yaw/roll/pitch 的 int16）。
+    解析 IMU 姿态数据。
     """
     valid = imu_bytes[:6]
     if len(valid) < 6:
@@ -80,13 +77,7 @@ def parse_imu(imu_bytes: bytes) -> Dict[str, int]:
 
 def parse_frame_to_samples(frame: bytes, spec: FrameSpec) -> Tuple[List[List[float]], int, Dict[str, int]]:
     """
-    将单帧 bytes 解析为多个采样点（每帧包含 spec.samples_per_frame 个采样点）。
-
-    Returns:
-        Tuple[List[List[float]], int, Dict[str, int]]:
-            - samples: List[采样点]，每个采样点为 [ch1..chN, trigger] 或 [ch1..chN]
-            - battery_level: 电量值（big-endian 无符号）
-            - imu: IMU 字典（yaw/roll/pitch）
+    将单帧数据解析为采样点、电量和 IMU 信息。
     """
     head_end = spec.header_len_bytes
     eeg_end = head_end + spec.eeg_payload_len_bytes

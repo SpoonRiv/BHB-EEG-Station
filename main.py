@@ -54,10 +54,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-06-17: 1.4.8 下发当前参考电极名，供阻抗页将 BIAS 显示为实际参考通道
 - 2026-06-18: 1.4.9 增加应用关机接口，统一断开蓝牙并在响应后退出服务进程
 - 2026-06-18: 1.5.0 直接运行 main.py 时自动使用系统默认浏览器打开上位机首页
-
+- 2026-06-20: 1.5.1 精简内部注释与 Docstring，便于软著代码展示
 
 作者: Spoon
-版本: 1.5.0
+版本: 1.5.1
 """
 
 import asyncio
@@ -98,11 +98,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 class NoCacheStaticFiles(StaticFiles):
     """
-    禁用静态资源缓存的 StaticFiles 包装。
-·
-    目的：
-        开发阶段频繁修改 web/ 下的 HTML/CSS/JS 时，浏览器缓存会导致“看起来像没生效”的假象。
-        此类统一对静态资源响应加上 Cache-Control: no-store，确保每次刷新都取最新内容。
+    禁用静态资源缓存，确保前端刷新时总是读取最新文件。
     """
 
     async def get_response(self, path: str, scope) -> Any:
@@ -243,7 +239,7 @@ class AppState:
 
     def start_psd(self) -> None:
         """
-        启动 PSD 后台计算与 WebSocket 推送。
+        启动 PSD 计算与推送。
         """
         if self.psd_worker is None:
             return
@@ -263,7 +259,7 @@ class AppState:
 
     def stop_psd(self) -> None:
         """
-        停止 PSD 后台计算与 WebSocket 推送，并清空缓存。
+        停止 PSD 计算与推送，并清空缓存。
         """
         if self._psd_task is not None:
             try:
@@ -333,7 +329,7 @@ class AppState:
 
     async def _psd_loop(self) -> None:
         """
-        PSD 后台循环：按配置节流计算 Welch PSD，并通过 WebSocket 推送最新结果。
+        按配置频率计算 PSD 并推送最新结果。
         """
         if self.psd_worker is None:
             return
@@ -508,13 +504,7 @@ class AppState:
 
     def _apply_signal_preprocess_safe(self, chunk: List[List[float]]) -> List[List[float]]:
         """
-        对 EEG chunk 应用实时预处理（失败则回退到原始数据）。
-
-        Args:
-            chunk: 形如 [sample][channel] 的二维数组
-
-        Returns:
-            List[List[float]]: 预处理后的数据（或原始数据）
+        对实时 EEG 数据应用预处理；失败时回退到原始数据。
         """
         out = chunk
         try:
@@ -525,19 +515,7 @@ class AppState:
 
     def _scale_eeg_chunk_like_legacy(self, chunk: List[List[float]]) -> List[List[float]]:
         """
-        对实时波形展示数据做幅值缩放（与离线导出一致）。
-
-        说明：
-            - 旧版上位机在保存/展示前对数据做 /120；
-            - 新版通过配置 offline.export.count_divisor 表达“原始计数到物理单位的缩放除数”，因此采用除法缩放：
-              scaled = raw / count_divisor；
-            - 触发通道（若存在）不做缩放。
-
-        Args:
-            chunk: 形如 [sample][channel] 的二维数组
-
-        Returns:
-            List[List[float]]: 缩放后的数据
+        按 count_divisor 缩放 EEG 通道，触发通道保持原值。
         """
         if not chunk:
             return chunk
@@ -567,11 +545,7 @@ class AppState:
 
     def on_lsl_chunk(self, chunk: List[List[float]]) -> None:
         """
-        LSL 数据回调：记录离线数据并入队等待 WebSocket 广播。
-
-        设计要点：
-        - 该函数必须保持轻量且不 await，避免每个 chunk 创建 task 导致发送积压；
-        - WebSocket 发送在后台单任务中完成，并在队列满时丢弃旧数据保留最新。
+        LSL 数据回调：写入离线会话，并转发到实时显示链路。
         """
         try:
             self.offline.append_chunk(chunk)
@@ -594,7 +568,7 @@ class AppState:
 
     def on_imp_lsl_chunk(self, chunk: List[List[float]]) -> None:
         """
-        阻抗 LSL 数据回调：仅保留最新一帧并入队等待 WebSocket 广播。
+        阻抗 LSL 数据回调：仅推送最新一帧。
         """
         if not chunk:
             return
@@ -609,12 +583,7 @@ state = AppState()
 
 def shutdown_runtime() -> None:
     """
-    关闭运行中的数据流、后台服务与采集进程。
-
-    职责边界：
-        - 统一停止 WebSocket Hub、LSL 读取、PSD 任务、trigger 服务与离线会话；
-        - 最后停止 BLE 采集进程，确保蓝牙连接被断开；
-        - 该函数不直接退出 Python 进程，便于在 HTTP 响应返回后再执行真正的进程退出。
+    关闭数据流、后台服务和采集进程。
     """
     state.eeg_ws_hub.stop(clear_pending=True)
     state.stop_psd()
@@ -637,15 +606,12 @@ def shutdown_runtime() -> None:
 
 def schedule_process_exit(delay_sec: float = 0.6) -> None:
     """
-    在短延时后强制退出当前服务进程。
-
-    Args:
-        delay_sec: 延时时长（秒），用于给 HTTP 响应留出发送时间。
+    在短延时后退出当前服务进程。
     """
 
     def _exit_later() -> None:
         """
-        等待响应发出后退出进程，避免前端请求在网络层中断。
+        等待响应发出后退出进程。
         """
         try:
             time.sleep(max(0.1, float(delay_sec)))
@@ -772,7 +738,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 挂载前端静态文件
+# 挂载前端静态资源
 app.mount("/web", NoCacheStaticFiles(directory="web"), name="web")
 
 
@@ -1551,7 +1517,7 @@ async def websocket_endpoint(websocket: WebSocket):
     logging.info("Frontend WebSocket connected.")
     try:
         while True:
-            # 保持连接，处理前端可能发来的 ping 或控制信息
+            # 保持连接
             data = await websocket.receive_text()
     except WebSocketDisconnect:
         state.eeg_ws_hub.unregister(websocket)

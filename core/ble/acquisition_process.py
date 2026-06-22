@@ -32,9 +32,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-06-12: 1.1.22 (Spoon) 恢复 BLE GATT 的 UUID 选择逻辑，运行时优先使用 uuid，handle 作为兜底
 - 2026-06-12: 1.1.23 (Spoon) 增加 write_with_response，支持按需使用 Write With Response 下发指令
 - 2026-06-17: 1.1.24 EEG 帧头/帧尾/长度校验，基于帧序号统计丢包率与实际帧率（每10秒上报调试事件）
+- 2026-06-20: 1.1.25 精简内部注释与 Docstring，便于软著代码展示
 
 作者: Spoon
-版本: 1.1.24
+版本: 1.1.25
 """
 
 import asyncio
@@ -56,15 +57,7 @@ from core.ble.module_naming import BleModuleNameInfo, parse_ble_module_name
 
 def _normalize_ble_uuid(value: Optional[str]) -> Optional[str]:
     """
-    归一化 BLE 特征 UUID 字符串。
-
-    支持输入：
-    - "0xFFF1" / "FFF1"（16-bit UUID）
-    - "12345678"（32-bit UUID）
-    - "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"（128-bit UUID）
-
-    Returns:
-        Optional[str]: 归一化后的 128-bit UUID（小写），或 None（表示未配置）
+    归一化 BLE 特征 UUID，统一转为 128-bit 小写格式。
     """
     if value is None:
         return None
@@ -97,7 +90,7 @@ async def _connect_and_stream(
     connect_name: Optional[str],
 ) -> None:
     """
-    BLE 连接与数据接收主协程：读取配置，连接 BLE，接收通知数据，并根据主进程命令队列执行模式切换/启停。
+    BLE 连接与数据接收主协程。
     """
     cfg = load_config(config_path)
 
@@ -266,7 +259,7 @@ async def _connect_and_stream(
 
     def _reset_eeg_stats_window(now_ts: float) -> None:
         """
-        重置 EEG 统计窗口计数器（用于周期性输出丢包率与实际帧率）。
+        重置 EEG 统计窗口。
         """
         nonlocal eeg_stats_window_start_ts, eeg_window_valid_frames, eeg_window_invalid_frames, eeg_window_lost_by_seq, eeg_window_dropped_bytes
         eeg_stats_window_start_ts = float(now_ts)
@@ -277,7 +270,7 @@ async def _connect_and_stream(
 
     def _extract_frame_seq(frame: bytes, spec_: FrameSpec) -> Optional[int]:
         """
-        从 EEG 帧头中提取帧序号（若协议未包含序号则返回 None）。
+        提取 EEG 帧序号。
         """
         if int(spec_.header_len_bytes) >= 3 and len(frame) >= 3:
             return int(frame[2]) & 0xFF
@@ -285,7 +278,7 @@ async def _connect_and_stream(
 
     def _maybe_report_eeg_stats(now_ts: float) -> None:
         """
-        每 10 秒输出一次 EEG 丢包率与实际采样帧率（通过 debug_queue 转发到调试窗口）。
+        周期性上报 EEG 丢包率与实际帧率。
         """
         nonlocal eeg_stats_last_report_ts
         if debug_queue is None:
@@ -846,7 +839,7 @@ async def _connect_and_stream(
                     except Exception as e:
                         status_queue.put({"type": "error", "message": str(e)})
 
-                    # 若持续未收到任何 notify，则输出一次“无数据”调试事件（便于定位：已发指令但设备未回传）
+                    # 持续无通知时仅上报一次调试事件。
                     if eeg_streaming_enabled and debug_queue is not None and not no_data_reported:
                         if last_notify_ts > 0 and notify_counter == 0 and (time.time() - last_notify_ts) > 3.0:
                             no_data_reported = True
@@ -939,7 +932,7 @@ def run_ble_acquisition_process(
     connect_name: Optional[str] = None,
 ) -> None:
     """
-    BLE 采集进程入口函数：运行 asyncio 事件循环并执行连接与通知处理逻辑。
+    BLE 采集进程入口。
     """
     try:
         asyncio.run(_connect_and_stream(config_path, stop_event, status_queue, command_queue, debug_queue, connect_address, connect_name))

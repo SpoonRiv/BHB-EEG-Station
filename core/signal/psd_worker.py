@@ -7,9 +7,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 修改日志:
 - 2026-05-29: 1.0.0 创建文件
+- 2026-06-20: 1.0.1 精简内部注释与 Docstring，便于软著代码展示
 
 作者: Spoon
-版本: 1.0.0
+版本: 1.0.1
 """
 
 from __future__ import annotations
@@ -29,16 +30,6 @@ from scipy.signal import filtfilt, iirnotch, welch
 class PsdWorkerConfig:
     """
     在线 PSD 计算配置。
-
-    Attributes:
-        enabled: 是否启用 PSD 计算。
-        window_sec: 计算窗口长度（秒）。
-        update_hz: 推送/计算频率（Hz）。
-        nfft: Welch/FFT 长度。
-        fmin_hz: 频段下限（Hz）。
-        fmax_hz: 频段上限（Hz）。
-        to_db: 是否将 PSD 转换为 dB（10*log10）。
-        apply_notch: 是否对窗口应用陷波（窗口内零相位）。
     """
 
     enabled: bool
@@ -53,12 +44,7 @@ class PsdWorkerConfig:
 
 class PsdWorker:
     """
-    在线 PSD 计算器（线程安全：append 与 snapshot 分离）。
-
-    设计要点：
-    - append_chunk 必须足够轻量：仅缓存最近 window_sec 的数据；
-    - compute_psd_payload 可能较慢：应在后台线程调用，避免阻塞事件循环；
-    - 输入 chunk 形如 [sample][channel]，可包含触发通道；PSD 仅对 EEG 通道计算。
+    在线 PSD 计算器。
     """
 
     def __init__(
@@ -89,7 +75,7 @@ class PsdWorker:
 
     def reset(self) -> None:
         """
-        清空缓存（用于开始/停止采集时重置，避免混入旧窗口）。
+        清空缓存。
         """
         with self._lock:
             for d in self._buf:
@@ -98,10 +84,7 @@ class PsdWorker:
 
     def append_chunk(self, chunk: List[List[float]]) -> None:
         """
-        追加一个 EEG chunk 到环形缓存。
-
-        Args:
-            chunk: 形如 [sample][channel] 的二维数组。
+        追加一个 EEG 数据块到环形缓存。
         """
         if not self.cfg.enabled:
             return
@@ -127,10 +110,7 @@ class PsdWorker:
 
     def snapshot_window(self) -> Optional[np.ndarray]:
         """
-        获取当前窗口快照（复制后返回，避免在锁内做耗时计算）。
-
-        Returns:
-            Optional[np.ndarray]: shape=(n_channels, n_points)；若数据不足返回 None。
+        获取当前窗口快照。
         """
         if not self.cfg.enabled:
             return None
@@ -147,16 +127,7 @@ class PsdWorker:
 
     def compute_psd_payload(self, window: np.ndarray) -> Optional[Dict[str, object]]:
         """
-        基于窗口数据计算 PSD，并构造可直接用于 WebSocket JSON 推送的 payload。
-
-        注意：
-            该函数可能耗时，应在后台线程执行（例如 asyncio.to_thread）。
-
-        Args:
-            window: shape=(n_channels, n_points)
-
-        Returns:
-            Optional[Dict[str, object]]: {"ts","freq_hz","channels","unit"}；失败返回 None。
+        计算 PSD，并构造 WebSocket 推送载荷。
         """
         if not self.cfg.enabled:
             return None
@@ -229,7 +200,7 @@ class PsdWorker:
 
     def get_update_interval_sec(self) -> float:
         """
-        将 update_hz 转换为秒级间隔。
+        将更新频率转换为秒级间隔。
         """
         hz = float(self.cfg.update_hz)
         if not math.isfinite(hz) or hz <= 0:

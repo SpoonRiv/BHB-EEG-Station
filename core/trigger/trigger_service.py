@@ -8,9 +8,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 修改日志:
 - 2026-05-30: 1.0.0 创建文件
 - 2026-05-30: 1.1.0 增加内置 trigger TCP 服务端，并支持开始采集时自动启动
+- 2026-06-20: 1.1.1 精简内部注释与 Docstring，便于软著代码展示
 
 作者: Spoon
-版本: 1.1.0
+版本: 1.1.1
 """
 
 from __future__ import annotations
@@ -36,15 +37,7 @@ class TriggerServiceConfig:
 
 class TriggerService:
     """
-    Trigger 服务封装。
-
-    说明：
-        - 服务端：启动本地 TCP server，接收外部程序发送的 start/end 命令。
-        - API：前端按钮调用 /api/trigger/start|stop，同样会进入统一的状态机更新逻辑。
-
-    Args:
-        config: Trigger 服务配置。
-        on_event: 触发事件回调（用于向调试总线推送结构化事件等）。
+    Trigger 服务封装，统一处理 API 与 TCP 触发事件。
     """
 
     def __init__(
@@ -73,11 +66,7 @@ class TriggerService:
 
     def start_server(self) -> None:
         """
-        启动 trigger TCP 服务端（幂等）。
-
-        Raises:
-            RuntimeError: 未启用 trigger。
-            OSError: 端口占用或绑定失败。
+        启动 trigger TCP 服务端。
         """
 
         if not self.enabled:
@@ -128,7 +117,7 @@ class TriggerService:
 
     def stop_server(self) -> None:
         """
-        停止 trigger TCP 服务端（幂等）。
+        停止 trigger TCP 服务端。
         """
 
         with self._lock:
@@ -173,7 +162,7 @@ class TriggerService:
 
     def start(self) -> None:
         """
-        触发 start（用于前端按钮）。
+        触发 start。
         """
 
         if not self.enabled:
@@ -182,7 +171,7 @@ class TriggerService:
 
     def stop(self) -> None:
         """
-        触发 end（用于前端按钮）。
+        触发 end。
         """
 
         if not self.enabled:
