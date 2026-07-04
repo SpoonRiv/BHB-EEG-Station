@@ -55,9 +55,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-06-18: 1.4.9 增加应用关机接口，统一断开蓝牙并在响应后退出服务进程
 - 2026-06-18: 1.5.0 直接运行 main.py 时自动使用系统默认浏览器打开上位机首页
 - 2026-06-20: 1.5.1 精简内部注释与 Docstring，便于软著代码展示
+- 2026-07-03: 1.5.2 修复调试事件在页面重连/trigger 线程触发时偶发不显示的问题（增强 WS 清理与线程安全发布）
+- 2026-07-03: 1.5.3 修复蓝牙断联重连后调试输出仍绑定旧 debug_queue，导致日志不再刷新的问题
 
 作者: Spoon
-版本: 1.5.1
+版本: 1.5.3
 """
 
 import asyncio
@@ -117,6 +119,7 @@ class AppState:
         self.controller = EEGController(config_path=self.config_path)
         self.debug_bus = DebugEventBus(max_events=self.config.debug.max_events)
         self._debug_forward_started = False
+        self._debug_forward_queue_id: Optional[int] = None
         def _on_trigger_event(command: str, source: str) -> None:
             try:
                 self.controller.send_trigger_command(command=str(command), source=str(source))
@@ -578,6 +581,38 @@ class AppState:
         except Exception:
             pass
 
+    async def ensure_debug_forwarding(self) -> None:
+        """
+        确保调试事件转发任务绑定到当前采集进程的 debug_queue。
+
+        当蓝牙断联后重新连接时，控制器会创建新的 multiprocessing.Queue。
+        这里按当前队列身份自动重绑，避免转发任务长期卡在旧队列上。
+        """
+        if not bool(self.config.debug.ui_enabled):
+            await self.stop_debug_forwarding()
+            return
+        self.debug_bus.bind_loop(asyncio.get_running_loop())
+        current_queue = self.controller.debug_queue
+        current_queue_id = id(current_queue) if current_queue is not None else None
+        if current_queue_id is None:
+            await self.stop_debug_forwarding()
+            return
+        if self._debug_forward_started and self._debug_forward_queue_id == current_queue_id:
+            return
+        await self.stop_debug_forwarding()
+        self.debug_bus.start_forward_from_mp_queue(current_queue)
+        self._debug_forward_started = True
+        self._debug_forward_queue_id = current_queue_id
+
+    async def stop_debug_forwarding(self) -> None:
+        """
+        停止调试事件队列转发任务，并清空当前绑定状态。
+        """
+        if self._debug_forward_started:
+            await self.debug_bus.stop_forward()
+        self._debug_forward_started = False
+        self._debug_forward_queue_id = None
+
 state = AppState()
 
 
@@ -711,10 +746,8 @@ async def lifespan(app: FastAPI):
     logging.info("Application starting: registering callbacks...")
     state.streamer.add_callback(state.on_lsl_chunk)
     state.imp_streamer.add_callback(state.on_imp_lsl_chunk)
-    if state.config.debug.ui_enabled and not state._debug_forward_started:
-        if state.controller.debug_queue is not None:
-            state.debug_bus.start_forward_from_mp_queue(state.controller.debug_queue)
-            state._debug_forward_started = True
+    if state.config.debug.ui_enabled:
+        await state.ensure_debug_forwarding()
     yield
     logging.info("Application shutting down: cleaning up resources...")
     state.eeg_ws_hub.stop(clear_pending=True)
@@ -726,7 +759,7 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
     await asyncio.to_thread(state.controller.stop_device)
-    await state.debug_bus.stop_forward()
+    await state.stop_debug_forwarding()
 
 app = FastAPI(title="BHB-EEG Station Web API", lifespan=lifespan)
 
@@ -770,9 +803,7 @@ async def start_eeg():
     state.controller.select_mode("eeg")
     state.controller.start_mode("eeg")
     if success:
-        if state.config.debug.ui_enabled and state.controller.debug_queue is not None and not state._debug_forward_started:
-            state.debug_bus.start_forward_from_mp_queue(state.controller.debug_queue)
-            state._debug_forward_started = True
+        await state.ensure_debug_forwarding()
         try:
             state.notch.reset()
         except Exception:
@@ -1146,6 +1177,7 @@ async def stop_eeg():
     except Exception:
         session = None
     success = await asyncio.to_thread(state.controller.stop_device)
+    await state.stop_debug_forwarding()
     if success:
         return {"status": "success", "message": "采集已停止。", "device": state.controller.get_status(), "offline": {"session": session.to_dict() if session else None}}
     return {"status": "error", "message": "停止采集失败。", "device": state.controller.get_status(), "offline": {"session": session.to_dict() if session else None}}
@@ -1194,9 +1226,8 @@ async def ble_connect(req: BleConnectRequest):
     建立 BLE 连接（连接与业务模式解耦）。
     """
     success = await asyncio.to_thread(state.controller.start_device, req.address, req.name)
-    if success and state.config.debug.ui_enabled and state.controller.debug_queue is not None and not state._debug_forward_started:
-        state.debug_bus.start_forward_from_mp_queue(state.controller.debug_queue)
-        state._debug_forward_started = True
+    if success:
+        await state.ensure_debug_forwarding()
     if success:
         return {"status": "success", "message": "蓝牙已连接。", "device": state.controller.get_status()}
     last = state.controller.last_status or {"type": "error", "message": "连接失败"}
@@ -1219,6 +1250,7 @@ async def ble_disconnect():
     except Exception:
         pass
     success = await asyncio.to_thread(state.controller.stop_device)
+    await state.stop_debug_forwarding()
     if success:
         return {"status": "success", "message": "蓝牙已断开。", "device": state.controller.get_status()}
     return {"status": "error", "message": "断开失败。", "device": state.controller.get_status()}
@@ -1233,7 +1265,7 @@ async def app_shutdown():
         await asyncio.to_thread(shutdown_runtime)
         if state.config.debug.ui_enabled:
             try:
-                await state.debug_bus.stop_forward()
+                await state.stop_debug_forwarding()
             except Exception:
                 pass
         schedule_process_exit()
@@ -1505,6 +1537,8 @@ async def debug_ws(websocket: WebSocket):
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
+        pass
+    finally:
         state.debug_bus.unregister_ws(websocket)
 
 @app.websocket("/ws/eeg")
