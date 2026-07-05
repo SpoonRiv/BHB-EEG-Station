@@ -9,9 +9,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-30: 1.0.0 创建文件
 - 2026-05-30: 1.1.0 增加内置 trigger TCP 服务端，并支持开始采集时自动启动
 - 2026-06-20: 1.1.1 精简内部注释与 Docstring，便于软著代码展示
+- 2026-07-05: 1.1.2 (Spoon) trigger 事件按设备指令真实下发结果更新状态，避免 API 假成功
 
 作者: Spoon
-版本: 1.1.1
+版本: 1.1.2
 """
 
 from __future__ import annotations
@@ -43,7 +44,7 @@ class TriggerService:
     def __init__(
         self,
         config: TriggerServiceConfig,
-        on_event: Optional[Callable[[TriggerCommand, TriggerSource], None]] = None,
+        on_event: Optional[Callable[[TriggerCommand, TriggerSource], bool]] = None,
     ):
         self._config = config
         self._active: Optional[bool] = False if bool(config.enabled) else None
@@ -152,13 +153,15 @@ class TriggerService:
             return
 
     def _handle_command(self, command: TriggerCommand, source: TriggerSource) -> None:
+        cb = self._on_event
+        if cb is not None:
+            ok = bool(cb(command, source))
+            if not ok:
+                raise RuntimeError("EEG 设备未连接或采集进程未运行，无法下发 trigger 指令")
         if command == "start":
             self._active = True
         elif command == "end":
             self._active = False
-        cb = self._on_event
-        if cb is not None:
-            cb(command, source)
 
     def start(self) -> None:
         """

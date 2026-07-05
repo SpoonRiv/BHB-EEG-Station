@@ -33,9 +33,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-06-12: 1.1.23 (Spoon) 增加 write_with_response，支持按需使用 Write With Response 下发指令
 - 2026-06-17: 1.1.24 EEG 帧头/帧尾/长度校验，基于帧序号统计丢包率与实际帧率（每10秒上报调试事件）
 - 2026-06-20: 1.1.25 精简内部注释与 Docstring，便于软著代码展示
+- 2026-07-05: 1.1.26 (Spoon) trigger 改为仅解析设备帧并发送真实控制指令，移除软件注入触发通道
 
 作者: Spoon
-版本: 1.1.25
+版本: 1.1.26
 """
 
 import asyncio
@@ -102,7 +103,6 @@ async def _connect_and_stream(
     channel_count = eeg_n_channels + (1 if cfg.eeg.lsl.include_trigger_channel else 0)
     spec: Optional[FrameSpec] = None
     outlet: Optional[LslOutletWriter] = None
-    soft_trigger_value: float = 0.0
 
     imp_n_channels = int(cfg.impedance.n_channels)
     imp_tail_channels = 0
@@ -172,6 +172,17 @@ async def _connect_and_stream(
     write_char: Any = write_uuid if write_uuid is not None else int(cfg.bluetooth.gatt.write_char_handle)
     write_with_response = bool(getattr(cfg.bluetooth.gatt, "write_with_response", False))
 
+    def _get_trigger_source_command() -> List[int]:
+        """
+        根据配置返回 trigger 源选择指令。
+        """
+        source_mode = str(getattr(cfg.trigger, "source_mode", "ble") or "ble").strip().lower()
+        if source_mode == "ttl_uart":
+            return list(cfg.bluetooth.commands.trigger_source_ttl_uart)
+        if source_mode == "ttl_level":
+            return list(cfg.bluetooth.commands.trigger_source_ttl_level)
+        return list(cfg.bluetooth.commands.trigger_source_ble)
+
     def ensure_eeg_lsl_ready() -> None:
         nonlocal spec, outlet
         if spec is None:
@@ -217,15 +228,6 @@ async def _connect_and_stream(
                     source_id=f"bhb-imp-{cfg.bluetooth.target_device}",
                 )
             )
-
-    def _set_soft_trigger(value: float, source: str) -> None:
-        nonlocal soft_trigger_value
-        soft_trigger_value = float(value)
-        if debug_queue is not None:
-            try:
-                debug_queue.put({"tag": "TRIGGER", "message": "采集侧触发通道更新", "data": {"source": str(source), "value": float(soft_trigger_value)}})
-            except Exception:
-                pass
 
     buf = bytearray()
     frame_counter = 0
@@ -524,14 +526,7 @@ async def _connect_and_stream(
             frame_counter += 1
             eeg_window_valid_frames += 1
             if cfg.eeg.lsl.include_trigger_channel:
-                v = float(soft_trigger_value)
-                if v != 0.0:
-                    for s in samples:
-                        if len(s) >= (eeg_n_channels + 1):
-                            try:
-                                s[-1] = float(max(float(s[-1]), v))
-                            except Exception:
-                                s[-1] = v
+                samples = [s[:eeg_n_channels + 1] for s in samples]
             else:
                 samples = [s[:eeg_n_channels] for s in samples]
             outlet.push_samples(samples)
@@ -674,7 +669,6 @@ async def _connect_and_stream(
                             mode = str(cmd_msg.get("mode", ""))
                             if mode == "eeg":
                                 current_mode = "eeg"
-                                _set_soft_trigger(0.0, source="mode_start_eeg")
                                 eeg_streaming_enabled = False
                                 impedance_streaming_enabled = False
                                 imp_buf.clear()
@@ -691,6 +685,8 @@ async def _connect_and_stream(
                                 except Exception as e:
                                     status_queue.put({"type": "error", "message": f"创建 EEG LSL Outlet 失败：{str(e)}"})
                                     continue
+                                if bool(getattr(cfg, "trigger", None) and cfg.trigger.enabled):
+                                    await _send_cmd(_get_trigger_source_command(), action=f"select_trigger_source_{str(cfg.trigger.source_mode)}")
                                 await _send_cmd(cfg.bluetooth.commands.start_eeg, action="start_eeg")
                                 last_start_cmd_ts = time.time()
                                 eeg_streaming_enabled = True
@@ -761,7 +757,6 @@ async def _connect_and_stream(
                             if mode == "eeg":
                                 eeg_streaming_enabled = False
                                 buf.clear()
-                                _set_soft_trigger(0.0, source="mode_stop_eeg")
                                 try:
                                     await _send_cmd(cfg.bluetooth.commands.stop_eeg, action="stop_eeg")
                                 except Exception as e:
@@ -827,13 +822,6 @@ async def _connect_and_stream(
                                 status_queue.put({"type": "mode_stopped", "mode": "tdcs"})
                             current_mode = "idle"
                             status_queue.put({"type": "mode", "mode": current_mode})
-                        elif msg_type == "trigger_cmd":
-                            cmd = str(cmd_msg.get("command", "") or "").strip().lower()
-                            src = str(cmd_msg.get("source", "") or "")
-                            if cmd == "start":
-                                _set_soft_trigger(1.0, source=src or "trigger_start")
-                            elif cmd == "end":
-                                _set_soft_trigger(0.0, source=src or "trigger_end")
                     except queue.Empty:
                         pass
                     except Exception as e:

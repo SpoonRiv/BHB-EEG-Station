@@ -16,9 +16,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-15: 1.0.7 缩放实现改为 /count_divisor（不使用乘法），并兼容旧 meta.json 字段
 - 2026-05-16: 1.0.8 离线会话目录默认不再追加 _00 后缀，仅在重名时追加序号
 - 2026-06-20: 1.0.9 精简内部注释与 Docstring，便于软著代码展示
+- 2026-07-05: 1.0.10 (Spoon) 离线导出时 TRIG 列保持原值且不再标注 uV 单位
 
 作者: Spoon
-版本: 1.0.9
+版本: 1.0.10
 """
 
 from __future__ import annotations
@@ -613,12 +614,50 @@ class OfflineService:
         raise ValueError("不支持的导出格式")
 
     def _scale_view(self, data: np.ndarray, count_divisor: float) -> np.ndarray:
+        """
+        按 count_divisor 缩放导出视图中的 EEG 列，Trigger 列保持原值。
+        """
         divisor = float(count_divisor)
         if not np.isfinite(divisor) or divisor <= 0:
             divisor = 120.0
         if divisor == 1.0:
             return data
-        return data / divisor
+        scaled = np.asarray(data, dtype=np.float32).copy()
+        n_ch = int(scaled.shape[1]) if scaled.ndim == 2 else 0
+        has_trigger = self._trigger_enabled and n_ch == (len(self._base_channel_names) + 1)
+        n_scale_ch = n_ch - (1 if has_trigger else 0)
+        if n_scale_ch > 0:
+            scaled[:, :n_scale_ch] = scaled[:, :n_scale_ch] / divisor
+        return scaled
+
+    def _is_trigger_channel_name(self, channel_name: str) -> bool:
+        """
+        判断给定通道名是否为导出中的 Trigger 通道。
+        """
+        if not self._trigger_enabled:
+            return False
+        return str(channel_name or "").strip() == str(self._trigger_label or "").strip()
+
+    def _build_export_channel_headers(self, channel_names: Sequence[str], physical_unit: str) -> List[str]:
+        """
+        构建导出表头；Trigger 通道不附加 EEG 物理单位。
+        """
+        header: List[str] = []
+        for name in channel_names:
+            ch_name = str(name)
+            if self._is_trigger_channel_name(ch_name):
+                header.append(ch_name)
+            else:
+                header.append(f"{ch_name}({physical_unit})")
+        return header
+
+    def _get_export_channel_dimension(self, channel_name: str, physical_unit: str) -> str:
+        """
+        返回导出信号通道的物理单位；Trigger 通道返回空字符串。
+        """
+        if self._is_trigger_channel_name(channel_name):
+            return ""
+        return str(physical_unit)
 
     def _design_notch(self, sampling_rate_hz: int) -> Tuple[np.ndarray, np.ndarray]:
         fs = float(sampling_rate_hz)
@@ -744,7 +783,7 @@ class OfflineService:
         block_size_samples: int,
     ) -> None:
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
-        header = [f"{str(ch)}({physical_unit})" for ch in channel_names]
+        header = self._build_export_channel_headers(channel_names=channel_names, physical_unit=physical_unit)
         with open(out_path, "w", encoding="utf_8_sig", newline="") as f:
             w = csv.writer(f)
             w.writerow(["sampling_rate_hz", int(sampling_rate_hz)])
@@ -769,7 +808,7 @@ class OfflineService:
         block_size_samples: int,
     ) -> None:
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
-        header = [f"{str(ch)}({physical_unit})" for ch in channel_names]
+        header = self._build_export_channel_headers(channel_names=channel_names, physical_unit=physical_unit)
 
         with open(out_path, "w", encoding="utf_8_sig", newline="") as f:
             w = csv.writer(f)
@@ -840,7 +879,7 @@ class OfflineService:
                 signal_headers.append(
                     {
                         "label": str(name),
-                        "dimension": str(physical_unit),
+                        "dimension": self._get_export_channel_dimension(channel_name=str(name), physical_unit=physical_unit),
                         "sample_frequency": int(sampling_rate_hz),
                         "physical_min": float(pmin),
                         "physical_max": float(pmax),
@@ -917,7 +956,7 @@ class OfflineService:
                 signal_headers.append(
                     {
                         "label": str(name),
-                        "dimension": str(physical_unit),
+                        "dimension": self._get_export_channel_dimension(channel_name=str(name), physical_unit=physical_unit),
                         "sample_frequency": int(sampling_rate_hz),
                         "physical_min": float(pmin),
                         "physical_max": float(pmax),

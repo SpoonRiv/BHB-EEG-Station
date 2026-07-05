@@ -1,5 +1,5 @@
 app:
-  ui_version: "2.2.1"
+  ui_version: "2.3.0"
 
 ui:
   waveform:
@@ -52,6 +52,11 @@ bluetooth:
     stop_impedance: [0x03, 0x02]
     start_tdcs: [0x07, 0x01]
     stop_tdcs: [0x07, 0x02]
+    trigger_source_ble: [0x06, 0x01]
+    trigger_source_ttl_uart: [0x06, 0x02]
+    trigger_source_ttl_level: [0x06, 0x03]
+    trigger_set: [0xFF, 0x01]
+    trigger_clear: [0xFF, 0x02]
 
 eeg:
   # 预留 8/16 通道版本切换接口：8 或 16
@@ -196,6 +201,7 @@ trigger:
   host: "127.0.0.1"
   port: 8002
   timeout_sec: 1.0
+  source_mode: "ble"
 
 server:
   host: "127.0.0.1"

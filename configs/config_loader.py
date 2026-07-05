@@ -40,9 +40,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-06-12: 1.1.30 回撤 BLE GATT 的 UUID 配置项，恢复仅使用 handle
 - 2026-06-12: 1.1.31 (Spoon) 恢复 BLE GATT 的 UUID 配置项，运行时优先使用 uuid，handle 作为兜底
 - 2026-06-12: 1.1.32 (Spoon) 增加 write_with_response 配置，支持按需使用 Write With Response 下发 BLE 指令
+- 2026-07-05: 1.1.33 (Spoon) 增加 trigger 源选择与触发控制指令配置，移除上位机软件注入依赖
 
 作者: Spoon
-版本: 1.1.32
+版本: 1.1.33
 """
 
 import os
@@ -73,6 +74,11 @@ class BluetoothCommandConfig:
     stop_impedance: List[int]
     start_tdcs: List[int]
     stop_tdcs: List[int]
+    trigger_source_ble: List[int]
+    trigger_source_ttl_uart: List[int]
+    trigger_source_ttl_level: List[int]
+    trigger_set: List[int]
+    trigger_clear: List[int]
 
 
 @dataclass(frozen=True)
@@ -165,6 +171,7 @@ class TriggerConfig:
     host: str
     port: int
     timeout_sec: float
+    source_mode: str
 
 
 @dataclass(frozen=True)
@@ -586,6 +593,11 @@ def load_config(config_path: str) -> AppConfig:
     stop_impedance_cfg = _as_u8_list(cmd_raw.get("stop_impedance", [0x03, 0x02]))
     start_tdcs_cfg = _as_u8_list(cmd_raw.get("start_tdcs", [0x07, 0x01]))
     stop_tdcs_cfg = _as_u8_list(cmd_raw.get("stop_tdcs", [0x07, 0x02]))
+    trigger_source_ble_cfg = _as_u8_list(cmd_raw.get("trigger_source_ble", [0x06, 0x01]))
+    trigger_source_ttl_uart_cfg = _as_u8_list(cmd_raw.get("trigger_source_ttl_uart", [0x06, 0x02]))
+    trigger_source_ttl_level_cfg = _as_u8_list(cmd_raw.get("trigger_source_ttl_level", [0x06, 0x03]))
+    trigger_set_cfg = _as_u8_list(cmd_raw.get("trigger_set", [0xFF, 0x01]))
+    trigger_clear_cfg = _as_u8_list(cmd_raw.get("trigger_clear", [0xFF, 0x02]))
 
     bluetooth = BluetoothConfig(
         device_names=device_names_cfg,
@@ -611,6 +623,11 @@ def load_config(config_path: str) -> AppConfig:
             stop_impedance=stop_impedance_cfg,
             start_tdcs=start_tdcs_cfg,
             stop_tdcs=stop_tdcs_cfg,
+            trigger_source_ble=trigger_source_ble_cfg,
+            trigger_source_ttl_uart=trigger_source_ttl_uart_cfg,
+            trigger_source_ttl_level=trigger_source_ttl_level_cfg,
+            trigger_set=trigger_set_cfg,
+            trigger_clear=trigger_clear_cfg,
         ),
     )
 
@@ -744,12 +761,16 @@ def load_config(config_path: str) -> AppConfig:
         trigger_timeout_sec = 0.05
     if trigger_timeout_sec > 10.0:
         trigger_timeout_sec = 10.0
+    trigger_source_mode = str(trigger_raw.get("source_mode", "ble") or "ble").strip().lower()
+    if trigger_source_mode not in {"ble", "ttl_uart", "ttl_level"}:
+        trigger_source_mode = "ble"
 
     trigger = TriggerConfig(
         enabled=bool(trigger_raw.get("enabled", False)),
         host=str(trigger_raw.get("host", "127.0.0.1") or "127.0.0.1"),
         port=int(trigger_raw.get("port", 8888)),
         timeout_sec=trigger_timeout_sec,
+        source_mode=trigger_source_mode,
     )
 
     streaming = StreamingConfig(

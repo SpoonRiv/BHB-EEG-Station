@@ -20,9 +20,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-05-30: 1.2.9 断开连接/停止进程时保留设备名，避免前端回退展示为配置名
 - 2026-05-31: 1.2.10 增加 trigger 指令投递接口，用于将 start/end 同步到采集进程注入触发通道
 - 2026-06-20: 1.2.11 精简内部注释与 Docstring，便于软著代码展示
+- 2026-07-05: 1.2.12 (Spoon) trigger 开始/停止改为投递真实设备控制指令，不再软件注入触发通道
 
 作者: Spoon
-版本: 1.2.11
+版本: 1.2.12
 """
 
 import multiprocessing
@@ -199,19 +200,22 @@ class EEGController:
 
     def send_trigger_command(self, command: str, source: str) -> bool:
         """
-        向采集进程投递 trigger 指令。
+        向采集进程投递设备 trigger 控制指令。
         """
 
         if not self.command_queue or not self.is_running():
             return False
         cmd = str(command or "").strip().lower()
+        _ = str(source or "").strip()
         if cmd.startswith("start"):
-            norm = "start"
+            cmd_bytes = list(self.config.bluetooth.commands.trigger_set)
         elif cmd.startswith("end") or cmd.startswith("stop"):
-            norm = "end"
+            cmd_bytes = list(self.config.bluetooth.commands.trigger_clear)
         else:
             return False
-        self.command_queue.put({"type": "trigger_cmd", "command": norm, "source": str(source)})
+        if len(cmd_bytes) < 2:
+            return False
+        self.command_queue.put({"type": "send_cmd", "cmd": cmd_bytes})
         return True
 
     def _drain_status_queue(self) -> None:

@@ -57,9 +57,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 - 2026-06-20: 1.5.1 精简内部注释与 Docstring，便于软著代码展示
 - 2026-07-03: 1.5.2 修复调试事件在页面重连/trigger 线程触发时偶发不显示的问题（增强 WS 清理与线程安全发布）
 - 2026-07-03: 1.5.3 修复蓝牙断联重连后调试输出仍绑定旧 debug_queue，导致日志不再刷新的问题
+- 2026-07-05: 1.5.4 trigger API/TCP 改为下发真实设备指令，并按下发结果返回状态
 
 作者: Spoon
-版本: 1.5.3
+版本: 1.5.4
 """
 
 import asyncio
@@ -120,14 +121,16 @@ class AppState:
         self.debug_bus = DebugEventBus(max_events=self.config.debug.max_events)
         self._debug_forward_started = False
         self._debug_forward_queue_id: Optional[int] = None
-        def _on_trigger_event(command: str, source: str) -> None:
+        def _on_trigger_event(command: str, source: str) -> bool:
+            ok = False
             try:
-                self.controller.send_trigger_command(command=str(command), source=str(source))
+                ok = bool(self.controller.send_trigger_command(command=str(command), source=str(source)))
             except Exception:
-                pass
+                ok = False
             if not bool(self.config.debug.ui_enabled):
-                return
-            self.debug_bus.publish(tag="TRIGGER", message=f"收到 {command}", data={"source": str(source)})
+                return ok
+            self.debug_bus.publish(tag="TRIGGER", message=f"收到 {command}", data={"source": str(source), "delivered": bool(ok)})
+            return ok
         self.trigger = TriggerService(
             TriggerServiceConfig(
                 enabled=bool(self.config.trigger.enabled),
