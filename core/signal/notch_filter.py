@@ -4,12 +4,7 @@
 Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 文件功能: 实时 EEG 50Hz 工频陷波滤波器（对 EEG 通道做状态保持的 IIR notch，触发通道不处理）
-
-修改日志:
-- 2026-05-03: 1.0.0 创建文件
-
 作者: Spoon
-版本: 1.0.0
 """
 
 from __future__ import annotations

@@ -4,14 +4,7 @@
 Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 文件功能: BLE EEG 帧协议解析（校验帧完整性，解析 EEG/触发/电量/IMU 并输出采样点序列）
-
-修改日志:
-- 2026-04-30: 1.0.0 创建文件
-- 2026-06-20: 1.0.1 精简内部注释与 Docstring，便于软著代码展示
-- 2026-07-05: 1.0.2 (Spoon) 按协议将 Trigger 低 5 位展开为每帧 5 个采样点的同步标记
-
 作者: Spoon
-版本: 1.0.2
 """
 
 from dataclasses import dataclass

@@ -4,13 +4,7 @@
 Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 文件功能: LSL 输出写入（创建 StreamOutlet 并将采样点按时间戳推送到 pylsl）
-
-修改日志:
-- 2026-04-30: 1.0.0 创建文件
-- 2026-05-21: 1.0.1 pylsl 延迟导入以降低采集进程启动开销
-
 作者: Spoon
-版本: 1.0.1
 """
 
 import time

@@ -4,13 +4,7 @@
 Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 文件功能: PSD WebSocket 广播枢纽（低频数据：保持“最新覆盖”，避免积压导致 UI 延迟）
-
-修改日志:
-- 2026-05-29: 1.0.0 创建文件
-- 2026-05-29: 1.0.1 增加客户端在线判断接口（用于后端按需启用 PSD）
-
 作者: Spoon
-版本: 1.0.1
 """
 
 from __future__ import annotations

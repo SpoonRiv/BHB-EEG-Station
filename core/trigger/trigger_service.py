@@ -4,15 +4,7 @@
 Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 文件功能: Trigger 业务封装（提供开始/停止触发的幂等接口，并统一管理配置与异常）
-
-修改日志:
-- 2026-05-30: 1.0.0 创建文件
-- 2026-05-30: 1.1.0 增加内置 trigger TCP 服务端，并支持开始采集时自动启动
-- 2026-06-20: 1.1.1 精简内部注释与 Docstring，便于软著代码展示
-- 2026-07-05: 1.1.2 (Spoon) trigger 事件按设备指令真实下发结果更新状态，避免 API 假成功
-
 作者: Spoon
-版本: 1.1.2
 """
 
 from __future__ import annotations

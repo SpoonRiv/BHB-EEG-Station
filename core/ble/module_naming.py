@@ -4,12 +4,7 @@
 Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 文件功能: BLE 模块命名规则解析（将设备广播名解析为采集通道数与刺激通道数等能力信息）
-
-修改日志:
-- 2026-05-24: 1.0.0 创建文件
-
 作者: Spoon
-版本: 1.0.0
 """
 
 from __future__ import annotations
@@ -83,4 +78,3 @@ def parse_ble_module_name(name: str, pattern: str) -> Optional[BleModuleNameInfo
         eeg_channels=eeg_channels,
         stim_channels=stim_channels,
     )
-

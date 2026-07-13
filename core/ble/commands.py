@@ -4,13 +4,7 @@
 Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 文件功能: 两级控制指令元数据（一级/二级）与解释函数，供采集进程与上层控制面板复用
-
-修改日志:
-- 2026-05-12: 1.0.0 创建文件
-- 2026-05-12: 1.0.1 补充控制面板按钮说明（help 字段），用于 UI 显示每个操作的用途
-
 作者: Spoon
-版本: 1.0.1
 """
 
 from __future__ import annotations

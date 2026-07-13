@@ -4,12 +4,7 @@
 Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 文件功能: 本机覆盖配置读写（config.local.yaml），用于保存不希望进入 Git 的运行时偏好（如通道选择）
-
-修改日志:
-- 2026-05-03: 1.0.0 创建文件
-
 作者: Spoon
-版本: 1.0.0
 """
 
 from __future__ import annotations
@@ -88,4 +83,3 @@ def write_yaml_file_atomic(path: str, data: Dict[str, Any]) -> None:
     with open(tmp_path, "w", encoding="utf-8") as f:
         yaml.safe_dump(data or {}, f, allow_unicode=True, sort_keys=False)
     os.replace(tmp_path, path)
-

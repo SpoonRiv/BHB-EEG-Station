@@ -4,13 +4,7 @@
 Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 文件功能: 阻抗帧解析（将 BLE 通知数据帧解析为阻抗欧姆值向量），供采集进程推送到 LSL 与 UI 可视化使用。
-
-修改日志:
-- 2026-05-04: 1.0.0 新增阻抗帧解析（CH8/CH16，含 BIAS 与可选 tDCS）
-- 2026-05-04: 1.0.1 字段更名：mode_channels -> n_channels（显式区分 8/16 通道）
-
 作者: Spoon
-版本: 1.0.1
 """
 
 from __future__ import annotations

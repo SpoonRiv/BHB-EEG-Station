@@ -2,15 +2,7 @@
 Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 文件功能: 前端控制与渲染逻辑（WebSocket 实时接收 EEG 数据、调用后端 API、使用 ECharts 绘制波形）
-
-修改日志:
-- 2026-04-30: 1.0.0 创建文件
-- 2026-05-04: 1.0.1 连接状态与日志文案去括号/去英文，设备名去尾部括号后缀
-- 2026-05-04: 1.0.2 配置字段更名：mode_channels -> n_channels（与三模式命名一致）
-- 2026-05-04: 1.0.3 文件更名为 legacy_app.js（保留历史实现，当前前端入口为 web/js/main.js）
-
 作者: Spoon
-版本: 1.0.3
 */
 
 const WS_URL = `ws://${window.location.host}/ws/eeg`;

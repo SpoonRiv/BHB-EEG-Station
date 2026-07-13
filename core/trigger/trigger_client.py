@@ -4,12 +4,7 @@
 Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 文件功能: Trigger TCP 客户端（连接本机/局域网触发服务并发送 start/end 等命令）
-
-修改日志:
-- 2026-05-30: 1.0.0 创建文件
-
 作者: Spoon
-版本: 1.0.0
 """
 
 from __future__ import annotations
@@ -94,4 +89,3 @@ class TriggerClient:
             sock.close()
         except Exception:
             pass
-

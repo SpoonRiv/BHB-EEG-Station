@@ -4,14 +4,7 @@
 Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 文件功能: LSL 数据流接收与缓冲打包（从 pylsl 拉取 EEG 数据并通过回调向上层提供 chunk）
-
-修改日志:
-- 2026-04-30: 1.0.0 创建文件
-- 2026-05-02: 1.0.1 修复 LSL 解析不稳定：按 stream_name 解析并支持超时重试，避免“已启动但无波形”
-- 2026-05-02: 1.0.2 解析后显式 open_stream，提升 pull_chunk 获取数据的稳定性
-
 作者: Spoon
-版本: 1.0.2
 """
 
 import asyncio

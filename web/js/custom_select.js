@@ -2,12 +2,7 @@
 Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 文件功能: 为原生 select 提供可复用的圆角自定义下拉外观，并保持原始值与 change 事件同步
-
-修改日志:
-- 2026-06-11: 1.0.0 创建文件，提供通用圆角下拉增强能力
-
 作者: Spoon
-版本: 1.0.0
 */
 
 function getDisplayText(selectEl) {

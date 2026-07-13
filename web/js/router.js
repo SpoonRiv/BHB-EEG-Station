@@ -2,12 +2,7 @@
 Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 文件功能: 简单前端路由（hash 驱动页面显示 + 进入/离开钩子）
-
-修改日志:
-- 2026-05-02: 1.0.0 新增页面流路由
-
 作者: Spoon
-版本: 1.0.0
 */
 
 import { setActivePage } from './ui.js';

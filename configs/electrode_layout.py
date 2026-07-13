@@ -4,12 +4,7 @@
 Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 文件功能: 加载并校验 10-20 电极二维布局（电极名 -> 归一化坐标），供后端下发给前端绘制地形图。
-
-修改日志:
-- 2026-05-17: 1.0.0 创建文件
-
 作者: Spoon
-版本: 1.0.0
 """
 
 from __future__ import annotations

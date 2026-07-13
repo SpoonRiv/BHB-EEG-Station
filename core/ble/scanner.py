@@ -4,12 +4,7 @@
 Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 文件功能: BLE 扫描能力封装（向上层提供“扫描到的设备列表”，用于前端下拉选择）
-
-修改日志:
-- 2026-05-02: 1.0.0 新增 BLE 扫描封装
-
 作者: Spoon
-版本: 1.0.0
 """
 
 from dataclasses import dataclass

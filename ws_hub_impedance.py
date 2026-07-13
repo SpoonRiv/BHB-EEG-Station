@@ -4,12 +4,7 @@
 Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 文件功能: 阻抗 WebSocket 广播枢纽（低频数据：保持“最新覆盖”，避免积压导致 UI 延迟）。
-
-修改日志:
-- 2026-05-04: 1.0.0 创建文件
-
 作者: Spoon
-版本: 1.0.0
 """
 
 from __future__ import annotations
@@ -131,4 +126,3 @@ class ImpedanceWsHub:
                 return
             except Exception:
                 await asyncio.sleep(0.02)
-
