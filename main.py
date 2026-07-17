@@ -708,7 +708,7 @@ async def lifespan(app: FastAPI):
     await asyncio.to_thread(state.controller.stop_device)
     await state.stop_debug_forwarding()
 
-app = FastAPI(title="BHB-EEG Station Web API", lifespan=lifespan)
+app = FastAPI(title="BHB EEGSuite Web API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

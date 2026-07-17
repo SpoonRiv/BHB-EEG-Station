@@ -1,4 +1,4 @@
-# BHB-EEG Station
+# BHB EEGSuite
 
 基于 Windows 11 的 Web 上位机：负责 EEG 采集控制、阻抗检测、离线录制与导出（CSV/EDF）、以及浏览器端实时可视化。
 
@@ -222,4 +222,3 @@ WebSocket：
 - 确认离线目录可写：`offline.root_dir`
 - 确认磁盘空间充足
 - 若 EDF 导出失败，先用 CSV 导出确认数据已录制，再排查 EDF 相关依赖（`pyedflib`）
-
