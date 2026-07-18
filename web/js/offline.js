@@ -5,7 +5,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 作者: Spoon
 */
 
-import { getConfig, offlineExport, offlineSession } from './api.js';
+import { getConfig, offlineExport, offlineOpenFolder, offlineSession } from './api.js';
 import { navigate } from './router.js';
 
 let pageActive = false;
@@ -28,6 +28,13 @@ function setStatus(text, kind) {
   if (kind === 'success') box.classList.add('success');
   else box.classList.add('error');
   box.textContent = text || '';
+}
+
+function setOpenFolderButtonVisible(visible) {
+  const btn = document.getElementById('btn-offline-open-folder');
+  if (!btn) return;
+  btn.style.display = visible ? '' : 'none';
+  btn.disabled = !visible;
 }
 
 function setMetricsVisible(visible) {
@@ -172,9 +179,12 @@ export async function enterOfflinePage() {
 
   const backBtn = document.getElementById('btn-offline-back');
   const exportBtn = document.getElementById('btn-offline-export');
+  const openFolderBtn = document.getElementById('btn-offline-open-folder');
   const filterToggle = document.getElementById('offline-filter-enable');
   const baseRaw = document.getElementById('offline-base-raw');
   const baseFil = document.getElementById('offline-base-filtered');
+
+  setOpenFolderButtonVisible(!!lastSessionId);
 
   if (baseRaw && !baseRaw.value) baseRaw.value = 'eeg';
   if (baseFil && !baseFil.value) baseFil.value = 'eeg_filtered';
@@ -187,6 +197,20 @@ export async function enterOfflinePage() {
   }
 
   if (backBtn) backBtn.onclick = async () => { await navigate('#mode'); };
+
+  if (openFolderBtn) {
+    openFolderBtn.onclick = async () => {
+      if (!lastSessionId) return;
+      openFolderBtn.disabled = true;
+      try {
+        await offlineOpenFolder(lastSessionId);
+      } catch (e) {
+        setStatus(`打开文件夹失败：${e && e.message ? e.message : '未知错误'}`, 'error');
+      } finally {
+        setOpenFolderButtonVisible(!!lastSessionId);
+      }
+    };
+  }
 
   if (exportBtn) {
     exportBtn.disabled = !lastSessionId;

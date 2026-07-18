@@ -1251,7 +1251,14 @@ select option {
   gap: 18px;
 }
 
+.offline-status-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
 .offline-status-box {
+  flex: 1 1 auto;
   height: 88px;
   min-height: 88px;
   max-height: 88px;
@@ -1260,6 +1267,12 @@ select option {
   line-height: 1.6;
   padding: 14px 16px;
   overflow: auto;
+}
+
+.offline-status-row .btn {
+  flex: 0 0 auto;
+  min-height: 88px;
+  white-space: nowrap;
 }
 
 .offline-session-panel,
@@ -2360,6 +2373,8 @@ select option {
   .mode-card.mode-card--top { grid-column: auto; }
   .mode-card.mode-card--bottom { grid-column: auto; }
   .page#page-mode .card-body { padding: 22px; }
+  .offline-status-row { flex-direction: column; }
+  .offline-status-row .btn { width: 100%; min-height: 42px; }
   .offline-session-grid,
   .offline-export-grid,
   .offline-filter-grid { grid-template-columns: 1fr; }

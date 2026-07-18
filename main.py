@@ -620,6 +620,65 @@ def get_browser_launch_url(host: str, port: int) -> str:
     return f"http://{normalized_host}:{int(port)}/"
 
 
+def resolve_offline_session_dir(session_id: str) -> str:
+    """
+    根据离线会话 ID 解析其对应的会话目录。
+
+    Args:
+        session_id: 离线会话 ID。
+
+    Returns:
+        str: 形如 `.../offlinedata/20260718/eeg_203602` 的会话目录绝对路径。
+
+    Raises:
+        ValueError: 会话 ID 为空，或解析出的目录不在离线根目录内。
+        FileNotFoundError: 会话目录不存在。
+    """
+    sid = str(session_id or "").strip()
+    if not sid:
+        raise ValueError("session_id 不能为空")
+
+    info = state.offline.load_session(sid)
+    session_dir = os.path.abspath(str(info.session_dir))
+    offline_root = os.path.abspath(os.path.join(os.path.dirname(__file__), state.config.offline.root_dir))
+
+    try:
+        if os.path.commonpath([session_dir, offline_root]) != offline_root:
+            raise ValueError("目标目录不在离线数据根目录内")
+    except ValueError as e:
+        raise ValueError("目标目录不在离线数据根目录内") from e
+
+    if not os.path.isdir(session_dir):
+        raise FileNotFoundError(f"会话目录不存在：{session_dir}")
+    return session_dir
+
+
+def open_directory_with_system(path: str) -> str:
+    """
+    使用系统默认文件管理器打开指定目录。
+
+    Args:
+        path: 需要打开的目录绝对路径。
+
+    Returns:
+        str: 实际打开的目录绝对路径。
+
+    Raises:
+        FileNotFoundError: 目录不存在。
+        RuntimeError: 当前系统无法打开目录。
+    """
+    target_dir = os.path.abspath(str(path or "").strip())
+    if not os.path.isdir(target_dir):
+        raise FileNotFoundError(f"目录不存在：{target_dir}")
+    if hasattr(os, "startfile"):
+        os.startfile(target_dir)
+        return target_dir
+    opened = webbrowser.open(f"file:///{target_dir.replace(os.sep, '/')}", new=1)
+    if not opened:
+        raise RuntimeError("系统文件管理器打开失败")
+    return target_dir
+
+
 def open_browser_when_server_ready(host: str, port: int, timeout_sec: float = 15.0) -> None:
     """
     在服务端口就绪后，使用系统默认浏览器打开上位机首页。
@@ -1459,6 +1518,31 @@ async def offline_session(session_id: str):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"读取会话失败：{e}")
+
+
+@app.post("/api/offline/open-folder")
+async def offline_open_folder(session_id: str):
+    """
+    打开离线会话目录，便于用户直接查看当前会话的导出文件。
+
+    Args:
+        session_id: 会话 ID（形如 `20260718_eeg_101530`）。
+    """
+    sid = str(session_id or "").strip()
+    if not sid:
+        raise HTTPException(status_code=400, detail="session_id 不能为空")
+    try:
+        session_dir = resolve_offline_session_dir(sid)
+        opened_dir = await asyncio.to_thread(open_directory_with_system, session_dir)
+        return {"status": "success", "session_id": sid, "opened_dir": opened_dir}
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"打开文件夹失败：{e}")
 
 @app.get("/api/debug/events")
 async def get_debug_events(limit: int = 200):

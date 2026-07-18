@@ -100,6 +100,12 @@ export async function offlineSession(sessionId) {
   return fetchJson(`/api/offline/session?${qs.toString()}`);
 }
 
+export async function offlineOpenFolder(sessionId) {
+  const sid = String(sessionId || '').trim();
+  const qs = new URLSearchParams({ session_id: sid });
+  return fetchJson(`/api/offline/open-folder?${qs.toString()}`, { method: 'POST' });
+}
+
 export async function eegChannelOptions() {
   return fetchJson('/api/eeg/channel/options');
 }

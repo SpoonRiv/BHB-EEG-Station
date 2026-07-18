@@ -208,6 +208,15 @@ function bindHeaderNav() {
   }
 }
 
+function attemptCloseCurrentWindow() {
+  // 浏览器仅允许脚本关闭部分由脚本拉起的窗口，这里做兼容性兜底尝试。
+  window.requestAnimationFrame(() => {
+    window.close();
+    window.open('', '_self');
+    window.close();
+  });
+}
+
 function bindPowerButton() {
   const powerBtn = document.getElementById('app-power');
   const modal = document.getElementById('power-modal');
@@ -260,6 +269,7 @@ function bindPowerButton() {
     statusTimer = null;
     setConnBadge('error', '系统已关闭');
     powerBtn.setAttribute('aria-label', '系统关闭中');
+    attemptCloseCurrentWindow();
   });
 }
 

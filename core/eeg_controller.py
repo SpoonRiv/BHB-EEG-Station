@@ -47,13 +47,64 @@ class EEGController:
         """
         返回采集进程是否仍在运行。
         """
+        self._sync_process_lifecycle()
         return bool(self.process and self.process.is_alive())
+
+    def _clear_runtime_handles(self) -> None:
+        """
+        清理采集进程相关句柄，但保留最近一次状态，便于前端展示断联原因。
+        """
+        self.process = None
+        self.stop_event = None
+        self.status_queue = None
+        self.command_queue = None
+        self.debug_queue = None
+        self.current_mode = "idle"
+        self.last_battery = None
+        self.last_imu = None
+        self.task_running = False
+        self.task_mode = ""
+
+    def _sync_process_lifecycle(self) -> None:
+        """
+        同步采集进程生命周期，确保断联/异常退出后能及时释放旧句柄。
+        """
+        if self.process and not self.process.is_alive():
+            if self.status_queue:
+                self._drain_status_queue()
+                if self.process is None:
+                    return
+            try:
+                self.process.join(timeout=0.1)
+            except Exception:
+                pass
+            self._clear_runtime_handles()
+
+    def _reclaim_stale_process(self, timeout_sec: float = 0.6) -> None:
+        """
+        回收已经断联或异常的旧采集进程，避免阻塞下一次重连。
+        """
+        if not self.process:
+            self._clear_runtime_handles()
+            return
+        try:
+            if self.process.is_alive():
+                self.process.join(timeout=max(0.1, float(timeout_sec)))
+            if self.process.is_alive():
+                logging.warning("Stale EEG process still alive after disconnect/error, terminating it.")
+                self.process.terminate()
+                self.process.join(timeout=1.0)
+        except Exception as exc:
+            logging.warning("Failed to reclaim stale EEG process: %s", exc)
+        finally:
+            self._clear_runtime_handles()
 
     def get_status(self) -> Dict[str, Any]:
         """
         获取采集侧状态快照。
         """
         self._drain_status_queue()
+        self._sync_process_lifecycle()
         configured_name = self.config.bluetooth.target_device
         last = self.last_status or {"type": "idle", "message": "未启动", "name": configured_name}
         if "name" not in last:
@@ -94,6 +145,11 @@ class EEGController:
         """
         启动采集进程并建立 BLE 连接。
         """
+        self._drain_status_queue()
+        self._sync_process_lifecycle()
+        last_type = str((self.last_status or {}).get("type", "")).strip().lower() if isinstance(self.last_status, dict) else ""
+        if last_type in {"disconnected", "error", "stopped"} and self.process:
+            self._reclaim_stale_process()
         if self.process and self.process.is_alive():
             logging.warning("EEG device process is already running.")
             return True
@@ -205,6 +261,7 @@ class EEGController:
         """
         if not self.status_queue:
             return
+        needs_reclaim = False
         while True:
             try:
                 msg = self.status_queue.get_nowait()
@@ -227,15 +284,24 @@ class EEGController:
                             self.current_mode = "idle"
                             self.task_running = False
                             self.task_mode = ""
+                    if msg_type in {"disconnected", "error"}:
+                        self.current_mode = "idle"
+                        self.task_running = False
+                        self.task_mode = ""
+                        needs_reclaim = True
             except queue.Empty:
                 break
             except Exception:
                 break
+        if needs_reclaim:
+            self._reclaim_stale_process()
 
     def stop_device(self) -> bool:
         """
         停止蓝牙采集进程。
         """
+        self._drain_status_queue()
+        self._sync_process_lifecycle()
         last = self.last_status if isinstance(self.last_status, dict) else {}
         last_name = str(last.get("name") or "").strip() or str(self.config.bluetooth.target_device or "")
         last_address = str(last.get("address") or "").strip() or None
@@ -254,17 +320,8 @@ class EEGController:
                 self.process.terminate()
                 self.process.join()
 
-            self.process = None
-            self.stop_event = None
-            self.status_queue = None
-            self.command_queue = None
-            self.debug_queue = None
-            self.current_mode = "idle"
+            self._clear_runtime_handles()
             self.last_status = {"type": "stopped", "message": "采集已停止", "name": last_name, "address": last_address}
-            self.last_battery = None
-            self.last_imu = None
-            self.task_running = False
-            self.task_mode = ""
             return True
         except Exception as e:
             logging.error(f"Failed to stop EEG device: {e}")

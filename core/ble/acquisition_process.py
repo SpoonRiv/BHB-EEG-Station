@@ -556,6 +556,20 @@ async def _connect_and_stream(
         status_payload["module"] = {"eeg_channels": int(module_info.eeg_channels), "stim_channels": int(module_info.stim_channels)}
     status_queue.put(status_payload)
 
+    def _emit_disconnected_status(message: str) -> None:
+        """
+        上报蓝牙已断开状态，供主进程及时回收旧连接资源。
+        """
+        payload: Dict[str, Any] = {
+            "type": "disconnected",
+            "message": str(message or "蓝牙连接已断开"),
+            "address": address,
+            "name": resolved_name,
+        }
+        if module_info is not None:
+            payload["module"] = {"eeg_channels": int(module_info.eeg_channels), "stim_channels": int(module_info.stim_channels)}
+        status_queue.put(payload)
+
     while not stop_event.is_set():
         try:
             async with BleakClient(address) as client:
@@ -626,6 +640,9 @@ async def _connect_and_stream(
                     status_payload["module"] = {"eeg_channels": int(module_info.eeg_channels), "stim_channels": int(module_info.stim_channels)}
                 status_queue.put(status_payload)
                 while not stop_event.is_set():
+                    if not bool(getattr(client, "is_connected", False)):
+                        _emit_disconnected_status("蓝牙连接已断开，等待重连")
+                        return
                     try:
                         cmd_msg: Dict[str, Any] = command_queue.get_nowait()
                         msg_type = str(cmd_msg.get("type", ""))
@@ -740,7 +757,7 @@ async def _connect_and_stream(
                                         except Exception:
                                             pass
                                     if not bool(getattr(client, "is_connected", True)):
-                                        status_queue.put({"type": "disconnected", "message": "蓝牙连接已断开", "address": address, "name": resolved_name})
+                                        _emit_disconnected_status("蓝牙连接已断开，等待重连")
                                 status_queue.put({"type": "mode_stopped", "mode": "eeg"})
                             elif mode == "impedance":
                                 eeg_streaming_enabled = False
@@ -762,7 +779,7 @@ async def _connect_and_stream(
                                         except Exception:
                                             pass
                                     if not bool(getattr(client, "is_connected", True)):
-                                        status_queue.put({"type": "disconnected", "message": "蓝牙连接已断开", "address": address, "name": resolved_name})
+                                        _emit_disconnected_status("蓝牙连接已断开，等待重连")
                                 status_queue.put({"type": "mode_stopped", "mode": "impedance"})
                             elif mode == "tdcs":
                                 eeg_streaming_enabled = False
@@ -786,7 +803,7 @@ async def _connect_and_stream(
                                         except Exception:
                                             pass
                                     if not bool(getattr(client, "is_connected", True)):
-                                        status_queue.put({"type": "disconnected", "message": "蓝牙连接已断开", "address": address, "name": resolved_name})
+                                        _emit_disconnected_status("蓝牙连接已断开，等待重连")
                                 status_queue.put({"type": "mode_stopped", "mode": "tdcs"})
                             current_mode = "idle"
                             status_queue.put({"type": "mode", "mode": current_mode})
