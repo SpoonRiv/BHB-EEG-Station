@@ -560,6 +560,74 @@ class AppState:
         self._debug_forward_started = False
         self._debug_forward_queue_id = None
 
+    def _has_runtime_activity(self) -> bool:
+        """
+        判断当前是否仍残留需要清理的运行态资源。
+        """
+        return any(
+            [
+                bool(getattr(self.streamer, "is_streaming", False)),
+                bool(getattr(self.imp_streamer, "is_streaming", False)),
+                bool(getattr(self.controller, "task_running", False)),
+                bool(getattr(self.trigger, "server_running", False)),
+                bool(self._debug_forward_started),
+            ]
+        )
+
+    def should_reset_runtime_for_device(self, device_status: Optional[Dict[str, Any]]) -> bool:
+        """
+        根据设备状态判断是否需要执行断联后的运行态清理。
+
+        设计说明：
+            - 仅在设备已经不可用，但前端相关运行态仍残留时返回 True；
+            - 已连接但处于空闲态（如 `idle/ready/connected`）不应触发清理；
+            - 该判断用于修复异常断联后 `lsl_streaming/task_running` 等状态未及时复位的问题。
+        """
+        if not self._has_runtime_activity():
+            return False
+        dev = device_status if isinstance(device_status, dict) else {}
+        running = bool(dev.get("running", False))
+        last = dev.get("last") if isinstance(dev.get("last"), dict) else {}
+        last_type = str(last.get("type", "") or "").strip().lower()
+        if running and last_type in {"connected", "ready", "connecting", "idle"}:
+            return False
+        if last_type in {"disconnected", "error", "stopped"}:
+            return True
+        return not running
+
+    def reset_runtime_after_device_loss(self) -> None:
+        """
+        在设备异常断联或进程退出后，统一清理前端相关运行态资源。
+
+        清理目标：
+            - EEG/阻抗 LSL 拉流与 WebSocket 推送；
+            - PSD 后处理；
+            - trigger 服务端与离线会话。
+        """
+        self.eeg_ws_hub.stop(clear_pending=True)
+        self.stop_psd()
+        self.streamer.stop()
+        self.imp_ws_hub.stop(clear_pending=True)
+        self.imp_streamer.stop()
+        try:
+            self.trigger.stop_server()
+        except Exception:
+            pass
+        try:
+            self.offline.stop_session()
+        except Exception:
+            pass
+
+    async def reconcile_runtime_with_device(self, device_status: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        将运行态资源与当前设备状态对齐，并返回对齐后的最新设备状态。
+        """
+        if self.should_reset_runtime_for_device(device_status):
+            self.reset_runtime_after_device_loss()
+            await self.stop_debug_forwarding()
+            return self.controller.get_status()
+        return device_status if isinstance(device_status, dict) else self.controller.get_status()
+
 state = AppState()
 
 
@@ -1157,8 +1225,10 @@ async def get_status():
     """
     获取采集状态（用于前端连接指示与设备名展示）。
     """
+    device_status = state.controller.get_status()
+    device_status = await state.reconcile_runtime_with_device(device_status)
     return {
-        "device": state.controller.get_status(),
+        "device": device_status,
         "lsl_streaming": bool(getattr(state.streamer, "is_streaming", False)),
         "lsl": state.streamer.get_status() if hasattr(state.streamer, "get_status") else None,
         "impedance_lsl_streaming": bool(getattr(state.imp_streamer, "is_streaming", False)),
@@ -1231,6 +1301,8 @@ async def ble_connect(req: BleConnectRequest):
     """
     建立 BLE 连接（连接与业务模式解耦）。
     """
+    current_status = state.controller.get_status()
+    await state.reconcile_runtime_with_device(current_status)
     success = await asyncio.to_thread(state.controller.start_device, req.address, req.name)
     if success:
         await state.ensure_debug_forwarding()

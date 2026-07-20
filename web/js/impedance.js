@@ -14,6 +14,8 @@ let wsDebug = null;
 let impPageActive = false;
 let impStatusTimer = null;
 let impRenderTimer = null;
+let impStatusEventBound = false;
+let impStatusEventHandler = null;
 
 let impNames = [];
 let impModeChannels = 8;
@@ -87,6 +89,17 @@ function renderImpControlButtons(running, connected, taskActive) {
   const stopBtn = document.getElementById('btn-imp-stop');
   if (startBtn) startBtn.disabled = (!running) || (!connected) || !!taskActive;
   if (stopBtn) stopBtn.disabled = (!running) || (!connected) || !taskActive;
+}
+
+function applyImpStatusSnapshot(st) {
+  const dev = st && st.device ? st.device : null;
+  const running = !!(dev && dev.running);
+  const last = dev && dev.last ? dev.last : null;
+  const lastType = last && last.type ? String(last.type) : '';
+  const connected = lastType === 'connected' || lastType === 'ready';
+  const taskActive = !!(dev && dev.task_running) && String(dev.task_mode || '') === 'impedance';
+  impTaskActive = !!taskActive;
+  renderImpControlButtons(running, connected, taskActive);
 }
 
 function clampThresholds(goodMax, warnMax, sliderMax) {
@@ -415,14 +428,11 @@ async function refreshImpStatusHint() {
     const taskActive = !!(dev && dev.task_running) && String(dev.task_mode || '') === 'impedance';
     const lsl = !!(st && st.impedance_lsl_streaming);
     const lslDetail = st && st.impedance_lsl ? st.impedance_lsl : null;
+    applyImpStatusSnapshot(st);
     if (!running) {
-      impTaskActive = false;
-      renderImpControlButtons(false, false, false);
       renderSubtitle('设备未连接（请先在设备页连接）');
       return;
     }
-    impTaskActive = taskActive;
-    renderImpControlButtons(running, connected, taskActive);
     if (!lsl) {
       const extra = lslDetail && lslDetail.last_error ? `；LSL：${String(lslDetail.last_error)}` : '';
       if (taskActive) renderSubtitle(`数据连接：解析中（等待数据）${extra}`);
@@ -639,6 +649,14 @@ export async function enterImpedancePage() {
   setBadge('warn', '等待数据');
   bindControls();
   await initImpedanceUiOnce();
+  if (!impStatusEventBound) {
+    impStatusEventHandler = (event) => {
+      if (!impPageActive) return;
+      applyImpStatusSnapshot(event && event.detail ? event.detail : null);
+    };
+    window.addEventListener('app:status', impStatusEventHandler);
+    impStatusEventBound = true;
+  }
   connectImpWs();
   connectDebugWs();
   startTimers();
@@ -647,6 +665,11 @@ export async function enterImpedancePage() {
 export function leaveImpedancePage() {
   impPageActive = false;
   stopTimers();
+  if (impStatusEventBound && impStatusEventHandler) {
+    window.removeEventListener('app:status', impStatusEventHandler);
+    impStatusEventBound = false;
+    impStatusEventHandler = null;
+  }
   closeWs(wsImp);
   closeWs(wsDebug);
   wsImp = null;

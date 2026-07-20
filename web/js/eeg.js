@@ -74,6 +74,8 @@ let eegReconnectTimer = null;
 let debugReconnectTimer = null;
 let eegStatusTimer = null;
 let eegDataWatchTimer = null;
+let eegStatusEventBound = false;
+let eegStatusEventHandler = null;
 let lastEegDataAtMs = 0;
 let eegWsState = 'disconnected';
 let eegHasData = false;
@@ -127,6 +129,18 @@ function renderEegControlButtons(running, streaming) {
   if (stopBtn) stopBtn.disabled = (!running) || !eegSessionLocked;
 }
 
+function applyEegStatusSnapshot(st) {
+  const dev = st && st.device ? st.device : null;
+  const running = !!(dev && dev.running);
+  const streaming = !!(st && st.lsl_streaming);
+  const taskActive = !!(dev && dev.task_running) && String(dev.task_mode || '') === 'eeg';
+  renderBatteryBadge(dev && dev.battery ? dev.battery : null, running, streaming);
+  if (!running || (!taskActive && !streaming && !eegStopping)) {
+    eegSessionLocked = false;
+  }
+  renderEegControlButtons(running, streaming);
+}
+
 function renderEegSubtitle() {
   return;
 }
@@ -138,9 +152,7 @@ async function refreshEegStatusHint() {
     const running = !!(dev && dev.running);
     const streaming = !!(st && st.lsl_streaming);
     const lsl = st && st.lsl ? st.lsl : null;
-    renderBatteryBadge(dev && dev.battery ? dev.battery : null, running, streaming);
-    if (!running) eegSessionLocked = false;
-    renderEegControlButtons(running, streaming);
+    applyEegStatusSnapshot(st);
     if (!running) {
       eegStatusHint = '设备未连接（请先在设备页连接）';
     } else if (!streaming) {
@@ -912,6 +924,14 @@ export async function enterEegPage() {
   applyThemeToCharts(document.documentElement.getAttribute('data-theme') || 'light');
   if (psdView) psdView.setTheme(document.documentElement.getAttribute('data-theme') || 'light');
   renderEegSubtitle();
+  if (!eegStatusEventBound) {
+    eegStatusEventHandler = (event) => {
+      if (!eegPageActive) return;
+      applyEegStatusSnapshot(event && event.detail ? event.detail : null);
+    };
+    window.addEventListener('app:status', eegStatusEventHandler);
+    eegStatusEventBound = true;
+  }
   await refreshEegStatusHint();
 
   if (eegStatusTimer) { try { clearInterval(eegStatusTimer); } catch (_) {} }
@@ -1019,6 +1039,11 @@ export async function leaveEegPage() {
     window.removeEventListener('bhb-theme-change', themeChangeHandler);
     themeListenerAttached = false;
     themeChangeHandler = null;
+  }
+  if (eegStatusEventBound && eegStatusEventHandler) {
+    window.removeEventListener('app:status', eegStatusEventHandler);
+    eegStatusEventBound = false;
+    eegStatusEventHandler = null;
   }
   eegPendingEegChunks = [];
   disposeCharts();

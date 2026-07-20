@@ -11,6 +11,8 @@ import { initTdcsControlPanel } from './tdcs_control.js';
 let pageActive = false;
 let bound = false;
 let statusTimer = null;
+let tdcsStatusEventBound = false;
+let tdcsStatusEventHandler = null;
 let tdcsConfigEnabled = false;
 let tdcsDisabledReason = '';
 
@@ -77,6 +79,19 @@ function renderTdcsControlButtons(running, connected, taskActive) {
   if (stopBtn) stopBtn.disabled = (!enabled) || (!running) || (!connected) || !taskActive;
 }
 
+function applyTdcsStatusSnapshot(st) {
+  const dev = st && st.device ? st.device : null;
+  const running = !!(dev && dev.running);
+  const last = dev && dev.last ? dev.last : null;
+  const lastType = last && last.type ? String(last.type) : '';
+  const connected = lastType === 'connected' || lastType === 'ready';
+  const taskRunning = !!(dev && dev.task_running);
+  const taskActive = taskRunning && String(dev.task_mode || '') === 'tdcs';
+  setHeaderNavDisabled(taskRunning);
+  renderTdcsControlButtons(running, connected, taskActive);
+  renderBatteryBadge(dev && dev.battery ? dev.battery : null, running);
+}
+
 function setHeaderNavDisabled(disabled) {
   const navDevice = document.getElementById('nav-device');
   const navMode = document.getElementById('nav-mode');
@@ -94,9 +109,7 @@ async function refreshTdcsStatusHint() {
     const connected = lastType === 'connected' || lastType === 'ready';
     const taskRunning = !!(dev && dev.task_running);
     const taskActive = taskRunning && String(dev.task_mode || '') === 'tdcs';
-    setHeaderNavDisabled(taskRunning);
-    renderTdcsControlButtons(running, connected, taskActive);
-    renderBatteryBadge(dev && dev.battery ? dev.battery : null, running);
+    applyTdcsStatusSnapshot(st);
     if (!tdcsConfigEnabled) {
       setStatus(tdcsDisabledReason || '电刺激功能已禁用', 'error');
       return;
@@ -350,6 +363,14 @@ export async function enterTdcsPage() {
   pageActive = true;
   ensureBound();
   connectTdcsDebugWs();
+  if (!tdcsStatusEventBound) {
+    tdcsStatusEventHandler = (event) => {
+      if (!pageActive) return;
+      applyTdcsStatusSnapshot(event && event.detail ? event.detail : null);
+    };
+    window.addEventListener('app:status', tdcsStatusEventHandler);
+    tdcsStatusEventBound = true;
+  }
   await loadAndApplyConfig();
   if (statusTimer) clearInterval(statusTimer);
   statusTimer = setInterval(() => { if (pageActive) void refreshTdcsStatusHint(); }, 1000);
@@ -359,6 +380,11 @@ export function leaveTdcsPage() {
   pageActive = false;
   if (statusTimer) clearInterval(statusTimer);
   statusTimer = null;
+  if (tdcsStatusEventBound && tdcsStatusEventHandler) {
+    window.removeEventListener('app:status', tdcsStatusEventHandler);
+    tdcsStatusEventBound = false;
+    tdcsStatusEventHandler = null;
+  }
   closeWs(debugWs);
   debugWs = null;
 }
