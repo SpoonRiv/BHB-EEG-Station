@@ -1,7 +1,7 @@
 /*
 Copyright (c) 2026 BUAA BHB. All rights reserved.
 
-文件功能: 设备选择页逻辑（扫描 -> 下拉选择 -> 连接/断开）
+文件功能: 设备选择页逻辑（扫描 -> 平铺选择 -> 连接/断开）
 作者: Spoon
 */
 
@@ -69,26 +69,16 @@ function getSelectDisplayText(selectEl) {
   return selectedOpt ? String(selectedOpt.textContent || '').trim() : '';
 }
 
-function setupCustomDeviceSelect(selectEl) {
+function setupDeviceList(selectEl) {
   const shell = document.getElementById('device-select-shell');
-  const trigger = document.getElementById('device-select-trigger');
   const textEl = document.getElementById('device-select-text');
   const menuEl = document.getElementById('device-select-menu');
 
-  if (!shell || !trigger || !textEl || !menuEl || !selectEl) {
-    return {
-      sync() {},
-      close() {},
-    };
+  if (!shell || !textEl || !menuEl || !selectEl) {
+    return { sync() {} };
   }
 
-  const closeMenu = () => {
-    shell.classList.remove('is-open');
-    trigger.setAttribute('aria-expanded', 'false');
-    menuEl.hidden = true;
-  };
-
-  const renderMenu = () => {
+  const renderList = () => {
     const currentValue = String(selectEl.value || '').trim();
     const options = Array.from(selectEl.options || []).filter((opt) => {
       const value = String(opt.value || '').trim();
@@ -100,23 +90,45 @@ function setupCustomDeviceSelect(selectEl) {
     for (const opt of options) {
       const item = document.createElement('button');
       const rawText = String(opt.textContent || '').trim();
-      const isRecent = rawText.includes('【最近连接】');
+      const recentAddress = getRecentBleAddress();
+      const isRecent = rawText.includes('【最近连接】')
+        || (!!recentAddress && String(opt.value || '').trim() === recentAddress);
       const mainText = isRecent ? rawText.replace(/\s*【最近连接】\s*$/, '').trim() : rawText;
+      const parts = mainText.split('｜');
+      const name = parts.shift() || '未知设备';
+      const details = parts.join('｜');
+      const isSelected = String(opt.value || '').trim() === currentValue;
 
       item.type = 'button';
-      item.className = 'custom-select__option';
+      item.className = 'device-list__item';
       item.setAttribute('role', 'option');
-      item.setAttribute('aria-selected', String(String(opt.value || '').trim() === currentValue));
-      if (String(opt.value || '').trim() === currentValue) item.classList.add('is-selected');
+      item.setAttribute('aria-selected', String(isSelected));
+      if (isSelected) item.classList.add('is-selected');
 
-      const textSpan = document.createElement('span');
-      textSpan.className = 'custom-select__option-text';
-      textSpan.textContent = mainText;
-      item.appendChild(textSpan);
+      const marker = document.createElement('span');
+      marker.className = 'device-list__marker';
+      marker.setAttribute('aria-hidden', 'true');
+      item.appendChild(marker);
+
+      const content = document.createElement('span');
+      content.className = 'device-list__content';
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'device-list__name';
+      nameSpan.textContent = name;
+      content.appendChild(nameSpan);
+
+      if (details) {
+        const detailSpan = document.createElement('span');
+        detailSpan.className = 'device-list__details';
+        detailSpan.textContent = details;
+        content.appendChild(detailSpan);
+      }
+      item.appendChild(content);
 
       if (isRecent) {
         const badgeSpan = document.createElement('span');
-        badgeSpan.className = 'custom-select__option-badge';
+        badgeSpan.className = 'device-list__badge';
         badgeSpan.textContent = '最近连接';
         item.appendChild(badgeSpan);
       }
@@ -124,7 +136,6 @@ function setupCustomDeviceSelect(selectEl) {
       item.addEventListener('click', () => {
         selectEl.value = String(opt.value || '').trim();
         selectEl.dispatchEvent(new Event('change', { bubbles: true }));
-        closeMenu();
       });
 
       menuEl.appendChild(item);
@@ -132,37 +143,16 @@ function setupCustomDeviceSelect(selectEl) {
   };
 
   const sync = () => {
-    textEl.textContent = getSelectDisplayText(selectEl) || '请选择设备';
+    renderList();
+    const hasItems = menuEl.childElementCount > 0;
     shell.classList.toggle('is-disabled', !!selectEl.disabled);
-    shell.classList.toggle('has-value', !!String(selectEl.value || '').trim());
-    trigger.disabled = !!selectEl.disabled;
-    renderMenu();
-    if (selectEl.disabled || !menuEl.childElementCount) closeMenu();
+    shell.classList.toggle('has-items', hasItems);
+    textEl.hidden = hasItems;
+    textEl.textContent = getSelectDisplayText(selectEl) || '请选择设备';
   };
 
-  trigger.addEventListener('click', () => {
-    if (trigger.disabled || !menuEl.childElementCount) return;
-    const willOpen = !shell.classList.contains('is-open');
-    if (!willOpen) {
-      closeMenu();
-      return;
-    }
-    renderMenu();
-    shell.classList.add('is-open');
-    trigger.setAttribute('aria-expanded', 'true');
-    menuEl.hidden = false;
-  });
-
-  document.addEventListener('pointerdown', (event) => {
-    if (!shell.contains(event.target)) closeMenu();
-  });
-
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') closeMenu();
-  });
-
   sync();
-  return { sync, close: closeMenu };
+  return { sync };
 }
 
 function renderSelect(selectEl, devices) {
@@ -210,7 +200,7 @@ export function initDevicePage() {
   if (!btnScan || !btnConnect || !btnDisconnect || !selectEl) return;
 
   initTopomapPanel();
-  const customSelect = setupCustomDeviceSelect(selectEl);
+  const deviceList = setupDeviceList(selectEl);
 
   let scanState = { status: 'idle', count: 0, message: '' };
 
@@ -242,7 +232,7 @@ export function initDevicePage() {
 
   renderIdleHint();
   selectEl.disabled = true;
-  customSelect.sync();
+  deviceList.sync();
   let autoNavigated = false;
   let lastChannelCheckAtMs = 0;
   let lastChannelReady = false;
@@ -299,7 +289,7 @@ export function initDevicePage() {
   btnScan.addEventListener('click', async () => {
     btnScan.disabled = true;
     selectEl.disabled = true;
-    customSelect.sync();
+    deviceList.sync();
     scanState = { status: 'scanning', count: 0, message: '' };
     renderIdleHint();
     try {
@@ -308,18 +298,18 @@ export function initDevicePage() {
       if (list.length > 0) {
         renderSelect(selectEl, list);
         selectEl.disabled = false;
-        customSelect.sync();
+        deviceList.sync();
         scanState = { status: 'success', count: list.length, message: '' };
         renderIdleHint();
       } else {
         selectEl.innerHTML = '<option value="" selected>未扫描到设备</option>';
-        customSelect.sync();
+        deviceList.sync();
         scanState = { status: 'empty', count: 0, message: '' };
         renderIdleHint();
       }
     } catch (e) {
       selectEl.innerHTML = '<option value="" selected>扫描失败</option>';
-      customSelect.sync();
+      deviceList.sync();
       const err = normalizeDeviceMessage(e && (e.message || e)) || '未知错误';
       scanState = { status: 'failed', count: 0, message: err };
       renderIdleHint();
@@ -385,7 +375,7 @@ export function initDevicePage() {
   });
 
   selectEl.addEventListener('change', () => {
-    customSelect.sync();
+    deviceList.sync();
     if (lastConnReady) return;
     if (scanState.status !== 'success') return;
     renderIdleHint();

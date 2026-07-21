@@ -1081,6 +1081,7 @@ async def eeg_channel_options():
             "aliases": dict(layout.aliases or {}),
         }
     return {
+        "selectable_channel_modes": list(state.config.eeg.selectable_channel_modes or []),
         "supported_channel_modes": list(state.config.eeg.supported_channel_modes or []),
         "available_channels": available,
         "electrode_layout_1020": layout_payload,
@@ -1118,6 +1119,9 @@ async def eeg_channel_set_selection(req: ChannelSelectionRequest):
     ref = str(req.ref_channel_name or "").strip()
     if mode <= 0:
         raise HTTPException(status_code=400, detail="n_channels 必须为正整数")
+    selectable = set(int(x) for x in (state.config.eeg.selectable_channel_modes or []))
+    if selectable and mode not in selectable:
+        raise HTTPException(status_code=400, detail=f"当前不提供 {mode} 通道电极选择")
     if len(names) > mode:
         raise HTTPException(status_code=400, detail="channel_names 数量不能超过 n_channels")
     available = set(_normalize_channel_list(list(state.config.eeg.montage_1020_channels or [])))

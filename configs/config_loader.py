@@ -82,6 +82,7 @@ class EegConfig:
     ref_channel_name: str
     ref_selectable_channels: List[str]
     lsl: LslConfig
+    selectable_channel_modes: List[int]
     supported_channel_modes: List[int]
     montage_1020_channels: List[str]
     montage_1020_layout_path: str
@@ -395,6 +396,23 @@ def load_config(config_path: str) -> AppConfig:
         supported_modes.append(n_channels)
     supported_modes.sort()
 
+    selectable_modes_raw = eeg_raw.get("selectable_channel_modes", supported_modes) or supported_modes
+    selectable_modes: List[int] = []
+    if isinstance(selectable_modes_raw, list):
+        for v in selectable_modes_raw:
+            try:
+                iv = int(v)
+            except Exception:
+                continue
+            if iv <= 0:
+                continue
+            if iv not in selectable_modes:
+                selectable_modes.append(iv)
+    for mode in supported_modes:
+        if mode not in selectable_modes:
+            selectable_modes.append(mode)
+    selectable_modes.sort()
+
     montage_channels_raw = eeg_raw.get("montage_1020_channels", []) or []
     montage_channels: List[str] = []
     if isinstance(montage_channels_raw, list):
@@ -632,6 +650,7 @@ def load_config(config_path: str) -> AppConfig:
             stream_type=str(lsl_raw.get("stream_type", "EEG")),
             include_trigger_channel=bool(lsl_raw.get("include_trigger_channel", True)),
         ),
+        selectable_channel_modes=selectable_modes,
         supported_channel_modes=supported_modes,
         montage_1020_channels=montage_channels,
         montage_1020_layout_path=montage_layout_path,

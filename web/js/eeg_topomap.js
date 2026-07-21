@@ -262,6 +262,7 @@ export function initTopomapPanel() {
     sub.textContent = '左键点击选择工作通道与顺序 | 右键点击选择参考通道';
   }
 
+  let selectableModes = [];
   let supportedModes = [];
   let availableChannels = [];
   let refCandidates = [];
@@ -330,6 +331,10 @@ export function initTopomapPanel() {
       badge.textContent = `状态：请选择参考通道（已选工作通道 ${selected.length}/${pendingMode}）`;
       return;
     }
+    if (supportedModes.length && !supportedModes.includes(pendingMode)) {
+      badge.textContent = `状态：${pendingMode}通道电极组合已就绪，采集链路暂未开放应用`;
+      return;
+    }
     badge.textContent = `状态：已就绪，请点击“应用到系统”（已选工作通道 ${pendingMode}/${pendingMode}，参考通道 1/1）`;
   }
 
@@ -346,14 +351,12 @@ export function initTopomapPanel() {
 
   function renderModeSelect() {
     modeSel.innerHTML = '';
-    const opt8 = el('option', '', '8通道');
-    opt8.value = '8';
-    if (supportedModes.length && !supportedModes.includes(8)) opt8.disabled = true;
-    const opt16 = el('option', '', '16通道');
-    opt16.value = '16';
-    if (supportedModes.length && !supportedModes.includes(16)) opt16.disabled = true;
-    modeSel.appendChild(opt8);
-    modeSel.appendChild(opt16);
+    const modes = selectableModes.length ? selectableModes : supportedModes;
+    for (const mode of modes) {
+      const option = el('option', '', `${mode}通道`);
+      option.value = String(mode);
+      modeSel.appendChild(option);
+    }
     modeSel.value = String(pendingMode);
   }
 
@@ -666,6 +669,8 @@ export function initTopomapPanel() {
     renderPresetSelect();
     renderSelectedList();
     renderSvg();
+    btnApply.disabled = supportedModes.length > 0 && !supportedModes.includes(pendingMode);
+    btnApply.title = btnApply.disabled ? `${pendingMode}通道采集链路暂未开放` : '';
     setStatus();
   }
 
@@ -723,6 +728,7 @@ export function initTopomapPanel() {
   async function loadAll() {
     try {
       const data = await eegChannelOptions();
+      selectableModes = normalizeUnique((data && data.selectable_channel_modes) || []).map((x) => Number(x)).filter((x) => Number.isFinite(x));
       supportedModes = normalizeUnique((data && data.supported_channel_modes) || []).map((x) => Number(x)).filter((x) => Number.isFinite(x));
       availableChannels = normalizeUnique((data && data.available_channels) || []);
       const layout = data && data.electrode_layout_1020 ? data.electrode_layout_1020 : null;
@@ -831,6 +837,10 @@ export function initTopomapPanel() {
   };
 
   btnApply.onclick = async () => {
+    if (supportedModes.length && !supportedModes.includes(pendingMode)) {
+      setBadgeMsg(`应用失败：${pendingMode}通道采集链路暂未开放`, 'error');
+      return;
+    }
     if (selected.length !== pendingMode) {
       setBadgeMsg(`应用失败：请先选择满 ${pendingMode} 个通道，再点击应用`, 'error');
       return;

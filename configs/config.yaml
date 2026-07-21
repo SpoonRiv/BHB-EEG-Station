@@ -1,5 +1,5 @@
 app:
-  ui_version: "2.3.2"
+  ui_version: "2.3.3"
 
 ui:
   waveform:
@@ -61,7 +61,9 @@ bluetooth:
 eeg:
   # 预留 8/16 通道版本切换接口：8 或 16
   n_channels: 8
-  # 已实现/允许在 UI 中切换的通道模式（未包含的模式在 UI 中会置灰）
+  # UI 中允许编辑电极组合的通道模式（不代表采集链路已支持）
+  selectable_channel_modes: [8, 16]
+  # 已完成采集链路并允许应用到系统的通道模式
   supported_channel_modes: [8]
   sampling_rate_hz: 500
   channel_names:
@@ -75,7 +77,7 @@ eeg:
     - "P4"
   ref_channel_name: "Pz"
   # 参考电极可选列表（用于 UI 单独下拉选择；不参与“通道选择满 n 个”的计数）
-  ref_selectable_channels: ["Fz", "Cz", "Pz"]
+  ref_selectable_channels: ["Fz", "Cz", "Pz", "CPz"]
   # 10-20 系统可选电极列表（用于 UI 地形图按钮与通道组合校验）
   montage_1020_channels:
     - "Fp1"
@@ -150,6 +152,10 @@ eeg:
       n_channels: 8
       channel_names: ["P3", "PO4", "P7", "PO8", "PO7", "P8", "PO3", "P4"]
       ref_channel_name: "Pz"
+    - name: "BHB-脑电帽组合"
+      n_channels: 16
+      channel_names: ["Fp1", "Fp2", "F3", "Fz", "F4", "T7", "C3", "Cz", "C4", "T8", "P3", "Pz", "P4", "O1", "Oz", "O2"]
+      ref_channel_name: "CPz"
   lsl:
     stream_name: "BHB-EEG"
     stream_type: "EEG"

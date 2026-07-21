@@ -56,7 +56,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                     <div class="card-header">
                         <div>
                             <div class="card-title">选择蓝牙设备</div>
-                                <div class="card-sub">扫描后从下拉列表选择目标设备，再建立连接</div>
+                            <div class="card-sub">扫描后直接选择目标设备，再建立连接</div>
                         </div>
                         <button class="btn btn--primary" id="btn-scan">扫描</button>
                     </div>
@@ -64,12 +64,9 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                         <div class="stack">
                             <div class="field">
                                 <div class="label">设备列表</div>
-                                <div class="custom-select" id="device-select-shell">
-                                    <button class="custom-select__trigger" id="device-select-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" disabled>
-                                        <span class="custom-select__text" id="device-select-text">请先点击“扫描”</span>
-                                        <span class="custom-select__arrow" aria-hidden="true"></span>
-                                    </button>
-                                    <div class="custom-select__menu" id="device-select-menu" role="listbox" hidden></div>
+                                <div class="device-list" id="device-select-shell">
+                                    <div class="device-list__empty" id="device-select-text">请先点击“扫描”</div>
+                                    <div class="device-list__items" id="device-select-menu" role="listbox" aria-label="蓝牙设备列表"></div>
                                     <select id="device-select" class="custom-select__native" disabled tabindex="-1" aria-hidden="true">
                                         <option value="" selected>请先点击“扫描”</option>
                                     </select>

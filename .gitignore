@@ -29,6 +29,7 @@ dist/
 logs/
 log/
 *.dmp
+.dbg/
 
 # Runtime / exported data (avoid committing large outputs)
 *.csv
