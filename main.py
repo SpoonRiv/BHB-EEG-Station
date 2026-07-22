@@ -1167,9 +1167,6 @@ async def eeg_channel_apply():
     state.apply_pending_channel_selection_to_effective_config()
     state.reload_config_for_channels()
 
-    if int(state.config.eeg.n_channels) == 16:
-        raise HTTPException(status_code=400, detail="16通道链路尚未开发完成，请保持 8 通道模式")
-
     return {
         "status": "success",
         "effective": {

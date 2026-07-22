@@ -1,5 +1,5 @@
 app:
-  ui_version: "2.3.3"
+  ui_version: "2.4.0"
 
 ui:
   waveform:
@@ -63,8 +63,8 @@ eeg:
   n_channels: 8
   # UI 中允许编辑电极组合的通道模式（不代表采集链路已支持）
   selectable_channel_modes: [8, 16]
-  # 已完成采集链路并允许应用到系统的通道模式
-  supported_channel_modes: [8]
+  # 已完成采集链路并允许应用到系统的通道模式（8/16 均走 BLE）
+  supported_channel_modes: [8, 16]
   sampling_rate_hz: 500
   channel_names:
     - "P3"
@@ -171,11 +171,20 @@ eeg:
         imu_len_bytes: 12
         battery_len_bytes: 2
         tail_len_bytes: 2      # 校验段 1 字节 (SUM) + 帧尾 1 字节 (0xCC)
-    ch16: {}
+    ch16:
+      frame:
+        # 16通道协议参数（参考 docs/16CH底层FPGA操作指令及帧格式V1.0.docx，总长 246 bytes）
+        header_len_bytes: 3    # 帧头 2 字节 (0xAA 0xBB) + 帧序号 1 字节
+        bytes_per_sample_per_channel: 3
+        samples_per_frame: 5
+        trigger_len_bytes: 1
+        imu_len_bytes: 0       # 16CH EEG 帧不包含 IMU
+        battery_len_bytes: 0   # 16CH EEG 帧不包含电量段
+        tail_len_bytes: 2      # 校验段 1 字节 (SUM) + 帧尾 1 字节 (0xCC)
 
 impedance:
   enabled: true
-  n_channels: 8
+  # n_channels 不填时默认跟随 eeg.n_channels（8/16 自动切换）
   frame:
     header: [0x55, 0x66]
     frame_len_bytes_ch8: 46
