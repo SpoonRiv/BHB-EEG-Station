@@ -120,15 +120,12 @@ async def _connect_and_stream(
 
     module_info: Optional[BleModuleNameInfo] = parse_ble_module_name(resolved_name, str(cfg.bluetooth.module_name_regex or ""))
     if module_info is not None and int(module_info.eeg_channels) != int(cfg.eeg.n_channels):
-        status_queue.put(
-            {
-                "type": "error",
-                "message": f"设备型号解析为 {int(module_info.eeg_channels)} 通道，但当前配置为 {int(cfg.eeg.n_channels)} 通道，请检查 config.yaml 的 eeg.n_channels",
-                "name": resolved_name,
-                "module": {"eeg_channels": int(module_info.eeg_channels), "stim_channels": int(module_info.stim_channels)},
-            }
-        )
-        return
+        # 自动适配设备实际通道数，不阻塞连接（仅覆写局部变量，不修改 frozen dataclass）
+        detected_channels = int(module_info.eeg_channels)
+        eeg_n_channels = detected_channels
+        channel_count = detected_channels + (1 if cfg.eeg.lsl.include_trigger_channel else 0)
+        eeg_proto = cfg.eeg.protocol.ch8 if detected_channels == 8 else cfg.eeg.protocol.ch16
+        imp_n_channels = detected_channels
 
     device_has_stim = module_info is not None and int(module_info.stim_channels) > 0
     imp_include_tdcs = bool(cfg.impedance.frame.include_tdcs_if_ch8) and imp_n_channels == 8 and bool(device_has_stim)
@@ -642,7 +639,7 @@ async def _connect_and_stream(
                 while not stop_event.is_set():
                     if not bool(getattr(client, "is_connected", False)):
                         _emit_disconnected_status("蓝牙连接已断开，等待重连")
-                        return
+                        break
                     try:
                         cmd_msg: Dict[str, Any] = command_queue.get_nowait()
                         msg_type = str(cmd_msg.get("type", ""))
@@ -694,8 +691,8 @@ async def _connect_and_stream(
                                 impedance_streaming_enabled = True
                                 status_queue.put({"type": "mode_started", "mode": "impedance"})
                             elif mode == "tdcs":
-                                if int(cfg.eeg.n_channels) != 8:
-                                    status_queue.put({"type": "error", "message": f"{int(cfg.eeg.n_channels)}通道模式不支持电刺激（tDCS）"})
+                                if int(eeg_n_channels) != 8:
+                                    status_queue.put({"type": "error", "message": f"{int(eeg_n_channels)}通道模式不支持电刺激（tDCS）"})
                                     continue
                                 if module_info is None or int(module_info.stim_channels) <= 0:
                                     status_queue.put({"type": "error", "message": "当前设备不带电刺激模块，电刺激（tDCS）已禁用"})
@@ -873,7 +870,10 @@ async def _connect_and_stream(
                                 except Exception:
                                     pass
                     await asyncio.sleep(0.05)
-                await client.stop_notify(notify_char)
+                try:
+                    await client.stop_notify(notify_char)
+                except Exception:
+                    pass
                 if eeg_streaming_enabled:
                     try:
                         await _send_cmd(cfg.bluetooth.commands.stop_eeg, action="stop_eeg")
@@ -892,7 +892,7 @@ async def _connect_and_stream(
                 break
         except Exception as e:
             status_queue.put({"type": "error", "message": str(e), "address": address, "name": resolved_name})
-            await asyncio.sleep(1.0)
+        await asyncio.sleep(1.0)
 
 
 def run_ble_acquisition_process(
@@ -911,5 +911,18 @@ def run_ble_acquisition_process(
         asyncio.run(_connect_and_stream(config_path, stop_event, status_queue, command_queue, debug_queue, connect_address, connect_name))
     except KeyboardInterrupt:
         pass
+    except Exception as exc:
+        # 必须在队列中放入错误状态，否则 eeg_controller.start_device 会空等 30 秒后抛出空字符串异常
+        try:
+            status_queue.put_nowait(
+                {
+                    "type": "error",
+                    "message": str(exc) or "BLE 采集进程启动失败",
+                    "address": connect_address,
+                    "name": connect_name,
+                }
+            )
+        except Exception:
+            pass
     finally:
         time.sleep(0.1)

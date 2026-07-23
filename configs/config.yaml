@@ -1,5 +1,5 @@
 app:
-  ui_version: "2.4.0"
+  ui_version: "2.4.1"
 
 ui:
   waveform:
@@ -43,7 +43,7 @@ bluetooth:
     notify_char_handle: 5
     write_char_uuid: "0xFFF2"
     write_char_handle: 8
-    write_with_response: true
+    write_with_response: false
   commands:
     init: []
     start_eeg: [0x02, 0x01]
