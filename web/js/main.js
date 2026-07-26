@@ -67,8 +67,14 @@ function normalizeDeviceMessage(msg) {
 
 function setHeaderStatusText(text) {
   const el = document.getElementById('header-status-text');
-  if (!el) return;
-  el.textContent = String(text || '等待连接');
+  const value = String(text || '等待连接');
+  if (el) el.textContent = value;
+  const context = el ? el.closest('.header-context') : null;
+  if (!context) return;
+  const isReady = /已连接|运行中|就绪/.test(value);
+  const isAlert = /失败|未响应|断开|错误/.test(value);
+  context.classList.toggle('is-ready', isReady);
+  context.classList.toggle('is-alert', isAlert);
 }
 
 function updateHeaderPageMeta() {
@@ -281,16 +287,19 @@ function bindPowerButton() {
     closeModal();
     powerBtn.disabled = true;
     setConnBadge('error', '系统关闭中…');
+    setHeaderStatusText('系统关闭中');
     try {
       await appShutdown();
     } catch (_) {
       setConnBadge('error', '关机失败');
+      setHeaderStatusText('关机失败');
       powerBtn.disabled = false;
       return;
     }
     window.clearInterval(statusTimer);
     statusTimer = null;
     setConnBadge('error', '系统已关闭');
+    setHeaderStatusText('系统已关闭');
     powerBtn.setAttribute('aria-label', '系统关闭中');
     attemptCloseCurrentWindow();
   });
@@ -302,7 +311,7 @@ function updateHeaderNavActive() {
   const raw = String(window.location.hash || '').trim();
   const hash = raw ? (raw.startsWith('#') ? raw : `#${raw}`) : '#device';
   const deviceActive = hash === '#device';
-  const modeActive = hash === '#mode';
+  const modeActive = ['#mode', '#eeg', '#offline', '#impedance', '#tdcs'].includes(hash);
 
   const applyBtnShine = (btn, type) => {
     if (!btn) return;
@@ -322,6 +331,8 @@ function updateHeaderNavActive() {
     const wasActive = navDevice.classList.contains('is-active');
     navDevice.classList.toggle('is-active', deviceActive);
     navDevice.setAttribute('aria-pressed', deviceActive ? 'true' : 'false');
+    if (deviceActive) navDevice.setAttribute('aria-current', 'page');
+    else navDevice.removeAttribute('aria-current');
     if (wasActive && !deviceActive) applyBtnShine(navDevice, 'btn-shine-out');
     if (!wasActive && deviceActive) applyBtnShine(navDevice, 'btn-shine-in');
   }
@@ -329,6 +340,8 @@ function updateHeaderNavActive() {
     const wasActive = navMode.classList.contains('is-active');
     navMode.classList.toggle('is-active', modeActive);
     navMode.setAttribute('aria-pressed', modeActive ? 'true' : 'false');
+    if (modeActive) navMode.setAttribute('aria-current', 'page');
+    else navMode.removeAttribute('aria-current');
     if (wasActive && !modeActive) applyBtnShine(navMode, 'btn-shine-out');
     if (!wasActive && modeActive) applyBtnShine(navMode, 'btn-shine-in');
   }
@@ -393,6 +406,8 @@ function initButtonShine() {
 function setTheme(theme) {
   const t = theme === 'light' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', t);
+  const themeMeta = document.querySelector('meta[name="theme-color"]');
+  if (themeMeta) themeMeta.setAttribute('content', t === 'light' ? '#eef3fa' : '#070b14');
   try { localStorage.setItem('bhb_theme', t); } catch (_) {}
   const btn = document.getElementById('theme-toggle');
   if (!btn) return;
@@ -405,8 +420,8 @@ function setTheme(theme) {
 
 function initThemeToggle() {
   const btn = document.getElementById('theme-toggle');
-  let initial = 'light';
-  try { initial = localStorage.getItem('bhb_theme') || 'light'; } catch (_) {}
+  let initial = 'dark';
+  try { initial = localStorage.getItem('bhb_theme') || 'dark'; } catch (_) {}
   setTheme(initial);
   if (btn) {
     btn.onclick = () => {

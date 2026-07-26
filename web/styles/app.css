@@ -282,12 +282,6 @@ body::after {
   color: rgba(10, 18, 32, 0.82);
 }
 
-.brand-caption {
-  color: var(--text-soft);
-  font-size: 13px;
-  line-height: 1.45;
-}
-
 .header-actions {
   display: flex;
   gap: 12px;
@@ -1825,8 +1819,95 @@ select option {
   gap: 14px;
 }
 
+#page-eeg .eeg-layout {
+  --focus-expanded-row: 260px;
+  --focus-collapsed-row: 70px;
+  grid-template-rows: minmax(0, var(--focus-expanded-row)) minmax(0, 1fr);
+  transition: grid-template-rows 320ms cubic-bezier(0.22, 0.72, 0.22, 1);
+}
+
+#page-eeg .eeg-layout.eeg-layout--wave-focus {
+  grid-template-rows: minmax(0, var(--focus-collapsed-row)) minmax(0, 1fr);
+}
+
+#page-eeg .eeg-layout--wave-focus .eeg-debug-card {
+  height: 100% !important;
+}
+
+.eeg-debug-card > .card-header,
+.imp-debug-card > .card-header {
+  flex: 0 0 auto;
+}
+
+.eeg-debug-body,
+.imp-debug-body {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+  opacity: 1;
+  transform: translateY(0) scaleY(1);
+  transform-origin: top center;
+  transition:
+    grid-template-rows 320ms cubic-bezier(0.22, 0.72, 0.22, 1),
+    padding-top 320ms cubic-bezier(0.22, 0.72, 0.22, 1),
+    padding-bottom 320ms cubic-bezier(0.22, 0.72, 0.22, 1),
+    opacity 180ms ease,
+    transform 320ms cubic-bezier(0.22, 0.72, 0.22, 1);
+}
+
+.eeg-debug-body > .debug-log,
+.imp-debug-body > .debug-log {
+  min-height: 0;
+}
+
+#page-eeg .eeg-layout--wave-focus .eeg-debug-body,
+#page-impedance .eeg-layout--imp-focus .imp-debug-body {
+  grid-template-rows: minmax(0, 0fr);
+  padding-top: 0;
+  padding-bottom: 0;
+  opacity: 0;
+  transform: translateY(-8px) scaleY(0.96);
+  pointer-events: none;
+}
+
+.eeg-focus-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.eeg-focus-icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+}
+
+.eeg-focus-icon--restore {
+  display: none;
+}
+
+.eeg-focus-toggle.is-active .eeg-focus-icon--expand {
+  display: none;
+}
+
+.eeg-focus-toggle.is-active .eeg-focus-icon--restore {
+  display: block;
+}
+
 #page-impedance .eeg-layout {
-  grid-template-rows: 220px 1fr;
+  --focus-expanded-row: 220px;
+  --focus-collapsed-row: 70px;
+  grid-template-rows: minmax(0, var(--focus-expanded-row)) minmax(0, 1fr);
+  transition: grid-template-rows 320ms cubic-bezier(0.22, 0.72, 0.22, 1);
+}
+
+#page-impedance .eeg-layout.eeg-layout--imp-focus {
+  grid-template-rows: minmax(0, var(--focus-collapsed-row)) minmax(0, 1fr);
+}
+
+#page-impedance .eeg-layout--imp-focus .imp-debug-card {
+  height: 100% !important;
 }
 
 .debug-log {
@@ -2435,11 +2516,16 @@ select option {
 }
 
 .imp-list-group-title {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   color: var(--muted);
   font-size: 12px;
   font-weight: 850;
   letter-spacing: 0.2px;
   margin-top: 2px;
+  padding: 4px 0;
+  background: var(--panel-strong);
 }
 
 .imp-list-group-title-extra {
@@ -2475,8 +2561,13 @@ select option {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  overflow: hidden;
-  padding-right: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-right: 6px;
 }
 
 .imp-grid {

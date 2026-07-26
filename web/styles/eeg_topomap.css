@@ -80,6 +80,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 #page-impedance .topomap-side .field {
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 #ch-selected-field {
@@ -114,10 +115,17 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
   flex: 1;
   min-height: calc(var(--ch-selected-rows, 4) * var(--ch-chip-row-h) + (var(--ch-selected-rows, 4) - 1) * var(--ch-chip-gap));
   max-height: calc(var(--ch-selected-rows, 4) * var(--ch-chip-row-h) + (var(--ch-selected-rows, 4) - 1) * var(--ch-chip-gap));
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding-left: 6px;
   padding-right: 6px;
   align-content: start;
+}
+
+.chip-list--scrollable {
+  overflow-y: scroll;
 }
 
 .chip-list--dense {
@@ -218,8 +226,8 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 [data-theme="light"] .chip-index {
   color: rgba(255, 255, 255, 0.96);
-  background: rgba(var(--accent-rgb), 0.82);
-  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.12) inset;
+  background: var(--accent-text, #09658f);
+  box-shadow: 0 0 0 1px rgba(9, 101, 143, 0.16) inset;
 }
 
 .chip.chip-ref .chip-index {
@@ -230,8 +238,8 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 [data-theme="light"] .chip.chip-ref .chip-index {
   color: rgba(255, 255, 255, 0.96);
-  background: rgba(47, 229, 139, 0.88);
-  box-shadow: 0 0 0 1px rgba(47, 229, 139, 0.12) inset;
+  background: var(--good-text, #087a55);
+  box-shadow: 0 0 0 1px rgba(8, 122, 85, 0.16) inset;
 }
 
 .chip-name {
@@ -398,6 +406,14 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
   color: var(--good);
 }
 
+[data-theme="light"] .topomap-badge-msg {
+  color: var(--bad-text, #b32647);
+}
+
+[data-theme="light"] .topomap-badge-msg.ok {
+  color: var(--good-text, #087a55);
+}
+
 .topomap-badge strong {
   color: var(--text);
 }
@@ -457,6 +473,10 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
 .electrode.ref-selected .electrode-text {
   fill: rgba(47, 229, 139, 0.96);
+}
+
+[data-theme="light"] .electrode.ref-selected .electrode-text {
+  fill: var(--good-text, #087a55);
 }
 
 .electrode.ref-selected {

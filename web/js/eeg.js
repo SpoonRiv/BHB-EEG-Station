@@ -9,6 +9,8 @@ import { getConfig, getStatus, modeStart, modeStop } from './api.js';
 import { navigate } from './router.js';
 import { EegPsdView } from './eeg_psd.js';
 
+const EEG_WAVE_FOCUS_STORAGE_KEY = 'bhb_eeg_wave_focus';
+
 let wsEeg = null;
 let wsDebug = null;
 let psdView = null;
@@ -83,6 +85,7 @@ let eegStatusHint = '';
 let eegSessionLocked = false;
 let eegStopping = false;
 let eegViewMode = 'time';
+let eegWaveFocusEnabled = false;
 
 function renderBatteryBadge(battery, running, streaming) {
   const badge = document.getElementById('battery-badge');
@@ -143,6 +146,82 @@ function applyEegStatusSnapshot(st) {
 
 function renderEegSubtitle() {
   return;
+}
+
+function resizeEegVisualsAfterLayout() {
+  const resizeNow = () => {
+    if (!eegPageActive) return;
+    for (const chart of charts) {
+      if (!chart) continue;
+      try { chart.resize(); } catch (_) {}
+    }
+    if (psdView && typeof psdView.resize === 'function') psdView.resize();
+    scheduleVisibleUpdate(true);
+  };
+  requestAnimationFrame(resizeNow);
+  window.setTimeout(resizeNow, 160);
+  window.setTimeout(resizeNow, 340);
+}
+
+function syncEegFocusLayoutMetrics(layout, debugBody) {
+  if (!layout || !debugBody) return;
+  const debugCard = debugBody.closest('.eeg-debug-card');
+  const debugHeader = debugCard ? debugCard.querySelector('.card-header') : null;
+  if (!debugCard || !debugHeader) return;
+
+  const cardStyle = getComputedStyle(debugCard);
+  const borderHeight = (parseFloat(cardStyle.borderTopWidth) || 0) + (parseFloat(cardStyle.borderBottomWidth) || 0);
+  const headerHeight = Math.max(
+    debugHeader.getBoundingClientRect().height,
+    debugHeader.scrollHeight
+  );
+  const collapsedHeight = Math.max(1, Math.ceil(headerHeight + borderHeight));
+  const compactLayout = window.matchMedia('(max-width: 980px)').matches;
+  const expandedHeight = Math.max(
+    compactLayout ? 240 : 260,
+    collapsedHeight + 64
+  );
+
+  layout.style.setProperty('--focus-collapsed-row', `${collapsedHeight}px`);
+  layout.style.setProperty('--focus-expanded-row', `${expandedHeight}px`);
+}
+
+function setEegWaveFocus(enabled, { persist = true, resize = true } = {}) {
+  eegWaveFocusEnabled = !!enabled;
+  const layout = document.querySelector('#page-eeg .eeg-layout');
+  const debugBody = document.getElementById('eeg-debug-body');
+  const toggle = document.getElementById('eeg-focus-toggle');
+  const label = document.getElementById('eeg-focus-label');
+
+  if (debugBody) debugBody.hidden = false;
+  syncEegFocusLayoutMetrics(layout, debugBody);
+  if (layout) layout.classList.toggle('eeg-layout--wave-focus', eegWaveFocusEnabled);
+  if (debugBody) {
+    debugBody.setAttribute('aria-hidden', eegWaveFocusEnabled ? 'true' : 'false');
+    debugBody.inert = eegWaveFocusEnabled;
+  }
+  if (toggle) {
+    const nextLabel = eegWaveFocusEnabled ? '恢复布局' : '全屏显示';
+    toggle.classList.toggle('is-active', eegWaveFocusEnabled);
+    toggle.setAttribute('aria-pressed', eegWaveFocusEnabled ? 'true' : 'false');
+    toggle.setAttribute('aria-expanded', eegWaveFocusEnabled ? 'false' : 'true');
+    toggle.setAttribute('aria-label', nextLabel);
+    toggle.setAttribute('title', nextLabel);
+  }
+  if (label) label.textContent = eegWaveFocusEnabled ? '恢复布局' : '全屏显示';
+
+  if (persist) {
+    try { localStorage.setItem(EEG_WAVE_FOCUS_STORAGE_KEY, eegWaveFocusEnabled ? '1' : '0'); } catch (_) {}
+  }
+  if (resize) resizeEegVisualsAfterLayout();
+}
+
+function bindEegWaveFocusToggle() {
+  const toggle = document.getElementById('eeg-focus-toggle');
+  let stored = null;
+  try { stored = localStorage.getItem(EEG_WAVE_FOCUS_STORAGE_KEY); } catch (_) {}
+  setEegWaveFocus(stored === '1', { persist: false, resize: false });
+  if (toggle) toggle.onclick = () => setEegWaveFocus(!eegWaveFocusEnabled);
 }
 
 async function refreshEegStatusHint() {
@@ -824,6 +903,7 @@ export async function enterEegPage() {
   if (stopBtn) stopBtn.disabled = true;
   const pauseBtn = document.getElementById('debug-pause');
   if (pauseBtn) pauseBtn.textContent = debugPaused ? '继续滚动' : '暂停输出';
+  bindEegWaveFocusToggle();
 
   try {
     const cfg = await getConfig();
@@ -906,6 +986,10 @@ export async function enterEegPage() {
     eegResizeListenerAttached = true;
     eegResizeHandler = () => {
       if (!eegPageActive) return;
+      syncEegFocusLayoutMetrics(
+        document.querySelector('#page-eeg .eeg-layout'),
+        document.getElementById('eeg-debug-body')
+      );
       charts.forEach(c => c && c.resize());
       scheduleVisibleUpdate(true);
     };

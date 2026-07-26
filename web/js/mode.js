@@ -19,7 +19,18 @@ function ensureDefaultDesc(btn) {
 function setModeDisabled(btn, disabled, reason) {
   if (!btn) return;
   const defaultDesc = ensureDefaultDesc(btn);
+  const state = btn.querySelector('.mode-card__state');
+  const stateLabel = state ? state.querySelector('span') : null;
+  if (stateLabel && !stateLabel.dataset.defaultLabel) {
+    stateLabel.dataset.defaultLabel = stateLabel.textContent || 'READY';
+  }
   btn.disabled = !!disabled;
+  if (state) state.classList.toggle('mode-card__state--unavailable', !!disabled);
+  if (stateLabel) {
+    stateLabel.textContent = disabled
+      ? 'UNAVAILABLE'
+      : (stateLabel.dataset.defaultLabel || 'READY');
+  }
   const desc = btn.querySelector('.mode-desc');
   if (!desc) return;
   if (disabled) {
@@ -123,6 +134,6 @@ export function initModePage() {
     });
   };
 
-  bindComingSoon(ssvep, 'SSVEP');
-  bindComingSoon(mi, 'MI');
+  bindComingSoon(ssvep, '稳态视觉诱发电位（SSVEP）');
+  bindComingSoon(mi, '运动想象（MI）');
 }

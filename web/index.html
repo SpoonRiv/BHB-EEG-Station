@@ -9,11 +9,23 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark light">
+    <meta name="theme-color" content="#070b14">
     <title>BHB EEGSuite</title>
     <link rel="icon" type="image/png" href="logo.png" />
     <link rel="apple-touch-icon" href="logo.png" />
+    <script>
+        (() => {
+            try {
+                document.documentElement.dataset.theme = localStorage.getItem('bhb_theme') || 'dark';
+            } catch (_) {
+                document.documentElement.dataset.theme = 'dark';
+            }
+        })();
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <link rel="stylesheet" href="styles/app.css" />
+    <link rel="stylesheet" href="styles/polish.css" />
 </head>
 <body>
 <div class="app">
@@ -23,21 +35,42 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                 <img class="brand-logo" src="logo.png" alt="BHB Logo" />
             </div>
             <div class="brand-copy">
-                <div class="brand-mainline">
-                    <div class="brand-title">BHB EEGSuite</div>
-                    <div class="brand-sub" id="brand-sub">v--</div>
+                <div class="brand-kicker">
+                    <span>BRAIN</span>
+                    <span class="brand-kicker-separator" aria-hidden="true"></span>
+                    <span>COMPUTER</span>
+                    <span class="brand-kicker-separator" aria-hidden="true"></span>
+                    <span>INTERFACE</span>
                 </div>
-                <div class="brand-caption">脑机接口采集、阻抗检查与刺激控制一体化工作站</div>
+                <div class="brand-mainline">
+                    <div class="brand-name">
+                        <div class="brand-title">BHB EEGSuite</div>
+                    </div>
+                    <div class="brand-sub" id="brand-sub">v3.0.0</div>
+                </div>
             </div>
         </div>
         <div class="header-actions">
-            <div class="badge plain conn-badge error" id="conn-badge">
+            <div class="badge plain conn-badge error" id="conn-badge" aria-live="polite">
                 <div class="badge-dot"></div>
                 <div id="conn-text">未连接</div>
             </div>
-            <div class="header-nav segmented" role="tablist" aria-label="主导航">
-                <button class="btn btn--sm btn--ghost seg-btn" id="nav-device" type="button">设备</button>
-                <button class="btn btn--sm btn--ghost seg-btn" id="nav-mode" type="button">模式</button>
+            <div class="header-nav segmented" role="navigation" aria-label="主导航">
+                <button class="btn btn--sm btn--ghost seg-btn" id="nav-device" type="button" aria-label="设备选择" title="设备选择">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M12 2v20l5-5-10-10m5 5 5-5-5-5M7 17l5-5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span>设备</span>
+                </button>
+                <button class="btn btn--sm btn--ghost seg-btn" id="nav-mode" type="button" aria-label="模式">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <rect x="4" y="4" width="6" height="6" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.7"/>
+                        <rect x="14" y="4" width="6" height="6" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.7"/>
+                        <rect x="4" y="14" width="6" height="6" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.7"/>
+                        <rect x="14" y="14" width="6" height="6" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.7"/>
+                    </svg>
+                    <span>模式</span>
+                </button>
             </div>
             <button class="btn btn--sm btn--icon btn--ghost" id="theme-toggle" aria-label="切换日夜模式"></button>
             <button class="btn btn--sm btn--icon btn--minimize" id="app-minimize" type="button" aria-label="最小化窗口" title="最小化窗口">
@@ -58,7 +91,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
         <section class="page" id="page-device" data-page-title="设备准备" data-page-desc="完成设备扫描、通道配置与参考电极设置">
             <div class="page-grid">
                 <div class="card">
-                    <div class="card-header">
+                    <div class="card-header" data-kicker="01 / DEVICE DISCOVERY">
                         <div>
                             <div class="card-title">选择蓝牙设备</div>
                             <div class="card-sub">扫描后直接选择目标设备，再建立连接</div>
@@ -81,15 +114,15 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                                 <button class="btn btn--primary" id="btn-connect">连接</button>
                                 <button class="btn btn--danger" id="btn-disconnect">断开</button>
                             </div>
-                            <div class="status-box" id="device-status">状态：未连接</div>
+                            <div class="status-box" id="device-status" aria-live="polite">状态：未连接</div>
                         </div>
                     </div>
                 </div>
                 <div class="device-right">
                     <div class="card topomap-card" id="card-topomap">
-                        <div class="card-header">
+                        <div class="card-header" data-kicker="02 / CHANNEL MAPPING">
                             <div>
-                                <div class="card-title">通道选择 10-20标准电极位置</div>
+                                <div class="card-title">通道选择 · 10-20 标准电极位置</div>
                                 <div class="card-sub" id="topomap-sub">点击电极选择通道与顺序；顺序用于波形/导出显示</div>
                             </div>
                             <div class="row">
@@ -103,14 +136,14 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                                     <div id="topomap-svg" class="topomap-svg"></div>
                                 </div>
                                 <div class="topomap-side">
-                                    <div class="status-box error" id="ch-count-badge">状态：加载中…</div>
+                                    <div class="status-box error" id="ch-count-badge" aria-live="polite">状态：加载中…</div>
                                     <div class="field">
                                         <div class="label">参考通道（右键点选）</div>
                                         <div class="ref-pills" id="ch-ref-pills" role="group" aria-label="参考电极"></div>
                                     </div>
                                     <div class="field">
                                         <div class="label">工作通道（左键点选）</div>
-                                        <div class="chip-list" id="ch-selected-list"></div>
+                                        <div class="chip-list" id="ch-selected-list" tabindex="0" aria-label="工作通道排序列表，可滚动查看更多"></div>
                                     </div>
                                     <div class="row">
                                         <button class="btn btn--ghost" id="ch-clear">清空</button>
@@ -140,7 +173,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
         <section class="page" id="page-mode" data-page-title="模式选择" data-page-desc="选择阻抗、脑电或电刺激等工作模式">
             <div class="card" style="width: 100%;">
-                <div class="card-header">
+                <div class="card-header mode-page-header" data-kicker="SESSION WORKSPACE">
                     <div>
                         <div class="card-title">模式选择</div>
                         <div class="card-sub">请选择本次会话需要进入的工作模式</div>
@@ -148,48 +181,98 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                 </div>
                 <div class="card-body">
                     <div class="mode-grid">
-                        <button type="button" class="mode-card mode-card--top" id="mode-impedance">
+                        <button type="button" class="mode-card mode-card--top" id="mode-impedance" data-tone="cyan">
                             <div class="mode-hero-wrap">
+                                <div class="mode-card__hud" aria-hidden="true">
+                                    <span class="mode-card__index">01</span>
+                                    <span class="mode-card__state"><i></i><span>READY</span></span>
+                                </div>
                                 <img class="mode-hero" src="image/impedance_mode.png" alt="阻抗检测模式" />
                             </div>
                             <div class="mode-meta">
-                                <div class="mode-title">阻抗检测</div>
+                                <div class="mode-meta__head">
+                                    <div>
+                                        <div class="mode-meta__eyebrow">ELECTRODE IMPEDANCE</div>
+                                        <div class="mode-title">阻抗检测</div>
+                                    </div>
+                                    <span class="mode-card__arrow" aria-hidden="true">↗</span>
+                                </div>
                                 <div class="mode-desc">用于上机前的电极接触检查：开启后实时接收各通道阻抗，并以地形图与列表展示，帮助快速定位接触不良通道，便于调整电极与导电介质。</div>
                             </div>
                         </button>
-                        <button type="button" class="mode-card mode-card--top" id="mode-eeg">
+                        <button type="button" class="mode-card mode-card--top" id="mode-eeg" data-tone="violet">
                             <div class="mode-hero-wrap">
+                                <div class="mode-card__hud" aria-hidden="true">
+                                    <span class="mode-card__index">02</span>
+                                    <span class="mode-card__state"><i></i><span>READY</span></span>
+                                </div>
                                 <img class="mode-hero" src="image/eeg_mode.png" alt="脑电采集模式" />
                             </div>
                             <div class="mode-meta">
-                                <div class="mode-title">脑电采集</div>
+                                <div class="mode-meta__head">
+                                    <div>
+                                        <div class="mode-meta__eyebrow">REAL-TIME SIGNAL</div>
+                                        <div class="mode-title">脑电采集</div>
+                                    </div>
+                                    <span class="mode-card__arrow" aria-hidden="true">↗</span>
+                                </div>
                                 <div class="mode-desc">用于实时脑电采集与可视化：开始采集后通过 WebSocket 显示多通道波形，并支持 PSD 分析和离线保存，可选择使用带通滤波器。</div>
                             </div>
                         </button>
-                        <button type="button" class="mode-card mode-card--bottom" id="mode-tdcs">
+                        <button type="button" class="mode-card mode-card--bottom" id="mode-tdcs" data-tone="mint">
                             <div class="mode-hero-wrap">
+                                <div class="mode-card__hud" aria-hidden="true">
+                                    <span class="mode-card__index">03</span>
+                                    <span class="mode-card__state"><i></i><span>READY</span></span>
+                                </div>
                                 <img class="mode-hero" src="image/tdcs_mode.png" alt="电刺激 tDCS 模式" />
                             </div>
                             <div class="mode-meta">
-                                <div class="mode-title">电刺激</div>
+                                <div class="mode-meta__head">
+                                    <div>
+                                        <div class="mode-meta__eyebrow">TRANSCRANIAL DIRECT CURRENT STIMULATION</div>
+                                        <div class="mode-title">电刺激</div>
+                                    </div>
+                                    <span class="mode-card__arrow" aria-hidden="true">↗</span>
+                                </div>
                                 <div class="mode-desc">用于经颅直流电刺激（tDCS）控制与监测：支持开启/停止刺激、下发电流/缓升/稳定/缓降/报警阈值等控制指令，并实时展示输出电流、高压电压、故障状态与电量；是否启用由配置开关控制。</div>
                             </div>
                         </button>
-                        <button type="button" class="mode-card mode-card--bottom mode-card--coming" id="mode-ssvep">
+                        <button type="button" class="mode-card mode-card--bottom mode-card--coming" id="mode-ssvep" data-tone="amber">
                             <div class="mode-hero-wrap">
-                                <img class="mode-hero" src="image/ssvep_mode.png" alt="SSVEP 模式" />
+                                <div class="mode-card__hud" aria-hidden="true">
+                                    <span class="mode-card__index">04</span>
+                                    <span class="mode-card__state mode-card__state--soon"><i></i><span>SOON</span></span>
+                                </div>
+                                <img class="mode-hero" src="image/ssvep_mode.png" alt="稳态视觉诱发电位模式" />
                             </div>
                             <div class="mode-meta">
-                                <div class="mode-title">SSVEP</div>
+                                <div class="mode-meta__head">
+                                    <div>
+                                        <div class="mode-meta__eyebrow">STEADY-STATE VISUAL EVOKED POTENTIAL</div>
+                                        <div class="mode-title">稳态视觉诱发电位</div>
+                                    </div>
+                                    <span class="mode-card__arrow" aria-hidden="true">⌁</span>
+                                </div>
                                 <div class="mode-desc">稳态视觉诱发电位：用于刺激参数配置、频率/相位设计与在线识别（预留）。</div>
                             </div>
                         </button>
-                        <button type="button" class="mode-card mode-card--bottom mode-card--coming" id="mode-mi">
+                        <button type="button" class="mode-card mode-card--bottom mode-card--coming" id="mode-mi" data-tone="rose">
                             <div class="mode-hero-wrap">
-                                <img class="mode-hero" src="image/mi_mode.png" alt="MI 模式" />
+                                <div class="mode-card__hud" aria-hidden="true">
+                                    <span class="mode-card__index">05</span>
+                                    <span class="mode-card__state mode-card__state--soon"><i></i><span>SOON</span></span>
+                                </div>
+                                <img class="mode-hero" src="image/mi_mode.png" alt="运动想象模式" />
                             </div>
                             <div class="mode-meta">
-                                <div class="mode-title">MI</div>
+                                <div class="mode-meta__head">
+                                    <div>
+                                        <div class="mode-meta__eyebrow">MOTOR IMAGERY</div>
+                                        <div class="mode-title">运动想象</div>
+                                    </div>
+                                    <span class="mode-card__arrow" aria-hidden="true">⌁</span>
+                                </div>
                                 <div class="mode-desc">运动想象：用于任务范式、训练流程与在线分类/反馈闭环（预留）。</div>
                             </div>
                         </button>
@@ -200,8 +283,8 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
         <section class="page" id="page-eeg" data-page-title="脑电采集" data-page-desc="查看实时波形、频域信息与结构化调试事件">
             <div class="eeg-layout">
-                <div class="card" style="height: 100%; display: flex; flex-direction: column;">
-                    <div class="card-header">
+                <div class="card eeg-debug-card" style="height: 100%; display: flex; flex-direction: column;">
+                    <div class="card-header" data-kicker="SYSTEM EVENTS">
                         <div>
                             <div class="card-title">调试输出</div>
                             <div class="card-sub">仅展示结构化调试事件，不展示网络/蓝牙连接信息</div>
@@ -210,17 +293,26 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             <input id="debug-filter" placeholder="过滤关键字" style="width: 220px;" />
                             <button class="btn btn--ghost" id="debug-clear">清空</button>
                             <button class="btn btn--ghost" id="debug-pause">暂停输出</button>
+                            <button class="btn btn--ghost eeg-focus-toggle" id="eeg-focus-toggle" type="button" aria-label="全屏显示" aria-pressed="false" aria-expanded="true" aria-controls="eeg-debug-body" title="全屏显示">
+                                <svg class="eeg-focus-icon eeg-focus-icon--expand" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                <svg class="eeg-focus-icon eeg-focus-icon--restore" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                <span id="eeg-focus-label">全屏显示</span>
+                            </button>
                             <button class="btn btn--primary" id="btn-eeg-start">开始EEG采集</button>
                             <button class="btn btn--danger" id="btn-eeg-stop">停止EEG采集</button>
                         </div>
                     </div>
-                    <div class="card-body" style="flex: 1; min-height: 0;">
+                    <div class="card-body eeg-debug-body" id="eeg-debug-body" style="flex: 1; min-height: 0;">
                         <div class="debug-log" id="debug-log"></div>
                     </div>
                 </div>
 
                 <div class="card card--col">
-                    <div class="card-header">
+                    <div class="card-header" data-kicker="SIGNAL MONITOR">
                         <div>
                             <div class="card-title">EEG 波形</div>
                             <div class="card-sub eeg-subline"><span id="eeg-sub">WebSocket 实时推送</span><span id="eeg-notch-hint"></span><div id="eeg-view-controls"></div></div>
@@ -251,7 +343,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
         <section class="page" id="page-offline" data-page-title="数据存储" data-page-desc="按会话导出原始或滤波后的脑电数据文件">
             <div class="card" style="width: 100%;">
-                <div class="card-header">
+                <div class="card-header" data-kicker="OFFLINE ARCHIVE">
                     <div>
                         <div class="card-title">数据存储</div>
                         <div class="card-sub">停止采集后在此导出 CSV/EDF ｜ 默认 50Hz 工频陷波，带通滤波可选</div>
@@ -354,8 +446,8 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 
         <section class="page" id="page-impedance" data-page-title="阻抗检测" data-page-desc="通过地形图与阻抗列表快速检查电极接触状态">
             <div class="eeg-layout">
-                <div class="card" style="height: 100%; display: flex; flex-direction: column;">
-                    <div class="card-header">
+                <div class="card imp-debug-card" style="height: 100%; display: flex; flex-direction: column;">
+                    <div class="card-header" data-kicker="SYSTEM EVENTS">
                         <div>
                             <div class="card-title">调试输出</div>
                             <div class="card-sub">仅展示结构化调试事件，不展示网络/蓝牙连接信息</div>
@@ -364,20 +456,33 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             <input id="imp-debug-filter" placeholder="过滤关键字" style="width: 220px;" />
                             <button class="btn btn--ghost" id="imp-debug-clear">清空</button>
                             <button class="btn btn--ghost" id="imp-debug-pause">暂停输出</button>
+                            <button class="btn btn--ghost eeg-focus-toggle" id="imp-focus-toggle" type="button" aria-label="全屏显示" aria-pressed="false" aria-expanded="true" aria-controls="imp-debug-body" title="全屏显示">
+                                <svg class="eeg-focus-icon eeg-focus-icon--expand" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                <svg class="eeg-focus-icon eeg-focus-icon--restore" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                <span id="imp-focus-label">全屏显示</span>
+                            </button>
                             <button class="btn btn--primary" id="btn-imp-start">开启阻抗检测</button>
                             <button class="btn btn--danger" id="btn-imp-stop">停止阻抗检测</button>
                         </div>
                     </div>
-                    <div class="card-body" style="flex: 1; min-height: 0;">
+                    <div class="card-body imp-debug-body" id="imp-debug-body" style="flex: 1; min-height: 0;">
                         <div class="debug-log" id="imp-debug-log"></div>
                     </div>
                 </div>
 
                 <div class="card card--col">
-                    <div class="card-header">
+                    <div class="card-header" data-kicker="IMPEDANCE MONITORING">
                         <div>
                             <div class="card-title">阻抗可视化</div>
                             <div class="card-sub"><span id="imp-sub">用于上机前的电极接触检查</span></div>
+                        </div>
+                        <div class="badge plain warn" id="imp-badge" aria-live="polite">
+                            <div class="badge-dot"></div>
+                            <div id="imp-badge-text">等待数据</div>
                         </div>
                     </div>
                     <div class="card-body card-body--fill" style="padding: 12px;">
@@ -389,7 +494,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                                 <div class="imp-legend" id="imp-legend"></div>
                                 <div class="field" style="min-height: 0;">
                                     <div class="label">阻抗列表（*10 Ω）</div>
-                                    <div class="imp-grid-wrap" id="imp-list">
+                                    <div class="imp-grid-wrap" id="imp-list" tabindex="0" role="region" aria-label="阻抗通道列表，可滚动查看更多">
                                         <div class="imp-grid" id="imp-grid-main"></div>
                                         <div class="imp-grid imp-grid-extra" id="imp-grid-extra"></div>
                                     </div>
@@ -405,7 +510,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
         <section class="page" id="page-tdcs" data-page-title="电刺激控制" data-page-desc="实时监测刺激状态并下发 tDCS 控制指令">
             <div class="eeg-layout">
                 <div class="card" style="height: 100%; display: flex; flex-direction: column;">
-                    <div class="card-header">
+                    <div class="card-header" data-kicker="SYSTEM EVENTS">
                         <div>
                             <div class="card-title">调试输出</div>
                             <div class="card-sub">仅展示结构化调试事件，不展示网络/蓝牙连接信息</div>
@@ -424,7 +529,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                 </div>
 
                 <div class="card">
-                    <div class="card-header">
+                    <div class="card-header" data-kicker="STIMULATION CONSOLE">
                         <div>
                             <div class="card-title">电刺激（tDCS）</div>
                             <div class="card-sub">监测数据与两级指令控制面板</div>
@@ -438,6 +543,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                         </div>
                     </div>
                     <div class="card-body tdcs-main-body">
+                        <div class="status-box tdcs-status-text" id="tdcs-status" aria-live="polite">正在读取设备与刺激配置…</div>
                         <div class="stack tdcs-main-stack">
                             <div class="tdcs-grid">
                                 <div class="tdcs-section tdcs-section-monitor">

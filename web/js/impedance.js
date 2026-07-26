@@ -8,6 +8,8 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 import { getConfig, getStatus, modeStart, modeStop } from './api.js';
 import { createImpedanceTopomap } from './impedance_topomap.js';
 
+const IMPEDANCE_FOCUS_STORAGE_KEY = 'bhb_impedance_focus';
+
 let wsImp = null;
 let wsDebug = null;
 
@@ -16,6 +18,8 @@ let impStatusTimer = null;
 let impRenderTimer = null;
 let impStatusEventBound = false;
 let impStatusEventHandler = null;
+let impFocusResizeHandler = null;
+let impFocusResizeListenerAttached = false;
 
 let impNames = [];
 let impModeChannels = 8;
@@ -41,6 +45,7 @@ let debugLines = [];
 let debugFilterText = '';
 let debugPaused = false;
 let debugBufferedLines = [];
+let impFocusEnabled = false;
 
 function formatLocalTsSeconds(tsSeconds) {
   const t = Number(tsSeconds);
@@ -506,6 +511,77 @@ function connectDebugWs() {
   };
 }
 
+function syncImpedanceFocusLayoutMetrics(layout, debugBody) {
+  if (!layout || !debugBody) return;
+  const debugCard = debugBody.closest('.imp-debug-card');
+  const debugHeader = debugCard ? debugCard.querySelector('.card-header') : null;
+  if (!debugCard || !debugHeader) return;
+
+  const cardStyle = getComputedStyle(debugCard);
+  const borderHeight = (parseFloat(cardStyle.borderTopWidth) || 0) + (parseFloat(cardStyle.borderBottomWidth) || 0);
+  const headerHeight = Math.max(
+    debugHeader.getBoundingClientRect().height,
+    debugHeader.scrollHeight
+  );
+  const collapsedHeight = Math.max(1, Math.ceil(headerHeight + borderHeight));
+  const compactLayout = window.matchMedia('(max-width: 980px)').matches;
+  const expandedHeight = Math.max(
+    compactLayout ? 240 : 220,
+    collapsedHeight + 64
+  );
+
+  layout.style.setProperty('--focus-collapsed-row', `${collapsedHeight}px`);
+  layout.style.setProperty('--focus-expanded-row', `${expandedHeight}px`);
+}
+
+function setImpedanceFocus(enabled, { persist = true } = {}) {
+  impFocusEnabled = !!enabled;
+  const layout = document.querySelector('#page-impedance .eeg-layout');
+  const debugBody = document.getElementById('imp-debug-body');
+  const toggle = document.getElementById('imp-focus-toggle');
+  const label = document.getElementById('imp-focus-label');
+
+  if (debugBody) debugBody.hidden = false;
+  syncImpedanceFocusLayoutMetrics(layout, debugBody);
+  if (layout) layout.classList.toggle('eeg-layout--imp-focus', impFocusEnabled);
+  if (debugBody) {
+    debugBody.setAttribute('aria-hidden', impFocusEnabled ? 'true' : 'false');
+    debugBody.inert = impFocusEnabled;
+  }
+  if (toggle) {
+    const nextLabel = impFocusEnabled ? '恢复布局' : '全屏显示';
+    toggle.classList.toggle('is-active', impFocusEnabled);
+    toggle.setAttribute('aria-pressed', impFocusEnabled ? 'true' : 'false');
+    toggle.setAttribute('aria-expanded', impFocusEnabled ? 'false' : 'true');
+    toggle.setAttribute('aria-label', nextLabel);
+    toggle.setAttribute('title', nextLabel);
+  }
+  if (label) label.textContent = impFocusEnabled ? '恢复布局' : '全屏显示';
+
+  if (persist) {
+    try { localStorage.setItem(IMPEDANCE_FOCUS_STORAGE_KEY, impFocusEnabled ? '1' : '0'); } catch (_) {}
+  }
+}
+
+function bindImpedanceFocusToggle() {
+  const toggle = document.getElementById('imp-focus-toggle');
+  let stored = null;
+  try { stored = localStorage.getItem(IMPEDANCE_FOCUS_STORAGE_KEY); } catch (_) {}
+  setImpedanceFocus(stored === '1', { persist: false });
+  if (toggle) toggle.onclick = () => setImpedanceFocus(!impFocusEnabled);
+  if (!impFocusResizeListenerAttached) {
+    impFocusResizeListenerAttached = true;
+    impFocusResizeHandler = () => {
+      if (!impPageActive) return;
+      syncImpedanceFocusLayoutMetrics(
+        document.querySelector('#page-impedance .eeg-layout'),
+        document.getElementById('imp-debug-body')
+      );
+    };
+    window.addEventListener('resize', impFocusResizeHandler);
+  }
+}
+
 function bindControls() {
   const btnStart = document.getElementById('btn-imp-start');
   const btnStop = document.getElementById('btn-imp-stop');
@@ -648,6 +724,7 @@ export async function enterImpedancePage() {
   selectedName = '';
   setBadge('warn', '等待数据');
   bindControls();
+  bindImpedanceFocusToggle();
   await initImpedanceUiOnce();
   if (!impStatusEventBound) {
     impStatusEventHandler = (event) => {

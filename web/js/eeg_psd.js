@@ -55,6 +55,11 @@ export class EegPsdView {
     this._applyTheme();
   }
 
+  resize() {
+    if (!this.chart) return;
+    try { this.chart.resize(); } catch (_) {}
+  }
+
   setMode(mode, silent = false) {
     const m = mode === 'psd' ? 'psd' : 'time';
     this.mode = m;
@@ -65,9 +70,7 @@ export class EegPsdView {
     if (m === 'psd') this.connect();
     else this.close();
     if (m === 'psd') this._renderIfReady();
-    if (this.chart) {
-      try { this.chart.resize(); } catch (_) {}
-    }
+    this.resize();
   }
 
   connect() {

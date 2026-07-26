@@ -129,7 +129,7 @@ async function refreshTdcsStatusHint() {
     setStatus('电刺激就绪：可在右侧控制面板下发参数/操作指令；点击“开启电刺激”进入运行态后将锁定入口。', '');
   } catch (_) {
     renderTdcsControlButtons(false, false, false);
-    if (tdcsConfigEnabled) setStatus('后端未响应', 'error');
+    setStatus(tdcsConfigEnabled ? '后端未响应' : (tdcsDisabledReason || '后端未响应'), 'error');
   }
 }
 
@@ -290,14 +290,17 @@ function bootstrapTdcsDebug() {
 
 async function loadAndApplyConfig() {
   let cfg = null;
+  let configLoaded = false;
   try {
     cfg = await getConfig();
+    configLoaded = true;
   } catch (_) {}
   const configEnabled = !!(cfg && cfg.tdcs && cfg.tdcs.enabled);
   const effectiveEnabled = (cfg && cfg.tdcs && typeof cfg.tdcs.effective_enabled === 'boolean') ? !!cfg.tdcs.effective_enabled : configEnabled;
   const capable = (cfg && cfg.tdcs && typeof cfg.tdcs.capable === 'boolean') ? !!cfg.tdcs.capable : null;
   tdcsConfigEnabled = effectiveEnabled;
-  if (!configEnabled) tdcsDisabledReason = '当前配置已禁用电刺激模式（tdcs.enabled=false）';
+  if (!configLoaded) tdcsDisabledReason = '后端未响应，无法读取电刺激配置';
+  else if (!configEnabled) tdcsDisabledReason = '当前配置已禁用电刺激模式（tdcs.enabled=false）';
   else if (capable === false) tdcsDisabledReason = '当前设备不带电刺激模块，电刺激（tDCS）已禁用';
   else if (!effectiveEnabled) tdcsDisabledReason = '电刺激功能不可用';
   else tdcsDisabledReason = '';
