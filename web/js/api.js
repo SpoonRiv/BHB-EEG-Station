@@ -57,6 +57,10 @@ export async function appShutdown() {
   return fetchJson('/api/app/shutdown', { method: 'POST' });
 }
 
+export async function appMinimize() {
+  return fetchJson('/api/app/minimize', { method: 'POST' });
+}
+
 export async function modeSelect(mode) {
   return fetchJson('/api/mode/select', {
     method: 'POST',

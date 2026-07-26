@@ -5,7 +5,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 作者: Spoon , Fengye
 */
 
-import { appShutdown, getConfig, getStatus } from './api.js';
+import { appMinimize, appShutdown, getConfig, getStatus } from './api.js';
 import { initDevicePage } from './device.js';
 import { initModePage } from './mode.js';
 import { enterEegPage, leaveEegPage } from './eeg.js';
@@ -217,6 +217,29 @@ function attemptCloseCurrentWindow() {
   });
 }
 
+function bindMinimizeButton() {
+  const minimizeBtn = document.getElementById('app-minimize');
+  if (!minimizeBtn) return;
+
+  minimizeBtn.addEventListener('click', async () => {
+    if (minimizeBtn.disabled) return;
+    minimizeBtn.disabled = true;
+    try {
+      await appMinimize();
+    } catch (error) {
+      const message = error && error.message ? String(error.message) : '窗口最小化失败';
+      minimizeBtn.title = message;
+      minimizeBtn.setAttribute('aria-label', message);
+      window.setTimeout(() => {
+        minimizeBtn.title = '最小化窗口';
+        minimizeBtn.setAttribute('aria-label', '最小化窗口');
+      }, 2400);
+    } finally {
+      minimizeBtn.disabled = false;
+    }
+  });
+}
+
 function bindPowerButton() {
   const powerBtn = document.getElementById('app-power');
   const modal = document.getElementById('power-modal');
@@ -418,6 +441,7 @@ function init() {
   initModePage();
   initRoutes();
   bindHeaderNav();
+  bindMinimizeButton();
   bindPowerButton();
   updateHeaderNavActive();
   window.addEventListener('hashchange', updateHeaderNavActive);

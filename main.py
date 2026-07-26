@@ -671,6 +671,48 @@ def schedule_process_exit(delay_sec: float = 0.6) -> None:
     threading.Thread(target=_exit_later, daemon=True).start()
 
 
+def schedule_foreground_window_minimize(delay_sec: float = 0.12) -> None:
+    """
+    捕获当前 Windows 前台窗口，并在响应发出后将其最小化。
+
+    浏览器页面无法直接调用系统级最小化能力，因此由本地后端通过
+    Windows API 操作用户点击按钮时所在的前台浏览器窗口。
+
+    Args:
+        delay_sec: 执行最小化前的短暂延时，确保 HTTP 响应先返回。
+
+    Raises:
+        RuntimeError: 当前平台不是 Windows，或无法获取有效前台窗口。
+    """
+    if os.name != "nt":
+        raise RuntimeError("窗口最小化仅支持 Windows")
+
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.GetForegroundWindow.argtypes = []
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    user32.IsWindow.argtypes = [wintypes.HWND]
+    user32.IsWindow.restype = wintypes.BOOL
+    user32.ShowWindowAsync.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.ShowWindowAsync.restype = wintypes.BOOL
+
+    window_handle = user32.GetForegroundWindow()
+    if not window_handle or not user32.IsWindow(window_handle):
+        raise RuntimeError("未找到可最小化的前台窗口")
+
+    def _minimize_later() -> None:
+        """
+        等待前端收到响应后，最小化点击按钮时捕获到的窗口。
+        """
+        time.sleep(max(0.0, float(delay_sec)))
+        if user32.IsWindow(window_handle):
+            user32.ShowWindowAsync(window_handle, 6)
+
+    threading.Thread(target=_minimize_later, daemon=True).start()
+
+
 def get_browser_launch_url(host: str, port: int) -> str:
     """
     根据监听地址生成适合本机浏览器访问的 URL。
@@ -1352,6 +1394,19 @@ async def app_shutdown():
     except Exception as e:
         logging.exception("Application shutdown failed")
         raise HTTPException(status_code=500, detail=f"系统关闭失败：{e}") from e
+
+
+@app.post("/api/app/minimize")
+async def app_minimize():
+    """
+    最小化用户点击按钮时所在的 Windows 前台窗口。
+    """
+    try:
+        schedule_foreground_window_minimize()
+        return {"status": "success", "message": "窗口正在最小化。"}
+    except Exception as e:
+        logging.exception("Application window minimize failed")
+        raise HTTPException(status_code=500, detail=f"窗口最小化失败：{e}") from e
 
 
 @app.get("/api/control/commands")

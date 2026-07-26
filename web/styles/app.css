@@ -612,10 +612,52 @@ body::after {
   display: block;
 }
 
-.power-icon {
+.power-icon,
+.window-control-icon {
   width: 18px;
   height: 18px;
   display: block;
+}
+
+.btn.btn--minimize {
+  color: #e8f9ff;
+  border-color: rgba(57, 189, 248, 0.34);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.00) 68%),
+    rgba(57, 189, 248, 0.16);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    0 12px 24px rgba(57, 189, 248, 0.14);
+}
+
+.btn.btn--minimize:hover {
+  border-color: rgba(57, 189, 248, 0.58);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.00) 68%),
+    rgba(57, 189, 248, 0.23);
+  box-shadow:
+    var(--shadow-sm),
+    0 0 0 1px rgba(57, 189, 248, 0.15) inset,
+    0 14px 28px rgba(57, 189, 248, 0.19);
+}
+
+.btn.btn--minimize:active {
+  background: rgba(57, 189, 248, 0.28);
+  box-shadow: none;
+}
+
+.btn.btn--minimize:focus-visible {
+  border-color: rgba(57, 189, 248, 0.74);
+  box-shadow:
+    0 0 0 4px rgba(57, 189, 248, 0.18),
+    var(--shadow-sm);
+}
+
+[data-theme="light"] .btn.btn--minimize {
+  color: #075985;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.80), rgba(255, 255, 255, 0.22) 68%),
+    rgba(57, 189, 248, 0.15);
 }
 
 .btn.danger,
