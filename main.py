@@ -43,6 +43,81 @@ from ws_hub_psd import PsdWsHub, PsdWsHubConfig
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+
+class _SuppressGenericWebSocketLifecycleFilter(logging.Filter):
+    """
+    过滤 websockets 依赖输出的无上下文连接生命周期日志。
+
+    这些日志只包含 ``connection open/closed``，无法区分具体端点；
+    应用层会输出包含端点、客户端地址和关闭码的完整日志。
+    """
+
+    _GENERIC_MESSAGES = frozenset({"connection open", "connection closed"})
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.getMessage() not in self._GENERIC_MESSAGES
+
+
+def _install_websocket_lifecycle_log_filter() -> None:
+    """
+    在 Uvicorn 完成日志配置后安装过滤器，且允许生命周期重复启动。
+    """
+
+    logger = logging.getLogger("uvicorn.error")
+    if any(isinstance(item, _SuppressGenericWebSocketLifecycleFilter) for item in logger.filters):
+        return
+    logger.addFilter(_SuppressGenericWebSocketLifecycleFilter())
+
+
+def _websocket_client_label(websocket: WebSocket) -> str:
+    client = websocket.client
+    if client is None:
+        return "unknown"
+    host = str(getattr(client, "host", "") or "")
+    port = getattr(client, "port", None)
+    if not host:
+        try:
+            host = str(client[0])
+        except (IndexError, TypeError):
+            host = "unknown"
+    if port is None:
+        try:
+            port = client[1]
+        except (IndexError, TypeError):
+            port = None
+    if port is None:
+        return host
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    return f"{host}:{port}"
+
+
+def _log_websocket_opened(websocket: WebSocket) -> None:
+    logging.info(
+        "WebSocket opened: endpoint=%s client=%s",
+        websocket.url.path,
+        _websocket_client_label(websocket),
+    )
+
+
+def _log_websocket_closed(
+    websocket: WebSocket,
+    disconnect: Optional[WebSocketDisconnect],
+) -> None:
+    code: Any = "unavailable"
+    reason = ""
+    if disconnect is not None:
+        code = disconnect.code
+        reason = disconnect.reason
+    logging.info(
+        "WebSocket closed: endpoint=%s client=%s code=%s reason=%r",
+        websocket.url.path,
+        _websocket_client_label(websocket),
+        code,
+        reason,
+    )
+
+
 class NoCacheStaticFiles(StaticFiles):
     """
     禁用静态资源缓存，确保前端刷新时总是读取最新文件。
@@ -859,6 +934,7 @@ async def lifespan(app: FastAPI):
     """
     FastAPI 生命周期管理：启动时注册数据流回调，关闭时停止设备。
     """
+    _install_websocket_lifecycle_log_filter()
     logging.info("Application starting: registering callbacks...")
     state.streamer.add_callback(state.on_lsl_chunk)
     state.imp_streamer.add_callback(state.on_imp_lsl_chunk)
@@ -1687,18 +1763,27 @@ async def debug_ws(websocket: WebSocket):
     调试事件 WebSocket：仅推送“调试事件”，不推送网络/蓝牙连接信息。
     """
     if not state.config.debug.ui_enabled:
+        logging.info(
+            "WebSocket rejected: endpoint=%s client=%s reason=%r",
+            websocket.url.path,
+            _websocket_client_label(websocket),
+            "debug UI disabled",
+        )
         await websocket.close()
         return
     await websocket.accept()
     state.debug_bus.register_ws(websocket)
+    _log_websocket_opened(websocket)
+    disconnect: Optional[WebSocketDisconnect] = None
     try:
         await websocket.send_json({"type": "debug_init", "events": state.debug_bus.get_recent(limit=200)})
         while True:
             await websocket.receive_text()
-    except WebSocketDisconnect:
-        pass
+    except WebSocketDisconnect as exc:
+        disconnect = exc
     finally:
         state.debug_bus.unregister_ws(websocket)
+        _log_websocket_closed(websocket, disconnect)
 
 @app.websocket("/ws/eeg")
 async def websocket_endpoint(websocket: WebSocket):
@@ -1707,14 +1792,17 @@ async def websocket_endpoint(websocket: WebSocket):
     """
     await websocket.accept()
     state.eeg_ws_hub.register(websocket)
-    logging.info("Frontend WebSocket connected.")
+    _log_websocket_opened(websocket)
+    disconnect: Optional[WebSocketDisconnect] = None
     try:
         while True:
             # 保持连接
-            data = await websocket.receive_text()
-    except WebSocketDisconnect:
+            await websocket.receive_text()
+    except WebSocketDisconnect as exc:
+        disconnect = exc
+    finally:
         state.eeg_ws_hub.unregister(websocket)
-        logging.info("Frontend WebSocket disconnected.")
+        _log_websocket_closed(websocket, disconnect)
 
 
 @app.websocket("/ws/psd")
@@ -1725,13 +1813,18 @@ async def psd_ws(websocket: WebSocket):
     await websocket.accept()
     state.start_psd()
     state.psd_ws_hub.register(websocket)
+    _log_websocket_opened(websocket)
+    disconnect: Optional[WebSocketDisconnect] = None
     try:
         while True:
             await websocket.receive_text()
-    except WebSocketDisconnect:
+    except WebSocketDisconnect as exc:
+        disconnect = exc
+    finally:
         state.psd_ws_hub.unregister(websocket)
         if not state.psd_ws_hub.has_clients():
             state.stop_psd()
+        _log_websocket_closed(websocket, disconnect)
 
 
 @app.websocket("/ws/impedance")
@@ -1741,11 +1834,16 @@ async def impedance_ws(websocket: WebSocket):
     """
     await websocket.accept()
     state.imp_ws_hub.register(websocket)
+    _log_websocket_opened(websocket)
+    disconnect: Optional[WebSocketDisconnect] = None
     try:
         while True:
             await websocket.receive_text()
-    except WebSocketDisconnect:
+    except WebSocketDisconnect as exc:
+        disconnect = exc
+    finally:
         state.imp_ws_hub.unregister(websocket)
+        _log_websocket_closed(websocket, disconnect)
 
 if __name__ == "__main__":
     import uvicorn

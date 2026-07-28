@@ -169,9 +169,9 @@ body::after {
 }
 
 .app-header {
-  min-height: 84px;
-  padding: 12px 24px;
-  gap: 22px;
+  min-height: 72px;
+  padding: 10px 20px;
+  gap: 18px;
   flex-wrap: nowrap;
   align-items: center;
   border-bottom: 1px solid rgba(133, 176, 216, 0.12);
@@ -188,9 +188,9 @@ body::after {
 .app-header::after {
   content: "";
   position: absolute;
-  right: 26px;
+  right: 20px;
   bottom: -1px;
-  left: 26px;
+  left: 20px;
   height: 1px;
   background: linear-gradient(90deg, transparent, rgba(var(--accent-rgb), 0.42), transparent 68%);
   pointer-events: none;
@@ -205,22 +205,22 @@ body::after {
 }
 
 .brand-panel {
-  gap: 13px;
+  gap: 11px;
   flex: 0 1 auto;
 }
 
 .brand-mark {
   position: relative;
-  width: 52px;
-  height: 52px;
-  flex-basis: 52px;
-  border-radius: 15px;
+  width: 44px;
+  height: 44px;
+  flex-basis: 44px;
+  border-radius: 13px;
   border-color: rgba(155, 194, 229, 0.16);
   background:
     linear-gradient(145deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.015)),
     rgba(20, 31, 50, 0.80);
   box-shadow:
-    0 12px 28px rgba(0, 0, 0, 0.26),
+    0 9px 22px rgba(0, 0, 0, 0.22),
     0 0 0 1px rgba(var(--accent-rgb), 0.05) inset,
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
@@ -228,20 +228,20 @@ body::after {
 [data-theme="light"] .brand-mark {
   border-color: rgba(30, 87, 133, 0.11);
   background: linear-gradient(145deg, #ffffff, #eef5fc);
-  box-shadow: 0 12px 28px rgba(27, 58, 91, 0.12), inset 0 1px 0 #fff;
+  box-shadow: 0 9px 22px rgba(27, 58, 91, 0.10), inset 0 1px 0 #fff;
 }
 
 .brand-logo {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  box-shadow: 0 0 0 4px rgba(var(--accent-rgb), 0.07);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.07);
 }
 
 .brand-copy {
   display: inline-grid;
   grid-template-columns: max-content;
-  gap: 4px;
+  gap: 3px;
 }
 
 .brand-name {
@@ -252,14 +252,14 @@ body::after {
 .brand-kicker {
   display: flex;
   align-items: center;
-  justify-self: stretch;
+  justify-self: start;
   width: auto;
-  column-gap: 10px;
+  column-gap: 8px;
   color: var(--accent-text, rgba(var(--accent-rgb), 0.84));
   font-family: "Avenir Next", "Segoe UI Variable Text", "Segoe UI", sans-serif;
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 720;
-  letter-spacing: 0.28em;
+  letter-spacing: 0.22em;
   line-height: 1;
   text-transform: uppercase;
   white-space: nowrap;
@@ -274,38 +274,27 @@ body::after {
 }
 
 .brand-kicker > span:last-child {
-  margin-right: -0.28em;
+  margin-right: -0.22em;
 }
 
 .brand-kicker-separator {
-  position: relative;
-  flex: 1 1 0;
-  min-width: 8px;
-  height: 1px;
-  background: linear-gradient(
-    90deg,
-    rgba(var(--accent-rgb), 0.08),
-    rgba(var(--accent-rgb), 0.38),
-    rgba(var(--accent-rgb), 0.08)
-  );
+  flex: 0 0 3px;
+  min-width: 3px;
+  width: 3px;
+  height: 3px;
+  border-radius: 1px;
+  background: rgba(var(--accent-rgb), 0.68);
+  box-shadow: 0 0 6px rgba(var(--accent-rgb), 0.22);
+  transform: rotate(45deg);
 }
 
 .brand-kicker-separator::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: rgba(var(--accent-rgb), 0.72);
-  box-shadow: 0 0 6px rgba(var(--accent-rgb), 0.28);
-  transform: translate(-50%, -50%);
+  display: none;
 }
 
 .brand-mainline {
-  align-items: flex-end;
-  gap: 9px;
+  align-items: center;
+  gap: 8px;
 }
 
 .brand-title {
@@ -315,10 +304,10 @@ body::after {
   background-clip: text;
   -webkit-background-clip: text;
   font-family: "Bahnschrift", "Avenir Next", "DIN Alternate", "Segoe UI Variable Display", "Arial Narrow", sans-serif;
-  font-size: 24px;
+  font-size: 22px;
   font-stretch: condensed;
-  font-weight: 820;
-  letter-spacing: 0.045em;
+  font-weight: 800;
+  letter-spacing: 0.025em;
   line-height: 1;
   white-space: nowrap;
   filter: drop-shadow(0 5px 14px rgba(var(--accent-rgb), 0.14));
@@ -329,14 +318,14 @@ body::after {
 }
 
 .brand-sub {
-  min-height: 26px;
-  padding: 0 10px;
-  border-radius: 8px;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
   border-color: rgba(var(--accent-rgb), 0.20);
   background: rgba(var(--accent-rgb), 0.09);
   color: rgba(218, 241, 255, 0.90);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 12px;
+  font-size: 10.5px;
   font-weight: 760;
 }
 
@@ -464,9 +453,9 @@ body::after {
 }
 
 .badge.plain {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent),
-    rgba(111, 144, 179, 0.045);
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
 }
 
 .badge-dot {
@@ -477,7 +466,11 @@ body::after {
   min-height: 7px;
   aspect-ratio: 1;
   border-radius: 50%;
-  box-shadow: 0 0 10px currentColor;
+  box-shadow: none;
+}
+
+.badge.error .badge-dot {
+  box-shadow: none;
 }
 
 .segmented {
@@ -527,7 +520,7 @@ body::after {
 }
 
 .app-body {
-  padding: 18px 24px 24px;
+  padding: 18px clamp(12px, 1vw, 20px) 20px;
   scrollbar-gutter: auto;
 }
 
@@ -667,15 +660,25 @@ body::after {
 
 .btn.btn--danger,
 .btn.danger {
-  border-color: rgba(255, 93, 115, 0.23);
-  background: rgba(255, 93, 115, 0.065);
-  color: rgba(255, 173, 185, 0.94);
+  border-color: rgba(255, 111, 145, 0.86);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.17), transparent 66%),
+    linear-gradient(135deg, #ff7896, #e94b76);
+  color: #fff;
+  box-shadow:
+    0 10px 24px rgba(211, 61, 108, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24);
 }
 
 .btn.btn--danger:hover,
 .btn.danger:hover {
-  border-color: rgba(255, 93, 115, 0.42);
-  background: rgba(255, 93, 115, 0.11);
+  border-color: rgba(255, 168, 187, 0.90);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.22), transparent 66%),
+    linear-gradient(135deg, #ff8ba5, #f05d83);
+  box-shadow:
+    0 12px 28px rgba(211, 61, 108, 0.30),
+    0 0 0 1px rgba(255, 111, 145, 0.14) inset;
 }
 
 .btn.btn--power {
@@ -1575,15 +1578,20 @@ input[type="checkbox"] {
 
 @media (max-height: 760px) and (min-width: 981px) {
   .app-header {
-    min-height: 76px;
-    padding-top: 9px;
-    padding-bottom: 9px;
+    min-height: 68px;
+    padding-top: 7px;
+    padding-bottom: 7px;
   }
 
   .brand-mark {
-    width: 48px;
-    height: 48px;
-    flex-basis: 48px;
+    width: 40px;
+    height: 40px;
+    flex-basis: 40px;
+  }
+
+  .brand-logo {
+    width: 26px;
+    height: 26px;
   }
 
   .app-body {

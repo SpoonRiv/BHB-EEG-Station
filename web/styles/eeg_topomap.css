@@ -71,6 +71,39 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
   padding-right: 6px;
 }
 
+.device-list.preset-list {
+  --device-list-pad: 8px;
+  --device-list-gap: 6px;
+  --device-list-item-height: 46px;
+  height: calc(
+    var(--device-list-border) * 2
+    + var(--device-list-pad) * 2
+    + var(--device-list-gap)
+    + var(--device-list-item-height) * 2
+  );
+}
+
+.device-list.preset-list .device-list__item {
+  padding: 8px 12px;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 9px;
+}
+
+.device-list.preset-list .device-list__marker {
+  width: 18px;
+  height: 18px;
+}
+
+.device-list.preset-list .device-list__name {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.device-list.preset-list .device-list__badge {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
 #page-impedance .topomap-side {
   overflow: hidden;
   padding-left: 0;

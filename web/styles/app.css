@@ -72,7 +72,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
   --fx-aurora-2: rgba(139, 92, 246, 0.10);
   --fx-aurora-3: rgba(255, 255, 255, 0.00);
   --card-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.00) 62%);
-  --page-max: 1680px;
+  --page-max: 100%;
 }
 
 * { box-sizing: border-box; }

@@ -244,6 +244,79 @@ function isLocalPreset(p) {
   return p && String(p.scope || '') === 'local';
 }
 
+function setupPresetList(selectEl) {
+  const shell = document.getElementById('ch-preset-select-shell');
+  const emptyEl = document.getElementById('ch-preset-select-empty');
+  const menuEl = document.getElementById('ch-preset-select-menu');
+
+  if (!shell || !emptyEl || !menuEl || !selectEl) {
+    return { sync() {} };
+  }
+
+  const renderList = () => {
+    const currentValue = String(selectEl.value || '').trim();
+    const options = Array.from(selectEl.options || []).filter((opt) => {
+      const value = String(opt.value || '').trim();
+      return !opt.hidden && !opt.disabled && !!value;
+    });
+
+    menuEl.innerHTML = '';
+
+    for (const opt of options) {
+      const optionValue = String(opt.value || '').trim();
+      const isSelected = optionValue === currentValue;
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'device-list__item';
+      item.setAttribute('role', 'option');
+      item.setAttribute('aria-selected', String(isSelected));
+      item.setAttribute('aria-label', String(opt.textContent || '').trim());
+      if (isSelected) item.classList.add('is-selected');
+
+      const marker = document.createElement('span');
+      marker.className = 'device-list__marker';
+      marker.setAttribute('aria-hidden', 'true');
+      item.appendChild(marker);
+
+      const content = document.createElement('span');
+      content.className = 'device-list__content';
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'device-list__name';
+      nameSpan.textContent = String(opt.dataset.presetName || opt.textContent || '').trim();
+      content.appendChild(nameSpan);
+      item.appendChild(content);
+
+      const badge = String(opt.dataset.presetBadge || '').trim();
+      if (badge) {
+        const badgeSpan = document.createElement('span');
+        badgeSpan.className = 'device-list__badge';
+        badgeSpan.textContent = badge;
+        item.appendChild(badgeSpan);
+      }
+
+      item.addEventListener('click', () => {
+        if (selectEl.disabled) return;
+        selectEl.value = optionValue;
+        selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+
+      menuEl.appendChild(item);
+    }
+  };
+
+  const sync = () => {
+    renderList();
+    const hasItems = menuEl.childElementCount > 0;
+    shell.classList.toggle('is-disabled', !!selectEl.disabled);
+    shell.classList.toggle('has-items', hasItems);
+    emptyEl.hidden = hasItems;
+  };
+
+  sync();
+  return { sync };
+}
+
 export function initTopomapPanel() {
   const modeSel = document.getElementById('ch-mode-select');
   const btnApply = document.getElementById('ch-apply');
@@ -253,17 +326,16 @@ export function initTopomapPanel() {
   const badge = document.getElementById('ch-count-badge');
   const refPills = document.getElementById('ch-ref-pills');
   const presetSel = document.getElementById('ch-preset-select');
-  const btnPresetApply = document.getElementById('ch-preset-apply');
   const btnPresetSave = document.getElementById('ch-preset-save');
   const btnPresetDelete = document.getElementById('ch-preset-delete');
   const presetNameInput = document.getElementById('ch-preset-name');
   const sub = document.getElementById('topomap-sub');
 
-  if (!modeSel || !btnApply || !svgHost || !listHost || !btnClear || !badge || !refPills || !presetSel || !btnPresetApply || !btnPresetSave || !btnPresetDelete || !presetNameInput) {
+  if (!modeSel || !btnApply || !svgHost || !listHost || !btnClear || !badge || !refPills || !presetSel || !btnPresetSave || !btnPresetDelete || !presetNameInput) {
     return;
   }
   enhanceCustomSelect(modeSel);
-  enhanceCustomSelect(presetSel);
+  const presetList = setupPresetList(presetSel);
   if (sub) {
     sub.textContent = '左键点击选择工作通道与顺序 | 右键点击选择参考通道';
   }
@@ -426,9 +498,12 @@ export function initTopomapPanel() {
       if (scope === 'local') {
         localIdx += 1;
         o.textContent = `【自定义${localIdx}】${p.name}`;
+        o.dataset.presetBadge = `自定义${localIdx}`;
       } else {
         o.textContent = `【内置预设】${p.name}`;
+        o.dataset.presetBadge = '内置预设';
       }
+      o.dataset.presetName = String(p.name || '');
       presetSel.appendChild(o);
     }
     let found = false;
@@ -439,6 +514,7 @@ export function initTopomapPanel() {
       }
     }
     presetSel.value = found ? current : '';
+    presetList.sync();
   }
 
   function renderSelectedList() {
@@ -777,7 +853,7 @@ export function initTopomapPanel() {
     await persistPending();
   };
 
-  btnPresetApply.onclick = async () => {
+  presetSel.addEventListener('change', async () => {
     const v = String(presetSel.value || '');
     if (!v) return;
     const idx = presets.findIndex((p) => `${p.scope}:${p.name}` === v);
@@ -788,7 +864,7 @@ export function initTopomapPanel() {
     const ref = String(p.ref_channel_name || '').trim();
     if (ref) pendingRef = ref;
     await persistPending();
-  };
+  });
 
   btnPresetSave.onclick = async () => {
     const name = String(presetNameInput.value || '').trim();

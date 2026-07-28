@@ -100,6 +100,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                     </div>
                     <div class="card-body">
                         <div class="stack">
+                            <div class="status-box" id="device-status" aria-live="polite">状态：未连接</div>
                             <div class="field">
                                 <div class="label">设备列表</div>
                                 <div class="device-list" id="device-select-shell">
@@ -114,7 +115,6 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                                 <button class="btn btn--primary" id="btn-connect">连接</button>
                                 <button class="btn btn--danger" id="btn-disconnect">断开</button>
                             </div>
-                            <div class="status-box" id="device-status" aria-live="polite">状态：未连接</div>
                         </div>
                     </div>
                 </div>
@@ -150,18 +150,19 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                                     </div>
                                     <div class="field">
                                         <div class="label">常用组合</div>
-                                        <select id="ch-preset-select"></select>
-                                    </div>
-                                    <div class="row">
-                                        <button class="btn btn--ghost" id="ch-preset-apply">套用</button>
-                                        <button class="btn btn--danger" id="ch-preset-delete">删除组合</button>
+                                        <div class="device-list preset-list" id="ch-preset-select-shell">
+                                            <div class="device-list__empty" id="ch-preset-select-empty">暂无常用组合</div>
+                                            <div class="device-list__items" id="ch-preset-select-menu" role="listbox" aria-label="常用组合列表"></div>
+                                            <select id="ch-preset-select" class="custom-select__native" tabindex="-1" aria-hidden="true"></select>
+                                        </div>
                                     </div>
                                     <div class="field">
                                         <div class="label">保存为本机常用</div>
                                         <input id="ch-preset-name" placeholder="例如：后部8通道" />
                                     </div>
                                     <div class="row">
-                                        <button class="btn btn--primary" id="ch-preset-save">保存</button>
+                                        <button class="btn btn--primary" id="ch-preset-save">保存组合</button>
+                                        <button class="btn btn--danger" id="ch-preset-delete">删除组合</button>
                                     </div>
                                 </div>
                             </div>
