@@ -27,7 +27,8 @@ function setStatus(text, kind) {
   box.classList.remove('success', 'error');
   if (kind === 'success') box.classList.add('success');
   else box.classList.add('error');
-  box.textContent = text || '';
+  const value = String(text || '').trim();
+  box.textContent = value.startsWith('状态：') ? value : `状态：${value || '等待操作'}`;
 }
 
 function setOpenFolderButtonVisible(visible) {
@@ -43,24 +44,53 @@ function setMetricsVisible(visible) {
   el.style.display = visible ? '' : 'none';
 }
 
-function setMetricsText(text) {
+function setMetricValue(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value || '--';
+}
+
+function setMetricsData({ samples, channels, size, duration }) {
   const el = document.getElementById('offline-metrics');
+  const message = document.getElementById('offline-metrics-message');
   if (!el) return;
-  el.textContent = text || '';
+  el.classList.remove('has-message');
+  if (message) {
+    message.style.display = 'none';
+    message.textContent = '';
+  }
+  setMetricValue('offline-metric-samples', samples);
+  setMetricValue('offline-metric-channels', channels);
+  setMetricValue('offline-metric-size', size);
+  setMetricValue('offline-metric-duration', duration);
+}
+
+function setMetricsMessage(text) {
+  const el = document.getElementById('offline-metrics');
+  const message = document.getElementById('offline-metrics-message');
+  if (!el || !message) return;
+  el.classList.add('has-message');
+  message.textContent = text || '';
+  message.style.display = '';
 }
 
 function setSessionInfo(session) {
-  const idEl = document.getElementById('offline-session-id');
   const dirEl = document.getElementById('offline-session-dir');
-  if (idEl) idEl.textContent = session && session.session_id ? String(session.session_id) : '--';
-  if (dirEl) dirEl.textContent = session && session.session_dir ? String(session.session_dir) : '--';
+  if (dirEl) {
+    const path = session && session.session_dir ? String(session.session_dir) : '--';
+    dirEl.textContent = path;
+    dirEl.title = path === '--' ? '' : path;
+  }
 }
 
 function setFilterVisible(enabled) {
   const block = document.getElementById('offline-filter-block');
   const filteredBlock = document.getElementById('offline-filtered-block');
+  const idle = document.getElementById('offline-filter-idle');
+  const toggle = document.getElementById('offline-filter-enable');
   if (block) block.style.display = enabled ? '' : 'none';
   if (filteredBlock) filteredBlock.style.display = enabled ? '' : 'none';
+  if (idle) idle.style.display = enabled ? 'none' : '';
+  if (toggle) toggle.setAttribute('aria-expanded', String(enabled));
 }
 
 function buildTargets() {
@@ -117,6 +147,17 @@ function fmtMiB(miB) {
   return v.toFixed(2);
 }
 
+function getEegChannelCount(session, dataChannelCount) {
+  const names = session && Array.isArray(session.channel_names) ? session.channel_names : [];
+  if (names.length) {
+    const eegNames = names.filter((name) => !/^(trig|trigger|marker)$/i.test(String(name || '').trim()));
+    if (eegNames.length === 8 || eegNames.length === 16) return eegNames.length;
+  }
+  const count = Number(dataChannelCount);
+  if (count === 9 || count === 17) return count - 1;
+  return Number.isFinite(count) ? count : null;
+}
+
 function tryGetCachedSessionMeta(sid) {
   try {
     const raw = sessionStorage.getItem('bhb_last_eeg_session_meta') || '';
@@ -140,11 +181,17 @@ async function loadAndRenderMetrics(sessionId) {
   const cached = tryGetCachedSessionMeta(sessionId);
   if (cached) {
     const sr = cached.sampling_rate_hz ? Number(cached.sampling_rate_hz) : null;
-    const nCh = Array.isArray(cached.channel_names) ? cached.channel_names.length : null;
+    const dataChannels = Array.isArray(cached.channel_names) ? cached.channel_names.length : null;
+    const eegChannels = getEegChannelCount(cached, dataChannels);
     const samples = cached.total_samples ? Number(cached.total_samples) : null;
     const dataSec = (sr && samples && sr > 0) ? (samples / sr) : null;
-    const estMiB = (samples && nCh) ? ((samples * nCh * 4) / (1024.0 * 1024.0)) : null;
-    setMetricsText(`数据尺寸：${fmtInt(samples)} 点 × ${fmtInt(nCh)} 通道（约 ${estMiB !== null ? fmtMiB(estMiB) : '--'} MiB） ｜ 数据时长：${dataSec !== null ? fmtSeconds(dataSec) : '--'}`);
+    const estMiB = (samples && dataChannels) ? ((samples * dataChannels * 4) / (1024.0 * 1024.0)) : null;
+    setMetricsData({
+      samples: `${fmtInt(samples)} 点`,
+      channels: `${fmtInt(eegChannels)} 通道`,
+      size: `${estMiB !== null ? fmtMiB(estMiB) : '--'} MiB`,
+      duration: dataSec !== null ? fmtSeconds(dataSec) : '--',
+    });
     setMetricsVisible(true);
   }
   try {
@@ -153,17 +200,21 @@ async function loadAndRenderMetrics(sessionId) {
     const d = res && res.derived ? res.derived : null;
     if (sess && sess.session_id) cacheSessionMeta(sess);
     const samples = sess && typeof sess.total_samples === 'number' ? sess.total_samples : null;
-    const nCh = d && typeof d.channels === 'number' ? d.channels : (sess && Array.isArray(sess.channel_names) ? sess.channel_names.length : null);
+    const dataChannels = d && typeof d.channels === 'number' ? d.channels : (sess && Array.isArray(sess.channel_names) ? sess.channel_names.length : null);
+    const eegChannels = getEegChannelCount(sess, dataChannels);
     const dataSec = d && typeof d.data_duration_sec === 'number' ? d.data_duration_sec : null;
-    const estMiB = (samples && nCh) ? ((samples * nCh * 4) / (1024.0 * 1024.0)) : null;
-    setMetricsText(
-      `数据尺寸：${fmtInt(samples)} 点 × ${fmtInt(nCh)} 通道（约 ${estMiB !== null ? fmtMiB(estMiB) : '--'} MiB） ｜ 数据时长：${dataSec !== null ? fmtSeconds(dataSec) : '--'}`
-    );
+    const estMiB = (samples && dataChannels) ? ((samples * dataChannels * 4) / (1024.0 * 1024.0)) : null;
+    setMetricsData({
+      samples: `${fmtInt(samples)} 点`,
+      channels: `${fmtInt(eegChannels)} 通道`,
+      size: `${estMiB !== null ? fmtMiB(estMiB) : '--'} MiB`,
+      duration: dataSec !== null ? fmtSeconds(dataSec) : '--',
+    });
     setMetricsVisible(true);
     setSessionInfo({ session_id: sess && sess.session_id ? sess.session_id : sessionId, session_dir: sess && sess.session_dir ? sess.session_dir : getLastSessionDir() });
   } catch (_) {
     if (!cached) {
-      setMetricsText('采集指标：获取失败（可继续导出，导出不受影响）');
+      setMetricsMessage('数据概况获取失败，可继续导出，导出结果不受影响。');
       setMetricsVisible(true);
     }
   }
@@ -173,7 +224,7 @@ export async function enterOfflinePage() {
   pageActive = true;
   lastSessionId = getLastSessionId();
   const lastSessionDir = getLastSessionDir();
-  setStatus(lastSessionId ? '请选择导出选项并点击“导出文件”。' : '未检测到最近会话，请先进入 EEG 页面开始/停止一次采集。', lastSessionId ? '' : 'error');
+  setStatus(lastSessionId ? '数据已就绪，请选择导出选项。' : '未检测到最近会话，请先进入 EEG 页面开始/停止一次采集。', lastSessionId ? 'success' : 'error');
   setSessionInfo(null);
   setMetricsVisible(false);
 
@@ -202,8 +253,10 @@ export async function enterOfflinePage() {
     openFolderBtn.onclick = async () => {
       if (!lastSessionId) return;
       openFolderBtn.disabled = true;
+      setStatus('正在打开会话目录…', '');
       try {
         await offlineOpenFolder(lastSessionId);
+        setStatus('已打开会话目录', 'success');
       } catch (e) {
         setStatus(`打开文件夹失败：${e && e.message ? e.message : '未知错误'}`, 'error');
       } finally {
@@ -257,8 +310,7 @@ export async function enterOfflinePage() {
           setStatus('未生成任何文件（请检查导出选项）。', 'error');
           return;
         }
-        const lines = outputs.map(o => `- ${o.kind}/${o.fmt}: ${o.path}`).join('\n');
-        setStatus(`导出完成：\n${lines}`, 'success');
+        setStatus('导出成功', 'success');
       } catch (e) {
         setStatus(`导出失败：${e && e.message ? e.message : '未知错误'}`, 'error');
       } finally {

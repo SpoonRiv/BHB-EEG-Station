@@ -343,7 +343,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
         </section>
 
         <section class="page" id="page-offline" data-page-title="数据存储" data-page-desc="按会话导出原始或滤波后的脑电数据文件">
-            <div class="card" style="width: 100%;">
+            <div class="card offline-card" style="width: 100%;">
                 <div class="card-header" data-kicker="OFFLINE ARCHIVE">
                     <div>
                         <div class="card-title">数据存储</div>
@@ -351,37 +351,54 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                         <div class="card-sub" id="offline-notch-hint"></div>
                     </div>
                     <div class="row">
-                        <button class="btn btn--ghost" id="btn-offline-back">返回模式</button>
-                        <button class="btn btn--primary" id="btn-offline-export">导出文件</button>
+                        <button class="btn btn--ghost" id="btn-offline-back" type="button">返回模式</button>
+                        <button class="btn btn--primary" id="btn-offline-export" type="button">导出文件</button>
                     </div>
                 </div>
-                <div class="card-body">
+                <div class="card-body offline-card-body">
                     <div class="stack offline-page-stack">
-                        <div class="offline-status-row">
-                            <div class="status-box offline-status-box" id="offline-status"></div>
-                            <button class="btn btn--ghost" id="btn-offline-open-folder" style="display: none;">在文件夹中打开</button>
-                        </div>
-                        <div class="offline-session-panel">
-                            <div class="offline-section-head">
-                                <div class="offline-section-title">会话概览</div>
-                                <div class="offline-section-sub">确认最近一次采集会话与数据规模后，再选择导出方式</div>
-                            </div>
-                            <div class="offline-session-grid">
-                                <div class="field">
-                                    <div class="label">会话ID</div>
-                                    <div class="status-box" id="offline-session-id">--</div>
-                                </div>
-                                <div class="field offline-session-grid__dir">
-                                    <div class="label">会话目录</div>
-                                    <div class="status-box" id="offline-session-dir">--</div>
-                                </div>
-                            </div>
-                            <div class="hint-metrics" id="offline-metrics" style="display: none;"></div>
-                        </div>
-
-                        <div class="offline-export-grid">
-                            <div class="offline-panel">
+                        <div class="offline-layout-grid">
+                            <div class="offline-session-panel">
                                 <div class="offline-section-head">
+                                    <div class="offline-section-title">会话概览</div>
+                                    <div class="offline-section-sub">确认最近一次采集会话与数据规模后，再选择导出方式</div>
+                                </div>
+                                <div class="offline-session-grid">
+                                    <div class="field">
+                                        <div class="label">导出状态</div>
+                                        <div class="status-box error" id="offline-status" role="status" aria-live="polite">状态：等待操作</div>
+                                    </div>
+                                    <div class="field offline-session-grid__dir">
+                                        <div class="label">会话目录</div>
+                                        <div class="status-box offline-session-dir-control">
+                                            <span id="offline-session-dir">--</span>
+                                            <button class="btn btn--ghost" id="btn-offline-open-folder" type="button" style="display: none;">在文件夹中打开</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="offline-metrics-grid" id="offline-metrics" style="display: none;" aria-label="会话数据概况">
+                                    <div class="offline-metric">
+                                        <span class="offline-metric__label">采样点数</span>
+                                        <strong class="offline-metric__value" id="offline-metric-samples">--</strong>
+                                    </div>
+                                    <div class="offline-metric">
+                                        <span class="offline-metric__label">通道数</span>
+                                        <strong class="offline-metric__value" id="offline-metric-channels">--</strong>
+                                    </div>
+                                    <div class="offline-metric">
+                                        <span class="offline-metric__label">估算大小</span>
+                                        <strong class="offline-metric__value" id="offline-metric-size">--</strong>
+                                    </div>
+                                    <div class="offline-metric">
+                                        <span class="offline-metric__label">数据时长</span>
+                                        <strong class="offline-metric__value" id="offline-metric-duration">--</strong>
+                                    </div>
+                                    <div class="offline-metrics-message" id="offline-metrics-message" style="display: none;"></div>
+                                </div>
+                            </div>
+
+                            <div class="offline-panel offline-panel--raw">
+                                <div class="offline-section-head" data-step="01">
                                     <div class="offline-section-title">原始导出</div>
                                     <div class="offline-section-sub">导出已包含 50Hz 工频陷波的原始会话数据</div>
                                 </div>
@@ -391,23 +408,44 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                                         <input id="offline-base-raw" placeholder="例如：subject01_run1" />
                                     </div>
                                     <div class="field">
-                                        <div class="label">导出原始数据（已包含工频陷波）</div>
-                                        <div class="check-row offline-check-row">
-                                            <label class="check"><input type="checkbox" id="offline-raw-csv" checked /> CSV</label>
-                                            <label class="check"><input type="checkbox" id="offline-raw-edf" /> EDF</label>
+                                        <div class="label">文件格式</div>
+                                        <div class="offline-format-grid">
+                                            <label class="offline-format-option">
+                                                <input type="checkbox" id="offline-raw-csv" checked />
+                                                <span class="offline-format-copy">
+                                                    <strong>CSV</strong>
+                                                    <small>适合脚本与表格分析</small>
+                                                </span>
+                                            </label>
+                                            <label class="offline-format-option">
+                                                <input type="checkbox" id="offline-raw-edf" />
+                                                <span class="offline-format-copy">
+                                                    <strong>EDF</strong>
+                                                    <small>适合脑电分析软件</small>
+                                                </span>
+                                            </label>
                                         </div>
                                     </div>
                                 </div>
                             </div>
 
-                            <div class="offline-panel">
-                                <div class="offline-section-head">
+                            <div class="offline-panel offline-panel--filtered">
+                                <div class="offline-section-head" data-step="02">
                                     <div class="offline-section-title">滤波导出</div>
                                     <div class="offline-section-sub">按带通参数另存一份滤波后数据，便于后续分析</div>
+                                    <div class="offline-toggle-row">
+                                        <label class="offline-filter-toggle">
+                                            <span class="offline-filter-toggle__copy">
+                                                <strong>启用带通滤波</strong>
+                                                <small>设置截止频率并生成一份滤波副本</small>
+                                            </span>
+                                            <input type="checkbox" id="offline-filter-enable" aria-controls="offline-filter-block offline-filtered-block" />
+                                        </label>
+                                    </div>
                                 </div>
                                 <div class="stack offline-form-stack">
-                                    <div class="offline-toggle-row">
-                                        <label class="check"><input type="checkbox" id="offline-filter-enable" /> 启用带通滤波</label>
+                                    <div class="offline-filter-idle" id="offline-filter-idle">
+                                        开启带通滤波后，可设置低频与高频截止参数。
                                     </div>
                                     <div id="offline-filter-block" style="display: none;">
                                         <div class="offline-filter-grid">
@@ -429,10 +467,22 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                                                 <input id="offline-base-filtered" placeholder="例如：subject01_run1_filtered" />
                                             </div>
                                             <div class="field">
-                                                <div class="label">导出带通滤波后数据</div>
-                                                <div class="check-row offline-check-row">
-                                                    <label class="check"><input type="checkbox" id="offline-fil-csv" /> CSV</label>
-                                                    <label class="check"><input type="checkbox" id="offline-fil-edf" /> EDF</label>
+                                                <div class="label">文件格式</div>
+                                                <div class="offline-format-grid">
+                                                    <label class="offline-format-option">
+                                                        <input type="checkbox" id="offline-fil-csv" />
+                                                        <span class="offline-format-copy">
+                                                            <strong>CSV</strong>
+                                                            <small>适合脚本与表格分析</small>
+                                                        </span>
+                                                    </label>
+                                                    <label class="offline-format-option">
+                                                        <input type="checkbox" id="offline-fil-edf" />
+                                                        <span class="offline-format-copy">
+                                                            <strong>EDF</strong>
+                                                            <small>适合脑电分析软件</small>
+                                                        </span>
+                                                    </label>
                                                 </div>
                                             </div>
                                         </div>

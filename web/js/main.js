@@ -452,12 +452,13 @@ function initRoutes() {
 
 
 function init() {
+  // 窗口控制属于应用级能力，必须先于任何页面模块完成绑定。
+  bindMinimizeButton();
+  bindPowerButton();
   initDevicePage();
   initModePage();
   initRoutes();
   bindHeaderNav();
-  bindMinimizeButton();
-  bindPowerButton();
   updateHeaderNavActive();
   window.addEventListener('hashchange', updateHeaderNavActive);
   initButtonShine();
