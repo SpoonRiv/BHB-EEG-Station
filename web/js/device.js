@@ -172,11 +172,12 @@ function renderSelect(selectEl, devices) {
     const opt = document.createElement('option');
     opt.value = d.address || '';
     const rssi = (d.rssi === null || typeof d.rssi === 'undefined') ? '' : `｜信号 ${d.rssi}`;
-    const displayName = normalizeDeviceName(d.name || '未知设备');
+    const rawName = String(d.name || '').trim();
+    const displayName = normalizeDeviceName(rawName || '未知设备');
     const isRecent = recentAddr && d.address && String(d.address) === String(recentAddr);
     const badge = isRecent ? ' 【最近连接】' : '';
     opt.textContent = `${displayName}｜${d.address || '-'}${rssi}${badge}`;
-    opt.dataset.name = displayName === '未知设备' ? '' : displayName;
+    opt.dataset.name = rawName;
     selectEl.appendChild(opt);
   }
 }
@@ -199,7 +200,7 @@ export function initDevicePage() {
 
   if (!btnScan || !btnConnect || !btnDisconnect || !selectEl) return;
 
-  initTopomapPanel();
+  const topomapPanel = initTopomapPanel();
   const deviceList = setupDeviceList(selectEl);
 
   let scanState = { status: 'idle', count: 0, message: '' };
@@ -221,7 +222,8 @@ export function initDevicePage() {
     }
     if (scanState.status === 'success') {
       if (sel) {
-        setDeviceStatus('error', `状态：已选择：${sel.name || sel.address}`);
+        const selectedLabel = sel.name ? normalizeDeviceName(sel.name) : sel.address;
+        setDeviceStatus('error', `状态：已选择：${selectedLabel}`);
       } else {
         setDeviceStatus('error', `状态：成功扫描到 ${scanState.count} 个设备，请选择`);
       }
@@ -241,6 +243,8 @@ export function initDevicePage() {
 
   window.addEventListener('bhb-channel-selection-dirty', () => {
     channelAppliedOk = false;
+    lastChannelCheckAtMs = 0;
+    lastChannelReady = false;
     autoNavigated = false;
   });
 
@@ -249,7 +253,7 @@ export function initDevicePage() {
     autoNavigated = false;
     if (lastConnReady && (location.hash === '#device' || !location.hash)) {
       void (async () => {
-        const ok = await checkChannelReady();
+        const ok = await checkChannelReady(true);
         if (ok && channelAppliedOk && !autoNavigated) {
           autoNavigated = true;
           await navigate('#mode');
@@ -258,9 +262,9 @@ export function initDevicePage() {
     }
   });
 
-  async function checkChannelReady() {
+  async function checkChannelReady(force = false) {
     const now = Date.now();
-    if (now - lastChannelCheckAtMs < 1200) return lastChannelReady;
+    if (!force && now - lastChannelCheckAtMs < 1200) return lastChannelReady;
     lastChannelCheckAtMs = now;
     try {
       const opt = await eegChannelOptions();
@@ -326,15 +330,27 @@ export function initDevicePage() {
         setDeviceStatus('error', '状态：请先选择设备');
         return;
       }
-      setDeviceStatus('error', `状态：连接中：${sel.name || sel.address}`);
+      const selectedLabel = sel.name ? normalizeDeviceName(sel.name) : sel.address;
+      setDeviceStatus('error', `状态：连接中：${selectedLabel}`);
       const res = await bleConnect(sel.address, sel.name);
       if (res && res.status === 'success') {
         setRecentBleAddress(sel.address);
         lastConnReady = true;
         setDeviceStatus('success', `状态：成功连接，请确认通道并点击“应用到系统”`);
         autoNavigated = false;
-        const ok = await checkChannelReady();
+        const channelAutoApplied = !!(
+          res.channel_config
+          && res.channel_config.auto_applied === true
+        );
+        if (channelAutoApplied && topomapPanel && typeof topomapPanel.refresh === 'function') {
+          await topomapPanel.refresh();
+        }
+        const ok = await checkChannelReady(true);
+        if (channelAutoApplied) {
+          channelAppliedOk = ok;
+        }
         if (ok && channelAppliedOk) {
+          setDeviceStatus('success', channelAutoApplied ? '状态：成功连接，通道已自动应用' : '状态：成功连接，通道已应用');
           autoNavigated = true;
           await navigate('#mode');
         }

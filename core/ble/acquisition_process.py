@@ -8,10 +8,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 """
 
 import asyncio
+import logging
 import multiprocessing
 import queue
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from bleak import BleakClient, BleakScanner
 
@@ -47,6 +48,33 @@ def _normalize_ble_uuid(value: Optional[str]) -> Optional[str]:
     if len(s) == 32:
         return f"{s[0:8]}-{s[8:12]}-{s[12:16]}-{s[16:20]}-{s[20:32]}"
     return s
+
+
+async def _send_eeg_start_sequence(
+    send_cmd: Callable[[List[int], str], Awaitable[None]],
+    stop_command: List[int],
+    start_command: List[int],
+    *,
+    settle_delay_sec: float = 0.05,
+    sleep_fn: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> None:
+    """
+    将设备 EEG 状态归一化后再启动采集。
+
+    部分设备在首次订阅 BLE notify 后仍可能保留旧的 ADC/测试输出状态。
+    先发送 STOP，短暂等待设备状态稳定，再发送 START，可确保首次启动和
+    人工“停止后再启动”使用相同的硬件状态转换序列。
+
+    预停止是兼容性保护：部分固件在本来已停止时可能拒绝重复 STOP，因此
+    该步骤失败时记录警告并继续尝试 START；START 失败仍向上抛出，由采集
+    主循环上报错误。
+    """
+    try:
+        await send_cmd(list(stop_command), action="pre_stop_eeg")
+        await sleep_fn(max(0.0, float(settle_delay_sec)))
+    except Exception as exc:
+        logging.warning("EEG pre-stop failed; continuing with start: %s", exc)
+    await send_cmd(list(start_command), action="start_eeg")
 
 
 async def _connect_and_stream(
@@ -119,13 +147,30 @@ async def _connect_and_stream(
         resolved_name = target.name
 
     module_info: Optional[BleModuleNameInfo] = parse_ble_module_name(resolved_name, str(cfg.bluetooth.module_name_regex or ""))
-    if module_info is not None and int(module_info.eeg_channels) != int(cfg.eeg.n_channels):
-        # 自动适配设备实际通道数，不阻塞连接（仅覆写局部变量，不修改 frozen dataclass）
+    if module_info is not None:
         detected_channels = int(module_info.eeg_channels)
-        eeg_n_channels = detected_channels
-        channel_count = detected_channels + (1 if cfg.eeg.lsl.include_trigger_channel else 0)
-        eeg_proto = cfg.eeg.protocol.ch8 if detected_channels == 8 else cfg.eeg.protocol.ch16
-        imp_n_channels = detected_channels
+        configured_channels = int(cfg.eeg.n_channels)
+        if detected_channels in {8, 16} and detected_channels != configured_channels:
+            module_payload = {
+                "eeg_channels": detected_channels,
+                "stim_channels": int(module_info.stim_channels),
+            }
+            status_queue.put(
+                {
+                    "type": "error",
+                    "code": "eeg_channel_mode_mismatch",
+                    "message": (
+                        f"设备为 {detected_channels} 通道，但当前有效配置为 "
+                        f"{configured_channels} 通道"
+                    ),
+                    "configured_eeg_channels": configured_channels,
+                    "detected_eeg_channels": detected_channels,
+                    "address": address,
+                    "name": resolved_name,
+                    "module": module_payload,
+                }
+            )
+            return
 
     device_has_stim = module_info is not None and int(module_info.stim_channels) > 0
     imp_include_tdcs = bool(cfg.impedance.frame.include_tdcs_if_ch8) and imp_n_channels == 8 and bool(device_has_stim)
@@ -669,7 +714,17 @@ async def _connect_and_stream(
                                     continue
                                 if bool(getattr(cfg, "trigger", None) and cfg.trigger.enabled):
                                     await _send_cmd(_get_trigger_source_command(), action=f"select_trigger_source_{str(cfg.trigger.source_mode)}")
-                                await _send_cmd(cfg.bluetooth.commands.start_eeg, action="start_eeg")
+                                await _send_eeg_start_sequence(
+                                    _send_cmd,
+                                    cfg.bluetooth.commands.stop_eeg,
+                                    cfg.bluetooth.commands.start_eeg,
+                                )
+                                # 预停止后的尾包不应被当成 START 已生效的证据，
+                                # 否则会抑制后续的无数据重试。
+                                notify_counter = 0
+                                last_notify_ts = time.time()
+                                no_data_reported = False
+                                start_retry_count = 0
                                 last_start_cmd_ts = time.time()
                                 eeg_streaming_enabled = True
                                 status_queue.put({"type": "mode_started", "mode": "eeg"})

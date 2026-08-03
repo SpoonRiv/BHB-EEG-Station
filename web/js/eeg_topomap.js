@@ -965,5 +965,6 @@ export function initTopomapPanel() {
     }
   };
 
-  loadAll();
+  void loadAll();
+  return { refresh: loadAll };
 }

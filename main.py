@@ -227,40 +227,46 @@ class AppState:
             )
         )
 
-        psd_cfg = getattr(self.config.signal, "psd", None)
         self.psd_ws_hub = PsdWsHub(
             PsdWsHubConfig(
                 send_timeout_sec=float(self.config.streaming.ws_send_timeout_sec),
                 queue_size=1,
             )
         )
-        self.psd_worker = None
-        if psd_cfg is not None:
-            try:
-                self.psd_worker = PsdWorker(
-                    PsdWorkerConfig(
-                        enabled=bool(getattr(psd_cfg, "enabled", True)),
-                        window_sec=float(getattr(psd_cfg, "window_sec", 2.0)),
-                        update_hz=float(getattr(psd_cfg, "update_hz", 2.0)),
-                        nfft=int(getattr(psd_cfg, "nfft", 512)),
-                        fmin_hz=float(getattr(psd_cfg, "fmin_hz", 0.5)),
-                        fmax_hz=float(getattr(psd_cfg, "fmax_hz", 80.0)),
-                        to_db=bool(getattr(psd_cfg, "to_db", True)),
-                        apply_notch=bool(getattr(psd_cfg, "apply_notch", True)),
-                    ),
-                    sampling_rate_hz=int(self.config.eeg.sampling_rate_hz),
-                    eeg_channel_names=list(self.config.eeg.channel_names),
-                    count_divisor=float(self.config.offline.export.count_divisor),
-                    has_trigger_channel=bool(self.config.eeg.lsl.include_trigger_channel),
-                    notch_freq_hz=float(self.config.signal.notch.freq_hz),
-                    notch_quality_factor=float(self.config.signal.notch.quality_factor),
-                )
-            except Exception:
-                self.psd_worker = None
+        self.psd_worker = self._create_psd_worker()
         self._psd_task: Optional[asyncio.Task] = None
         self._psd_ingest_queue: Optional[queue.Queue] = None
         self._psd_ingest_stop: Optional[threading.Event] = None
         self._psd_ingest_thread: Optional[threading.Thread] = None
+
+    def _create_psd_worker(self) -> Optional[PsdWorker]:
+        """
+        按当前有效通道配置创建 PSD 计算器。
+        """
+        psd_cfg = getattr(self.config.signal, "psd", None)
+        if psd_cfg is None:
+            return None
+        try:
+            return PsdWorker(
+                PsdWorkerConfig(
+                    enabled=bool(getattr(psd_cfg, "enabled", True)),
+                    window_sec=float(getattr(psd_cfg, "window_sec", 2.0)),
+                    update_hz=float(getattr(psd_cfg, "update_hz", 2.0)),
+                    nfft=int(getattr(psd_cfg, "nfft", 512)),
+                    fmin_hz=float(getattr(psd_cfg, "fmin_hz", 0.5)),
+                    fmax_hz=float(getattr(psd_cfg, "fmax_hz", 80.0)),
+                    to_db=bool(getattr(psd_cfg, "to_db", True)),
+                    apply_notch=bool(getattr(psd_cfg, "apply_notch", True)),
+                ),
+                sampling_rate_hz=int(self.config.eeg.sampling_rate_hz),
+                eeg_channel_names=list(self.config.eeg.channel_names),
+                count_divisor=float(self.config.offline.export.count_divisor),
+                has_trigger_channel=bool(self.config.eeg.lsl.include_trigger_channel),
+                notch_freq_hz=float(self.config.signal.notch.freq_hz),
+                notch_quality_factor=float(self.config.signal.notch.quality_factor),
+            )
+        except Exception:
+            return None
 
     def start_psd(self) -> None:
         """
@@ -487,15 +493,114 @@ class AppState:
 
     def apply_pending_channel_selection_to_effective_config(self) -> None:
         mode, names, ref = self.get_pending_channel_selection()
+        self._persist_effective_channel_selection(mode, names, ref)
+
+    def _persist_effective_channel_selection(self, n_channels: int, channel_names: List[str], ref_channel_name: str) -> None:
+        """
+        原子保存 EEG、阻抗和 UI 使用的同一套通道配置。
+        """
+        mode = int(n_channels)
+        names = [str(x or "").strip() for x in (channel_names or []) if str(x or "").strip()]
+        ref = str(ref_channel_name or "").strip()
+        if mode <= 0 or len(names) != mode or not ref:
+            raise ValueError(f"无效的 {mode} 通道配置")
+
         raw = self._load_local_raw()
         eeg = raw.get("eeg", {}) if isinstance(raw.get("eeg", {}), dict) else {}
         eeg["n_channels"] = int(mode)
         eeg["channel_names"] = list(names)
-        eeg["ref_channel_name"] = str(ref or "").strip()
+        eeg["ref_channel_name"] = ref
         raw["eeg"] = eeg
+
+        impedance = raw.get("impedance", {}) if isinstance(raw.get("impedance", {}), dict) else {}
+        impedance["n_channels"] = int(mode)
+        raw["impedance"] = impedance
+
+        ui = raw.get("ui", {}) if isinstance(raw.get("ui", {}), dict) else {}
+        ui["channel_selection"] = {
+            "n_channels": int(mode),
+            "channel_names": list(names),
+            "ref_channel_name": ref,
+        }
+        raw["ui"] = ui
         self._save_local_raw(raw)
 
+    def _channel_selection_for_mode(self, n_channels: int) -> Tuple[List[str], str]:
+        """
+        为自动识别出的通道模式选择完整电极预设。
+        """
+        mode = int(n_channels)
+        pending_mode, pending_names, pending_ref = self.get_pending_channel_selection()
+        if int(pending_mode) == mode and len(pending_names) == mode and pending_ref:
+            return list(pending_names), str(pending_ref)
+
+        if int(self.config.eeg.n_channels) == mode:
+            current_names = [str(x or "").strip() for x in self.config.eeg.channel_names if str(x or "").strip()]
+            current_ref = str(self.config.eeg.ref_channel_name or "").strip()
+            if len(current_names) == mode and current_ref:
+                return current_names, current_ref
+
+        for preset in self.config.eeg.presets or []:
+            names = [str(x or "").strip() for x in preset.channel_names if str(x or "").strip()]
+            ref = str(preset.ref_channel_name or "").strip()
+            if int(preset.n_channels) == mode and len(names) == mode and ref:
+                return names, ref
+
+        for preset in self.get_local_channel_presets():
+            names = [str(x or "").strip() for x in preset.get("channel_names", []) if str(x or "").strip()]
+            ref = str(preset.get("ref_channel_name", "") or "").strip()
+            if int(preset.get("n_channels", 0)) == mode and len(names) == mode and ref:
+                return names, ref
+
+        raise ValueError(f"未找到完整的 {mode} 通道电极预设")
+
+    def apply_detected_device_channel_mode(self, n_channels: int, device_name: str) -> Dict[str, Any]:
+        """
+        在 BLE 连接建立前，将设备通道能力同步到整个主进程运行时。
+        """
+        mode = int(n_channels)
+        if mode not in {8, 16}:
+            raise ValueError(f"设备通道数 {mode} 不受支持")
+        supported = set(int(x) for x in (self.config.eeg.supported_channel_modes or []))
+        if supported and mode not in supported:
+            raise ValueError(f"当前系统未开放 {mode} 通道采集")
+        if self.controller.is_running():
+            raise RuntimeError("设备已连接，不能自动切换通道配置")
+        if bool(getattr(self.streamer, "is_streaming", False)) or bool(getattr(self.imp_streamer, "is_streaming", False)):
+            raise RuntimeError("数据流正在运行，不能自动切换通道配置")
+        if self.offline.active_session_id:
+            raise RuntimeError("离线录制正在进行，不能自动切换通道配置")
+
+        previous_mode = int(self.config.eeg.n_channels)
+        previous_names = list(self.config.eeg.channel_names)
+        previous_ref = str(self.config.eeg.ref_channel_name or "").strip()
+        names, ref = self._channel_selection_for_mode(mode)
+        changed = previous_mode != mode or previous_names != names or previous_ref != ref
+
+        self._persist_effective_channel_selection(mode, names, ref)
+        self.reload_config_for_channels()
+        return {
+            "auto_applied": True,
+            "changed": bool(changed),
+            "source": "device_name_regex",
+            "device_name": str(device_name or "").strip(),
+            "n_channels": int(self.config.eeg.n_channels),
+            "channel_names": list(self.config.eeg.channel_names),
+            "ref_channel_name": str(self.config.eeg.ref_channel_name or "").strip(),
+        }
+
+    def configure_channels_for_device_name(self, device_name: Optional[str]) -> Optional[Dict[str, Any]]:
+        """
+        根据 MSM008Sxx/MSM016Sxx 广播名自动应用8/16通道配置。
+        """
+        raw_name = str(device_name or "").strip()
+        info = parse_ble_module_name(raw_name, str(self.config.bluetooth.module_name_regex or ""))
+        if info is None:
+            return None
+        return self.apply_detected_device_channel_mode(int(info.eeg_channels), raw_name)
+
     def reload_config_for_channels(self) -> None:
+        self.stop_psd()
         self.config = load_config(self.config_path)
         self.controller.config = self.config
         self.offline = OfflineService(
@@ -525,6 +630,7 @@ class AppState:
                 has_trigger_channel=bool(self.config.eeg.lsl.include_trigger_channel),
             )
         )
+        self.psd_worker = self._create_psd_worker()
         self.eeg_ws_hub.set_transform(self._apply_signal_preprocess_safe)
 
     def _apply_signal_preprocess_safe(self, chunk: List[List[float]]) -> List[List[float]]:
@@ -1419,16 +1525,70 @@ async def ble_devices(timeout_sec: float = 3.0, whitelist_only: bool = True):
 async def ble_connect(req: BleConnectRequest):
     """
     建立 BLE 连接（连接与业务模式解耦）。
+
+    对 MSM008Sxx/MSM016Sxx，必须先把设备通道能力同步到主进程配置，
+    再启动采集子进程，避免父子进程分别按 16/8 通道解析同一数据流。
     """
     current_status = state.controller.get_status()
     await state.reconcile_runtime_with_device(current_status)
+
+    channel_config: Optional[Dict[str, Any]] = None
+    if not state.controller.is_running():
+        try:
+            channel_config = state.configure_channels_for_device_name(req.name)
+        except (ValueError, RuntimeError) as exc:
+            return {
+                "status": "error",
+                "message": str(exc),
+                "detail": {"type": "error", "code": "channel_auto_config_failed", "message": str(exc)},
+                "device": state.controller.get_status(),
+            }
+
     success = await asyncio.to_thread(state.controller.start_device, req.address, req.name)
+
+    # 地址直连时，请求中可能没有广播名。采集子进程完成设备发现后会返回
+    # 结构化的通道不匹配错误；此时统一切换主进程配置，并仅重连一次。
+    if not success:
+        last = state.controller.last_status if isinstance(state.controller.last_status, dict) else {}
+        if str(last.get("code", "") or "") == "eeg_channel_mode_mismatch":
+            detected_channels = int(last.get("detected_eeg_channels", 0) or 0)
+            detected_name = str(last.get("name") or req.name or "").strip()
+            await asyncio.to_thread(state.controller.stop_device)
+            try:
+                channel_config = state.apply_detected_device_channel_mode(detected_channels, detected_name)
+            except (ValueError, RuntimeError) as exc:
+                return {
+                    "status": "error",
+                    "message": str(exc),
+                    "detail": {
+                        **last,
+                        "channel_config_error": str(exc),
+                    },
+                    "device": state.controller.get_status(),
+                }
+            success = await asyncio.to_thread(
+                state.controller.start_device,
+                req.address or last.get("address"),
+                detected_name or None,
+            )
+
     if success:
         await state.ensure_debug_forwarding()
     if success:
-        return {"status": "success", "message": "蓝牙已连接。", "device": state.controller.get_status()}
+        return {
+            "status": "success",
+            "message": "蓝牙已连接。",
+            "device": state.controller.get_status(),
+            "channel_config": channel_config,
+        }
     last = state.controller.last_status or {"type": "error", "message": "连接失败"}
-    return {"status": "error", "message": last.get("message", "连接失败"), "detail": last, "device": state.controller.get_status()}
+    return {
+        "status": "error",
+        "message": last.get("message", "连接失败"),
+        "detail": last,
+        "device": state.controller.get_status(),
+        "channel_config": channel_config,
+    }
 
 
 @app.post("/api/ble/disconnect")
