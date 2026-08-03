@@ -50,6 +50,7 @@ class PsdWorker:
         has_trigger_channel: bool,
         notch_freq_hz: float,
         notch_quality_factor: float,
+        units_per_count: Optional[float] = None,
     ):
         self.cfg = cfg
         self.sampling_rate_hz = int(max(1, sampling_rate_hz))
@@ -57,6 +58,15 @@ class PsdWorker:
         self.n_channels = int(len(self.channel_names))
         self.has_trigger_channel = bool(has_trigger_channel)
         self.count_divisor = float(count_divisor) if float(count_divisor) > 0 else 120.0
+        try:
+            parsed_units_per_count = float(units_per_count) if units_per_count is not None else None
+        except Exception:
+            parsed_units_per_count = None
+        self.units_per_count = (
+            parsed_units_per_count
+            if parsed_units_per_count is not None and np.isfinite(parsed_units_per_count) and parsed_units_per_count > 0
+            else None
+        )
         self.notch_freq_hz = float(notch_freq_hz)
         self.notch_quality_factor = float(notch_quality_factor)
 
@@ -95,7 +105,11 @@ class PsdWorker:
             return
 
         eeg = arr[:, : self.n_channels]
-        if self.count_divisor != 1.0:
+        if self.units_per_count is not None:
+            # 8 通道：raw_signed × 2 × Vref × 1e6 / (ADC gain × G × 2^bits)。
+            eeg = eeg * float(self.units_per_count)
+        elif self.count_divisor != 1.0:
+            # 16 通道兼容旧协议。
             eeg = eeg / float(self.count_divisor)
 
         with self._lock:

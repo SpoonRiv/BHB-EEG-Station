@@ -360,6 +360,7 @@ export function initTopomapPanel() {
   let electrodePositions = DEFAULT_ELECTRODE_POS;
   let electrodeAliases = {};
   let refPickArmed = false;
+  let confirmedApplicationKey = '';
 
   function setStatus() {}
 
@@ -367,6 +368,14 @@ export function initTopomapPanel() {
     badgeMsg = String(text || '');
     badgeMsgKind = String(kind || '');
     updateBadge();
+  }
+
+  function channelSelectionKey(mode, names, refName) {
+    return JSON.stringify({
+      n_channels: intOr(mode, 0),
+      channel_names: normalizeUnique(names || []),
+      ref_channel_name: String(refName || '').trim(),
+    });
   }
 
   function updateBadge() {
@@ -387,7 +396,12 @@ export function initTopomapPanel() {
     const sameMode = effMode === pendingMode;
     const sameRef = String(effRef || '') === String(pendingRef || '');
     const sameNames = effNames.length === selected.length && effNames.every((v, i) => String(v) === String(selected[i]));
-    const isApplied = isFullPending && sameMode && sameRef && sameNames;
+    const pendingKey = channelSelectionKey(pendingMode, selected, pendingRef);
+    const isApplied = isFullPending
+      && sameMode
+      && sameRef
+      && sameNames
+      && confirmedApplicationKey === pendingKey;
 
     if (isApplied) {
       badge.classList.add('success');
@@ -762,6 +776,8 @@ export function initTopomapPanel() {
   }
 
   async function persistPending() {
+    confirmedApplicationKey = '';
+    updateBadge();
     try { window.dispatchEvent(new CustomEvent('bhb-channel-selection-dirty')); } catch (_) {}
     if (badgeMsg) setBadgeMsg('', '');
     try {
@@ -836,6 +852,12 @@ export function initTopomapPanel() {
     }
     if (selected.length > pendingMode) selected = selected.slice(0, pendingMode);
     render();
+  }
+
+  async function refreshFromSystem() {
+    confirmedApplicationKey = '';
+    updateBadge();
+    await loadAll();
   }
 
   modeSel.addEventListener('change', async () => {
@@ -937,6 +959,11 @@ export function initTopomapPanel() {
       if (res && res.status === 'success') {
         lastError = '';
         await loadAll();
+        confirmedApplicationKey = channelSelectionKey(
+          effective.n_channels,
+          effective.channel_names,
+          effective.ref_channel_name,
+        );
         setBadgeMsg('', '');
         try {
           window.dispatchEvent(new CustomEvent('bhb-channel-applied', {
@@ -966,5 +993,5 @@ export function initTopomapPanel() {
   };
 
   void loadAll();
-  return { refresh: loadAll };
+  return { refresh: refreshFromSystem };
 }

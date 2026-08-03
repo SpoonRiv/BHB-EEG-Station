@@ -61,6 +61,9 @@ pnpm-debug.log*
 .env
 .env.*
 
+# Tests
+tests/
+
 # Local runtime overrides (do not commit)
 configs/config.local.yaml
 

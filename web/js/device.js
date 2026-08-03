@@ -343,14 +343,12 @@ export function initDevicePage() {
           && res.channel_config.auto_applied === true
         );
         if (channelAutoApplied && topomapPanel && typeof topomapPanel.refresh === 'function') {
+          channelAppliedOk = false;
           await topomapPanel.refresh();
         }
         const ok = await checkChannelReady(true);
-        if (channelAutoApplied) {
-          channelAppliedOk = ok;
-        }
         if (ok && channelAppliedOk) {
-          setDeviceStatus('success', channelAutoApplied ? '状态：成功连接，通道已自动应用' : '状态：成功连接，通道已应用');
+          setDeviceStatus('success', '状态：成功连接，通道已应用');
           autoNavigated = true;
           await navigate('#mode');
         }

@@ -173,7 +173,12 @@ class EEGController:
                 if msg_type in {"connecting", "connected", "ready", "error", "stopped", "idle", "disconnected"}:
                     self.last_status = msg
                 elif msg_type == "battery" and "value" in msg:
-                    self.last_battery = {"value": int(msg.get("value", 0)), "ts": time.time()}
+                    battery_value = msg.get("value")
+                    self.last_battery = {
+                        "value": int(battery_value) if battery_value is not None else None,
+                        "valid": battery_value is not None,
+                        "ts": time.time(),
+                    }
                 elif msg_type == "imu" and "value" in msg:
                     self.last_imu = {"value": msg.get("value"), "ts": time.time()}
 
@@ -270,7 +275,12 @@ class EEGController:
                     if msg_type in {"connecting", "connected", "ready", "error", "stopped", "idle", "disconnected"}:
                         self.last_status = msg
                     if msg_type == "battery" and "value" in msg:
-                        self.last_battery = {"value": int(msg.get("value", 0)), "ts": time.time()}
+                        battery_value = msg.get("value")
+                        self.last_battery = {
+                            "value": int(battery_value) if battery_value is not None else None,
+                            "valid": battery_value is not None,
+                            "ts": time.time(),
+                        }
                     if msg_type == "imu" and "value" in msg:
                         self.last_imu = {"value": msg.get("value"), "ts": time.time()}
                     if msg_type == "mode" and "mode" in msg:

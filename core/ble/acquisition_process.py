@@ -19,7 +19,7 @@ from bleak import BleakClient, BleakScanner
 from configs.config_loader import load_config
 from core.ble.commands import interpret_two_level_cmd
 from core.ble.device_finder import find_device_by_spec
-from core.ble.frame_parser import FrameSpec, parse_frame_to_samples
+from core.ble.frame_parser import FrameSpec, FrameStreamDecoder, parse_frame_to_samples
 from core.ble.impedance_parser import ImpedanceFrameSpec, build_impedance_vector, parse_impedance_frame
 from core.ble.lsl_outlet import LslOutletConfig, LslOutletWriter
 from core.ble.module_naming import BleModuleNameInfo, parse_ble_module_name
@@ -55,7 +55,7 @@ async def _send_eeg_start_sequence(
     stop_command: List[int],
     start_command: List[int],
     *,
-    settle_delay_sec: float = 0.05,
+    settle_delay_sec: float = 0.3,
     sleep_fn: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> None:
     """
@@ -194,7 +194,7 @@ async def _connect_and_stream(
         return list(cfg.bluetooth.commands.trigger_source_ble)
 
     def ensure_eeg_lsl_ready() -> None:
-        nonlocal spec, outlet
+        nonlocal spec, outlet, eeg_decoder
         if spec is None:
             spec = FrameSpec(
                 channels=eeg_n_channels,
@@ -206,6 +206,8 @@ async def _connect_and_stream(
                 battery_len_bytes=eeg_proto.frame.battery_len_bytes,
                 tail_len_bytes=eeg_proto.frame.tail_len_bytes,
             )
+        if eeg_decoder is None:
+            eeg_decoder = FrameStreamDecoder(spec)
         if outlet is None:
             outlet = LslOutletWriter(
                 LslOutletConfig(
@@ -239,7 +241,7 @@ async def _connect_and_stream(
                 )
             )
 
-    buf = bytearray()
+    eeg_decoder: Optional[FrameStreamDecoder] = None
     frame_counter = 0
     notify_counter = 0
     last_notify_ts: float = 0.0
@@ -504,7 +506,7 @@ async def _connect_and_stream(
         no_data_reported = False
         if not eeg_streaming_enabled:
             return
-        if spec is None or outlet is None:
+        if spec is None or outlet is None or eeg_decoder is None:
             return
         if debug_queue is not None:
             try:
@@ -541,56 +543,21 @@ async def _connect_and_stream(
                 samples = [s[:eeg_n_channels] for s in samples]
             outlet.push_samples(samples)
             if spec.battery_len_bytes > 0 and (frame_counter == 1 or frame_counter % 50 == 0):
-                status_queue.put({"type": "battery", "value": int(battery)})
+                status_queue.put(
+                    {
+                        "type": "battery",
+                        "value": int(battery) if battery is not None else None,
+                        "valid": battery is not None,
+                    }
+                )
             if imu and frame_counter % 50 == 0:
                 status_queue.put({"type": "imu", "value": imu})
 
-        expected = int(spec.frame_len_bytes)
-        if len(data) == expected:
-            if len(buf) > 0:
-                eeg_window_dropped_bytes += int(len(buf))
-                buf.clear()
-                if debug_queue is not None:
-                    try:
-                        debug_queue.put(
-                            {
-                                "tag": "EEG_ALIGN",
-                                "message": "收到完整帧长度数据包，清空缓存以重新对齐",
-                                "data": {"frame_len": int(spec.frame_len_bytes)},
-                            }
-                        )
-                    except Exception:
-                        pass
-            one = bytes(data)
-            if spec.validate_checksum(one):
-                _push_one_frame(one)
-                return
-
-        buf.extend(data)
-        header_bytes = bytes([0xAA, 0xBB])
-        for _ in range(200):
-            if len(buf) < 2:
-                break
-            pos = buf.find(header_bytes)
-            if pos < 0:
-                if len(buf) > 1:
-                    drop_n = int(len(buf) - 1)
-                    eeg_window_dropped_bytes += drop_n
-                    del buf[:-1]
-                break
-            if pos > 0:
-                eeg_window_dropped_bytes += int(pos)
-                del buf[:pos]
-            if len(buf) < expected:
-                break
-            candidate = bytes(buf[:expected])
-            if not spec.validate_checksum(candidate):
-                eeg_window_invalid_frames += 1
-                eeg_window_dropped_bytes += 1
-                del buf[:1]
-                continue
-            del buf[:expected]
-            _push_one_frame(candidate)
+        decoded = eeg_decoder.feed(bytes(data))
+        eeg_window_invalid_frames += int(decoded.invalid_frames)
+        eeg_window_dropped_bytes += int(decoded.dropped_bytes)
+        for one_frame in decoded.frames:
+            _push_one_frame(one_frame)
         _maybe_report_eeg_stats(time.time())
 
     status_payload: Dict[str, Any] = {"type": "connecting", "address": address, "name": resolved_name}
@@ -699,7 +666,8 @@ async def _connect_and_stream(
                                 eeg_streaming_enabled = False
                                 impedance_streaming_enabled = False
                                 imp_buf.clear()
-                                buf.clear()
+                                if eeg_decoder is not None:
+                                    eeg_decoder.clear()
                                 eeg_last_seq = None
                                 eeg_stats_last_report_ts = time.time()
                                 _reset_eeg_stats_window(eeg_stats_last_report_ts)
@@ -732,7 +700,8 @@ async def _connect_and_stream(
                                 current_mode = "impedance"
                                 eeg_streaming_enabled = False
                                 impedance_streaming_enabled = False
-                                buf.clear()
+                                if eeg_decoder is not None:
+                                    eeg_decoder.clear()
                                 imp_buf.clear()
                                 imp_notify_counter = 0
                                 imp_last_notify_ts = time.time()
@@ -757,7 +726,8 @@ async def _connect_and_stream(
                                 impedance_streaming_enabled = False
                                 tdcs_streaming_enabled = False
                                 imp_buf.clear()
-                                buf.clear()
+                                if eeg_decoder is not None:
+                                    eeg_decoder.clear()
                                 tdcs_buf.clear()
                                 tdcs_notify_counter = 0
                                 tdcs_last_notify_ts = time.time()
@@ -793,7 +763,8 @@ async def _connect_and_stream(
                             mode = str(cmd_msg.get("mode", ""))
                             if mode == "eeg":
                                 eeg_streaming_enabled = False
-                                buf.clear()
+                                if eeg_decoder is not None:
+                                    eeg_decoder.clear()
                                 try:
                                     await _send_cmd(cfg.bluetooth.commands.stop_eeg, action="stop_eeg")
                                 except Exception as e:
@@ -813,7 +784,8 @@ async def _connect_and_stream(
                                 status_queue.put({"type": "mode_stopped", "mode": "eeg"})
                             elif mode == "impedance":
                                 eeg_streaming_enabled = False
-                                buf.clear()
+                                if eeg_decoder is not None:
+                                    eeg_decoder.clear()
                                 impedance_streaming_enabled = False
                                 imp_buf.clear()
                                 try:
@@ -835,7 +807,8 @@ async def _connect_and_stream(
                                 status_queue.put({"type": "mode_stopped", "mode": "impedance"})
                             elif mode == "tdcs":
                                 eeg_streaming_enabled = False
-                                buf.clear()
+                                if eeg_decoder is not None:
+                                    eeg_decoder.clear()
                                 impedance_streaming_enabled = False
                                 imp_buf.clear()
                                 tdcs_streaming_enabled = False

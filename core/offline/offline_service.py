@@ -38,9 +38,10 @@ class OfflineSessionInfo:
     total_samples: int
     physical_unit: str
     count_divisor: float
+    units_per_count: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        payload = {
             "session_id": self.session_id,
             "session_dir": self.session_dir,
             "started_at": self.started_at_iso,
@@ -51,6 +52,9 @@ class OfflineSessionInfo:
             "physical_unit": str(self.physical_unit),
             "count_divisor": float(self.count_divisor),
         }
+        if self.units_per_count is not None:
+            payload["units_per_count"] = float(self.units_per_count)
+        return payload
 
 
 @dataclass(frozen=True)
@@ -213,6 +217,7 @@ class OfflineService:
         filter_highcut_default_hz: float,
         writer_queue_max_chunks: int,
         writer_queue_full_policy: str,
+        units_per_count: Optional[float] = None,
     ):
         self._project_root_dir = str(project_root_dir)
         self._root_dir = str(root_dir or "offlinedata")
@@ -224,6 +229,15 @@ class OfflineService:
         self._count_divisor = float(count_divisor)
         if self._count_divisor <= 0 or not np.isfinite(self._count_divisor):
             self._count_divisor = 120.0
+        try:
+            parsed_units_per_count = float(units_per_count) if units_per_count is not None else None
+        except Exception:
+            parsed_units_per_count = None
+        self._units_per_count = (
+            parsed_units_per_count
+            if parsed_units_per_count is not None and np.isfinite(parsed_units_per_count) and parsed_units_per_count > 0
+            else None
+        )
         self._notch_freq_hz = float(notch_freq_hz)
         self._notch_quality_factor = float(notch_quality_factor)
         self._filter_order_default = max(1, int(filter_order_default))
@@ -291,6 +305,7 @@ class OfflineService:
                 total_samples=0,
                 physical_unit=self._physical_unit,
                 count_divisor=float(self._count_divisor),
+                units_per_count=self._units_per_count,
             )
             raw_path = os.path.join(session_dir, "raw_float32.bin")
             meta_path = os.path.join(session_dir, "meta.json")
@@ -339,6 +354,7 @@ class OfflineService:
                 total_samples=int(info.total_samples + int(sample_count)),
                 physical_unit=info.physical_unit,
                 count_divisor=info.count_divisor,
+                units_per_count=info.units_per_count,
             )
         try:
             writer.append_chunk(chunk, expected_ch=expected_ch)
@@ -374,6 +390,7 @@ class OfflineService:
             total_samples=info.total_samples,
             physical_unit=info.physical_unit,
             count_divisor=info.count_divisor,
+            units_per_count=info.units_per_count,
         )
         try:
             if raw_path:
@@ -389,6 +406,7 @@ class OfflineService:
                         total_samples=int(samples),
                         physical_unit=stopped.physical_unit,
                         count_divisor=stopped.count_divisor,
+                        units_per_count=stopped.units_per_count,
                     )
         except Exception:
             pass
@@ -425,6 +443,16 @@ class OfflineService:
             divisor = 120.0
         if divisor <= 0:
             divisor = 120.0
+        units_raw = raw.get("units_per_count", None)
+        if units_raw is None:
+            # 兼容早期以 uv_per_count 保存直接乘数的会话。
+            units_raw = raw.get("uv_per_count", None)
+        try:
+            units_per_count = float(units_raw) if units_raw is not None else None
+        except Exception:
+            units_per_count = None
+        if units_per_count is not None and (not np.isfinite(units_per_count) or units_per_count <= 0):
+            units_per_count = None
         return OfflineSessionInfo(
             session_id=str(raw.get("session_id") or sid),
             session_dir=session_dir,
@@ -435,6 +463,7 @@ class OfflineService:
             total_samples=int(raw.get("total_samples") or 0),
             physical_unit=str(raw.get("physical_unit") or "uV"),
             count_divisor=divisor,
+            units_per_count=units_per_count,
         )
 
     def export(
@@ -549,7 +578,11 @@ class OfflineService:
         bandpass: BandpassConfig,
         block_size_samples: int,
     ) -> None:
-        scaled = self._scale_view(data=data, count_divisor=info.count_divisor)
+        scaled = self._scale_view(
+            data=data,
+            count_divisor=info.count_divisor,
+            units_per_count=info.units_per_count,
+        )
         if fmt == "csv":
             self._write_csv_filtered(
                 out_path=out_path,
@@ -575,7 +608,11 @@ class OfflineService:
         raise ValueError("不支持的导出格式")
 
     def _export_one(self, data: np.ndarray, info: OfflineSessionInfo, out_path: str, fmt: str, block_size_samples: int) -> None:
-        scaled = self._scale_view(data=data, count_divisor=info.count_divisor)
+        scaled = self._scale_view(
+            data=data,
+            count_divisor=info.count_divisor,
+            units_per_count=info.units_per_count,
+        )
         if fmt == "csv":
             self._write_csv(
                 out_path=out_path,
@@ -598,21 +635,38 @@ class OfflineService:
             return
         raise ValueError("不支持的导出格式")
 
-    def _scale_view(self, data: np.ndarray, count_divisor: float) -> np.ndarray:
+    def _scale_view(
+        self,
+        data: np.ndarray,
+        count_divisor: float,
+        units_per_count: Optional[float] = None,
+    ) -> np.ndarray:
         """
-        按 count_divisor 缩放导出视图中的 EEG 列，Trigger 列保持原值。
+        换算导出视图中的 EEG 列，Trigger 列保持原值。
+
+        有 units_per_count 时直接乘以协议公式的结果；否则兼容旧会话，
+        使用 count_divisor 除法。
         """
+        try:
+            multiplier = float(units_per_count) if units_per_count is not None else None
+        except Exception:
+            multiplier = None
+        if multiplier is not None and (not np.isfinite(multiplier) or multiplier <= 0):
+            multiplier = None
         divisor = float(count_divisor)
         if not np.isfinite(divisor) or divisor <= 0:
             divisor = 120.0
-        if divisor == 1.0:
+        if multiplier is None and divisor == 1.0:
             return data
         scaled = np.asarray(data, dtype=np.float32).copy()
         n_ch = int(scaled.shape[1]) if scaled.ndim == 2 else 0
         has_trigger = self._trigger_enabled and n_ch == (len(self._base_channel_names) + 1)
         n_scale_ch = n_ch - (1 if has_trigger else 0)
         if n_scale_ch > 0:
-            scaled[:, :n_scale_ch] = scaled[:, :n_scale_ch] / divisor
+            if multiplier is not None:
+                scaled[:, :n_scale_ch] = scaled[:, :n_scale_ch] * multiplier
+            else:
+                scaled[:, :n_scale_ch] = scaled[:, :n_scale_ch] / divisor
         return scaled
 
     def _is_trigger_channel_name(self, channel_name: str) -> bool:

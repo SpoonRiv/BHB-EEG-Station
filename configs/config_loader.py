@@ -7,6 +7,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 作者: Spoon
 """
 
+import math
 import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -103,8 +104,44 @@ class FrameProtocolConfig:
 
 
 @dataclass(frozen=True)
+class EegAdcConversionConfig:
+    """
+    ADC 原始计数到输入端模拟电压的换算参数。
+
+    公式：Vin = raw_signed * 2 * Vref /
+                 (adc_gain * frontend_gain_g * 2**resolution_bits)
+    """
+
+    vref_volts: float
+    adc_gain: float
+    frontend_gain_g: float
+    resolution_bits: int
+
+    @property
+    def volts_per_count(self) -> float:
+        return (
+            2.0
+            * float(self.vref_volts)
+            / (
+                float(self.adc_gain)
+                * float(self.frontend_gain_g)
+                * float(2 ** int(self.resolution_bits))
+            )
+        )
+
+    @property
+    def microvolts_per_count(self) -> float:
+        return float(self.volts_per_count) * 1_000_000.0
+
+    @property
+    def count_divisor_microvolts(self) -> float:
+        return 1.0 / float(self.microvolts_per_count)
+
+
+@dataclass(frozen=True)
 class EegProtocolVariantConfig:
     frame: FrameProtocolConfig
+    conversion: Optional[EegAdcConversionConfig] = None
 
 
 @dataclass(frozen=True)
@@ -203,6 +240,9 @@ class SignalConfig:
 class OfflineExportConfig:
     physical_unit: str
     count_divisor: float
+    # ADC 公式换算时直接使用“物理单位/原始计数”的乘数。
+    # None 表示沿用旧协议的 count_divisor 除法（当前为 16 通道）。
+    units_per_count: Optional[float]
     trigger_label: str
 
 
@@ -621,20 +661,73 @@ def load_config(config_path: str) -> AppConfig:
             tail_len_bytes=int(frame_cfg_raw.get("tail_len_bytes", 2)),
         )
 
+    def _build_adc_conversion(variant_raw: Dict[str, Any], variant_name: str) -> Optional[EegAdcConversionConfig]:
+        conversion_raw = variant_raw.get("conversion", None)
+        if conversion_raw is None or conversion_raw == {}:
+            return None
+        if not isinstance(conversion_raw, dict):
+            raise ValueError(f"eeg.protocol.{variant_name}.conversion 必须是对象或 null")
+
+        def _positive_float(key: str, default: float) -> float:
+            raw_value = conversion_raw.get(key, default)
+            if isinstance(raw_value, bool):
+                raise ValueError(f"eeg.protocol.{variant_name}.conversion.{key} 必须是正数")
+            try:
+                value = float(raw_value)
+            except Exception as exc:
+                raise ValueError(f"eeg.protocol.{variant_name}.conversion.{key} 必须是正数") from exc
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"eeg.protocol.{variant_name}.conversion.{key} 必须是正数")
+            return value
+
+        resolution_bits_raw = conversion_raw.get("resolution_bits", 24)
+        if isinstance(resolution_bits_raw, bool):
+            raise ValueError(f"eeg.protocol.{variant_name}.conversion.resolution_bits 必须是整数")
+        try:
+            resolution_bits_number = float(resolution_bits_raw)
+        except Exception as exc:
+            raise ValueError(f"eeg.protocol.{variant_name}.conversion.resolution_bits 必须是整数") from exc
+        if not math.isfinite(resolution_bits_number) or not resolution_bits_number.is_integer():
+            raise ValueError(f"eeg.protocol.{variant_name}.conversion.resolution_bits 必须是整数")
+        resolution_bits = int(resolution_bits_number)
+        if resolution_bits < 2 or resolution_bits > 32:
+            raise ValueError(f"eeg.protocol.{variant_name}.conversion.resolution_bits 必须在 2 到 32 之间")
+
+        conversion = EegAdcConversionConfig(
+            vref_volts=_positive_float("vref_volts", 4.5),
+            adc_gain=_positive_float("adc_gain", 24.0),
+            frontend_gain_g=_positive_float("frontend_gain_g", 1.0),
+            resolution_bits=resolution_bits,
+        )
+        if (
+            not math.isfinite(conversion.microvolts_per_count)
+            or conversion.microvolts_per_count <= 0
+            or not math.isfinite(conversion.count_divisor_microvolts)
+            or conversion.count_divisor_microvolts <= 0
+        ):
+            raise ValueError(f"eeg.protocol.{variant_name}.conversion 计算结果超出有效范围")
+        return conversion
+
     ch8_variant_raw: Dict[str, Any]
     if isinstance(eeg_protocol_raw.get("ch8"), dict):
         ch8_variant_raw = eeg_protocol_raw.get("ch8", {}) or {}
     else:
         ch8_variant_raw = eeg_protocol_raw
     ch8_frame_raw = ch8_variant_raw.get("frame", {}) if isinstance(ch8_variant_raw.get("frame", {}), dict) else {}
-    ch8_proto = EegProtocolVariantConfig(frame=_build_frame_protocol(ch8_frame_raw))
+    ch8_proto = EegProtocolVariantConfig(
+        frame=_build_frame_protocol(ch8_frame_raw),
+        conversion=_build_adc_conversion(ch8_variant_raw, "ch8"),
+    )
 
     ch16_proto: Optional[EegProtocolVariantConfig] = None
     ch16_variant = eeg_protocol_raw.get("ch16", None)
     if isinstance(ch16_variant, dict) and ch16_variant:
         ch16_frame_raw = ch16_variant.get("frame", {}) if isinstance(ch16_variant.get("frame", {}), dict) else {}
         if ch16_frame_raw:
-            ch16_proto = EegProtocolVariantConfig(frame=_build_frame_protocol(ch16_frame_raw))
+            ch16_proto = EegProtocolVariantConfig(
+                frame=_build_frame_protocol(ch16_frame_raw),
+                conversion=_build_adc_conversion(ch16_variant, "ch16"),
+            )
 
     if int(n_channels) == 16 and ch16_proto is None:
         raise ValueError("eeg.n_channels=16 时必须配置 eeg.protocol.ch16.frame")
@@ -854,19 +947,31 @@ def load_config(config_path: str) -> AppConfig:
 
     export_raw = offline_raw.get("export", {}) or {}
     filter_raw = offline_raw.get("filter", {}) or {}
-    count_divisor_raw = export_raw.get("count_divisor", None)
-    if count_divisor_raw is None:
-        legacy_uv_per_count = export_raw.get("uv_per_count", None)
+    physical_unit = str(export_raw.get("physical_unit", "uV") or "uV")
+    active_protocol = ch8_proto if int(n_channels) == 8 else (ch16_proto if int(n_channels) == 16 else None)
+    active_conversion = active_protocol.conversion if active_protocol is not None else None
+
+    count_divisor = 0.0
+    units_per_count: Optional[float] = None
+    unit_normalized = physical_unit.strip().lower().replace("μ", "u").replace("µ", "u")
+    if active_conversion is not None and unit_normalized == "uv":
+        # 8 通道按协议公式直接乘以 uV/count；count_divisor 仅保留为兼容元数据。
+        units_per_count = float(active_conversion.microvolts_per_count)
+        count_divisor = float(active_conversion.count_divisor_microvolts)
+    else:
+        count_divisor_raw = export_raw.get("count_divisor", None)
+        if count_divisor_raw is None:
+            legacy_uv_per_count = export_raw.get("uv_per_count", None)
+            try:
+                uv = float(legacy_uv_per_count)
+            except Exception:
+                uv = 0.0
+            count_divisor_raw = (1.0 / uv) if uv > 0 else 120.0
         try:
-            uv = float(legacy_uv_per_count)
+            count_divisor = float(count_divisor_raw)
         except Exception:
-            uv = 0.0
-        count_divisor_raw = (1.0 / uv) if uv > 0 else 120.0
-    try:
-        count_divisor = float(count_divisor_raw)
-    except Exception:
-        count_divisor = 120.0
-    if count_divisor <= 0:
+            count_divisor = 120.0
+    if not math.isfinite(count_divisor) or count_divisor <= 0:
         count_divisor = 120.0
     writer_queue_max_chunks = int(offline_raw.get("writer_queue_max_chunks", 50))
     if writer_queue_max_chunks < 1:
@@ -879,8 +984,9 @@ def load_config(config_path: str) -> AppConfig:
     offline = OfflineConfig(
         root_dir=str(offline_raw.get("root_dir", "offlinedata") or "offlinedata"),
         export=OfflineExportConfig(
-            physical_unit=str(export_raw.get("physical_unit", "uV") or "uV"),
+            physical_unit=physical_unit,
             count_divisor=count_divisor,
+            units_per_count=units_per_count,
             trigger_label=str(export_raw.get("trigger_label", "TRIG") or "TRIG"),
         ),
         filter=OfflineFilterConfig(

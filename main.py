@@ -8,6 +8,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 """
 
 import asyncio
+import math
 import queue
 import threading
 import os
@@ -189,6 +190,7 @@ class AppState:
             filter_highcut_default_hz=self.config.offline.filter.highcut_hz_default,
             writer_queue_max_chunks=self.config.offline.writer_queue_max_chunks,
             writer_queue_full_policy=self.config.offline.writer_queue_full_policy,
+            units_per_count=self.config.offline.export.units_per_count,
         )
         channel_count = int(self.config.eeg.n_channels) + (1 if self.config.eeg.lsl.include_trigger_channel else 0)
         self.notch = NotchFilter(
@@ -264,6 +266,7 @@ class AppState:
                 has_trigger_channel=bool(self.config.eeg.lsl.include_trigger_channel),
                 notch_freq_hz=float(self.config.signal.notch.freq_hz),
                 notch_quality_factor=float(self.config.signal.notch.quality_factor),
+                units_per_count=self.config.offline.export.units_per_count,
             )
         except Exception:
             return None
@@ -619,6 +622,7 @@ class AppState:
             filter_highcut_default_hz=self.config.offline.filter.highcut_hz_default,
             writer_queue_max_chunks=self.config.offline.writer_queue_max_chunks,
             writer_queue_full_policy=self.config.offline.writer_queue_full_policy,
+            units_per_count=self.config.offline.export.units_per_count,
         )
         channel_count = int(self.config.eeg.n_channels) + (1 if self.config.eeg.lsl.include_trigger_channel else 0)
         self.notch = NotchFilter(
@@ -642,22 +646,39 @@ class AppState:
             out = self.notch.apply(out)
         except Exception:
             out = chunk
-        return self._scale_eeg_chunk_like_legacy(out)
+        return self._scale_eeg_chunk(out)
 
-    def _scale_eeg_chunk_like_legacy(self, chunk: List[List[float]]) -> List[List[float]]:
+    def _scale_eeg_chunk(self, chunk: List[List[float]]) -> List[List[float]]:
         """
-        按 count_divisor 缩放 EEG 通道，触发通道保持原值。
+        将原始 EEG 计数换算为物理量，触发通道保持原值。
+
+        8 通道按文档公式直接乘以 units_per_count；未配置公式的协议
+        （当前为 16 通道）继续沿用 count_divisor 除法。
         """
         if not chunk:
             return chunk
+        units_per_count = getattr(self.config.offline.export, "units_per_count", None)
+        try:
+            units_per_count = float(units_per_count) if units_per_count is not None else None
+        except Exception:
+            units_per_count = None
+        if units_per_count is not None and (not math.isfinite(units_per_count) or units_per_count <= 0):
+            units_per_count = None
+
         try:
             divisor = float(self.config.offline.export.count_divisor)
         except Exception:
             divisor = 120.0
-        if not (divisor > 0):
+        if not math.isfinite(divisor) or divisor <= 0:
             divisor = 120.0
-        if divisor == 1.0:
+        if units_per_count is None and divisor == 1.0:
             return chunk
+
+        def _convert(value: float) -> float:
+            raw_signed = float(value)
+            if units_per_count is not None:
+                return raw_signed * units_per_count
+            return raw_signed / divisor
 
         n_eeg = int(self.config.eeg.n_channels)
         has_trigger = bool(self.config.eeg.lsl.include_trigger_channel)
@@ -667,12 +688,16 @@ class AppState:
                 out.append(s)
                 continue
             if has_trigger and len(s) >= n_eeg + 1:
-                eeg_scaled = [float(x) / divisor for x in s[:n_eeg]]
+                eeg_scaled = [_convert(x) for x in s[:n_eeg]]
                 trig = float(s[n_eeg])
                 out.append(eeg_scaled + [trig] + [float(x) for x in s[n_eeg + 1 :]])
                 continue
-            out.append([float(x) / divisor for x in s])
+            out.append([_convert(x) for x in s])
         return out
+
+    def _scale_eeg_chunk_like_legacy(self, chunk: List[List[float]]) -> List[List[float]]:
+        """兼容旧的内部调用名；换算仍使用当前协议的有效参数。"""
+        return self._scale_eeg_chunk(chunk)
 
     def on_lsl_chunk(self, chunk: List[List[float]]) -> None:
         """
@@ -1140,6 +1165,42 @@ async def get_config():
             "positions": {k: {"x": float(v.x), "y": float(v.y)} for k, v in (layout.positions or {}).items()},
             "aliases": dict(layout.aliases or {}),
         }
+    active_protocol = (
+        state.config.eeg.protocol.ch8
+        if eeg_n_channels == 8
+        else (state.config.eeg.protocol.ch16 if eeg_n_channels == 16 else None)
+    )
+    active_conversion = active_protocol.conversion if active_protocol is not None else None
+    effective_divisor = float(state.config.offline.export.count_divisor)
+    physical_unit_normalized = (
+        str(state.config.offline.export.physical_unit or "")
+        .strip()
+        .lower()
+        .replace("μ", "u")
+        .replace("µ", "u")
+    )
+    if active_conversion is not None and physical_unit_normalized == "uv":
+        units_per_count = float(active_conversion.microvolts_per_count)
+        conversion_payload = {
+            "source": "protocol_formula",
+            "physical_unit": str(state.config.offline.export.physical_unit),
+            "vref_volts": float(active_conversion.vref_volts),
+            "adc_gain": float(active_conversion.adc_gain),
+            "frontend_gain_g": float(active_conversion.frontend_gain_g),
+            "resolution_bits": int(active_conversion.resolution_bits),
+            "units_per_count": units_per_count,
+            "microvolts_per_count": units_per_count,
+            "count_divisor": effective_divisor,
+        }
+    else:
+        conversion_payload = {
+            "source": "legacy_count_divisor",
+            "physical_unit": str(state.config.offline.export.physical_unit),
+            "units_per_count": 1.0 / effective_divisor,
+            "count_divisor": effective_divisor,
+        }
+        if physical_unit_normalized == "uv":
+            conversion_payload["microvolts_per_count"] = 1.0 / effective_divisor
     return {
         "ui_version": ui_version,
         "ref_channel_name": str(pending_ref or ""),
@@ -1162,6 +1223,7 @@ async def get_config():
         "n_channels": eeg_n_channels,
         "channel_names": state.config.eeg.channel_names,
         "sampling_rate_hz": state.config.eeg.sampling_rate_hz,
+        "eeg_conversion": conversion_payload,
         "electrode_layout_1020": layout_payload,
         "impedance": {
             "enabled": bool(state.config.impedance.enabled),
@@ -1211,6 +1273,7 @@ async def get_config():
             "root_dir": state.config.offline.root_dir,
             "physical_unit": state.config.offline.export.physical_unit,
             "count_divisor": state.config.offline.export.count_divisor,
+            "units_per_count": state.config.offline.export.units_per_count,
             "trigger_label": state.config.offline.export.trigger_label,
             "filter_defaults": state.offline.filter_defaults,
             "notch": {
@@ -1738,6 +1801,11 @@ async def start_mode(req: ModeRequest):
         state.controller.select_mode("eeg")
         ok = state.controller.start_mode("eeg")
         if ok:
+            # 每次采集都是新的信号会话，不能沿用上一轮 IIR 陷波器状态。
+            try:
+                state.notch.reset()
+            except Exception:
+                pass
             try:
                 session = state.offline.start_session()
             except Exception as e:

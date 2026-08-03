@@ -538,6 +538,28 @@ class FloatRingBuffer {
   }
 }
 
+function clearEegWaveformData({ resetLastDataAt = true } = {}) {
+  eegPendingEegChunks = [];
+  eegRings = Array.from({ length: channels }, () => new FloatRingBuffer(maxPoints));
+  eegPendingMin = Infinity;
+  eegPendingMax = -Infinity;
+  globalYMin = Infinity;
+  globalYMax = -Infinity;
+  eegLastAppliedYAxisMin = null;
+  eegLastAppliedYAxisMax = null;
+  eegYAxisModeDirty = true;
+  eegHasData = false;
+  if (resetLastDataAt) lastEegDataAtMs = 0;
+  for (const chart of charts) {
+    if (!chart) continue;
+    try {
+      chart.setOption({ series: [{ data: [] }] }, false, true);
+    } catch (_) {}
+  }
+  eegDataDirty = false;
+  renderEegSubtitle();
+}
+
 function buildSeriesPoints(ring, samplingRateHz, targetPoints) {
   if (!ring || ring.length <= 0) return [];
   const sr = Math.max(1, Number(samplingRateHz) || 1);
@@ -1027,8 +1049,7 @@ export async function enterEegPage() {
     if (!lastEegDataAtMs) return;
     const idleMs = Date.now() - lastEegDataAtMs;
     if (idleMs > 1500 && eegHasData) {
-      eegHasData = false;
-      renderEegSubtitle();
+      clearEegWaveformData({ resetLastDataAt: false });
     }
   }, 500);
 
@@ -1048,6 +1069,7 @@ export async function enterEegPage() {
         return;
       }
       eegSessionLocked = true;
+      clearEegWaveformData();
       startBtn.disabled = true;
       if (stopBtn) stopBtn.disabled = true;
       try {
@@ -1064,6 +1086,7 @@ export async function enterEegPage() {
   if (stopBtn) {
     stopBtn.onclick = async () => {
       eegStopping = true;
+      clearEegWaveformData();
       eegStatusHint = '正在停止采集...';
       renderEegSubtitle();
       if (eegReconnectTimer) { try { clearTimeout(eegReconnectTimer); } catch (_) {} eegReconnectTimer = null; }

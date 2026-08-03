@@ -1,5 +1,5 @@
 app:
-  ui_version: "3.0.3"
+  ui_version: "3.0.4"
 
 ui:
   waveform:
@@ -43,7 +43,8 @@ bluetooth:
     notify_char_handle: 5
     write_char_uuid: "0xFFF2"
     write_char_handle: 8
-    write_with_response: false
+    # V2.4 稳定链路使用 Write With Response；确保 START/STOP 已被设备确认后再切换状态。
+    write_with_response: true
   commands:
     init: []
     start_eeg: [0x02, 0x01]
@@ -163,7 +164,7 @@ eeg:
   protocol:
     ch8:
       frame:
-        # 8通道默认协议参数（根据文档 CH8(带tDCS)底层FPGA操作指令及帧格式V1.0.docx 配置，总长 140 bytes）
+        # 8通道协议参数（根据 docs/CH8底层FPGA操作指令及帧格式V1.2.docx，总长 140 bytes）
         header_len_bytes: 3    # 帧头 2 字节 (0xAA 0xBB) + 帧序号 1 字节
         bytes_per_sample_per_channel: 3
         samples_per_frame: 5
@@ -171,6 +172,12 @@ eeg:
         imu_len_bytes: 12
         battery_len_bytes: 2
         tail_len_bytes: 2      # 校验段 1 字节 (SUM) + 帧尾 1 字节 (0xCC)
+      conversion:
+        # Vin = raw_signed * 2 * Vref / (ADC增益 * G * 2^位宽)
+        vref_volts: 4.5
+        adc_gain: 24.0
+        frontend_gain_g: 4.985
+        resolution_bits: 24
     ch16:
       frame:
         # 16通道协议参数（参考 docs/16CH底层FPGA操作指令及帧格式V1.0.docx，总长 246 bytes）
@@ -262,6 +269,7 @@ offline:
   writer_queue_full_policy: "merge"
   export:
     physical_unit: "uV"
+    # 未配置协议换算参数时的兼容回退值；8通道使用 eeg.protocol.ch8.conversion 动态计算。
     count_divisor: 120.0
     trigger_label: "TRIG"
   filter:
