@@ -1,5 +1,5 @@
 app:
-  ui_version: "3.0.4"
+  ui_version: "3.1.0"
 
 ui:
   waveform:
@@ -253,11 +253,12 @@ signal:
     quality_factor: 30.0
   psd:
     enabled: true
-    window_sec: 2.0
-    update_hz: 0.5
+    # 使用最近 4 秒数据估计 Welch PSD；界面每秒更新一次。
+    window_sec: 4.0
+    update_hz: 1.0
     nfft: 512
-    fmin_hz: 0.5
-    fmax_hz: 80.0
+    fmin_hz: 1.0
+    fmax_hz: 45.0
     to_db: true
     apply_notch: true
 

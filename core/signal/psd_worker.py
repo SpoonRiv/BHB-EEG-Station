@@ -20,6 +20,18 @@ import numpy as np
 from scipy.signal import filtfilt, iirnotch, welch
 
 
+# 与 attention_monitor.py 一致的 EEG 节律频带。
+# 相对功率以这些频带的功率和为分母，当前覆盖 1~45 Hz。
+EEG_BANDS: Tuple[Tuple[str, str, str, float, float], ...] = (
+    ("delta", "Delta", "", 1.0, 4.0),
+    ("theta", "Theta", "", 4.0, 8.0),
+    ("alpha", "Alpha", "", 8.0, 13.0),
+    ("beta", "Beta", "", 13.0, 30.0),
+    ("gamma", "Gamma", "", 30.0, 45.0),
+)
+PSD_DISPLAY_FMIN_HZ = 1.0
+PSD_DISPLAY_FMAX_HZ = 45.0
+
 @dataclass(frozen=True)
 class PsdWorkerConfig:
     """
@@ -76,6 +88,8 @@ class PsdWorker:
 
         self._notch_ba: Optional[Tuple[np.ndarray, np.ndarray]] = None
         self._ts_last: float = 0.0
+        self._data_version: int = 0
+        self._last_snapshot_version: int = -1
 
     def reset(self) -> None:
         """
@@ -85,6 +99,8 @@ class PsdWorker:
             for d in self._buf:
                 d.clear()
             self._ts_last = 0.0
+            self._data_version = 0
+            self._last_snapshot_version = -1
 
     def append_chunk(self, chunk: List[List[float]]) -> None:
         """
@@ -115,6 +131,7 @@ class PsdWorker:
         with self._lock:
             for ch in range(self.n_channels):
                 self._buf[ch].extend(eeg[:, ch].tolist())
+            self._data_version += int(eeg.shape[0])
 
     def snapshot_window(self) -> Optional[np.ndarray]:
         """
@@ -127,9 +144,12 @@ class PsdWorker:
                 return None
             if len(self._buf[0]) < self._window_points:
                 return None
+            if self._data_version <= self._last_snapshot_version:
+                return None
             out = np.empty((self.n_channels, self._window_points), dtype=np.float32)
             for ch in range(self.n_channels):
                 out[ch, :] = np.asarray(self._buf[ch], dtype=np.float32)
+            self._last_snapshot_version = self._data_version
             self._ts_last = time.time()
             return out
 
@@ -150,14 +170,9 @@ class PsdWorker:
         fs = float(self.sampling_rate_hz)
         nyq = fs / 2.0
 
-        fmin = float(self.cfg.fmin_hz)
-        fmax = float(self.cfg.fmax_hz)
-        if fmin < 0:
-            fmin = 0.0
-        if fmax <= 0:
-            fmax = nyq
-        if fmax > nyq:
-            fmax = nyq
+        # 此页面固定展示 1–45 Hz，不随旧配置或本地覆盖扩大/缩小。
+        fmin = PSD_DISPLAY_FMIN_HZ
+        fmax = min(PSD_DISPLAY_FMAX_HZ, nyq)
         if fmin >= fmax:
             fmin = 0.0
 
@@ -183,20 +198,109 @@ class PsdWorker:
         except Exception:
             return None
 
-        mask = (freq >= fmin) & (freq <= fmax)
-        if not np.any(mask):
+        # 频带功率必须在线性、未裁剪的 Welch PSD 上积分，不能受 PSD 横轴
+        # fmin/fmax 配置影响，也不能对 dB 数值直接积分。
+        linear_psd = psd
+        band_power = np.zeros((self.n_channels, len(EEG_BANDS)), dtype=np.float64)
+        for band_idx, (_, _, _, band_low, band_high) in enumerate(EEG_BANDS):
+            # Welch bins rarely land exactly on the EEG-band boundaries. Add
+            # interpolated boundary samples before integrating so narrow bands
+            # (especially Delta/Theta) do not lose their edge intervals.
+            integration_low = max(float(band_low), float(freq[0]))
+            integration_high = min(float(band_high), float(freq[-1]))
+            if integration_low >= integration_high:
+                continue
+
+            interior_mask = (freq > integration_low) & (freq < integration_high)
+            band_freq = np.concatenate(
+                (
+                    np.asarray([integration_low], dtype=np.float64),
+                    freq[interior_mask],
+                    np.asarray([integration_high], dtype=np.float64),
+                )
+            )
+            low_psd = np.asarray(
+                [np.interp(integration_low, freq, row) for row in linear_psd],
+                dtype=np.float64,
+            )[:, None]
+            high_psd = np.asarray(
+                [np.interp(integration_high, freq, row) for row in linear_psd],
+                dtype=np.float64,
+            )[:, None]
+            band_values = np.concatenate(
+                (low_psd, linear_psd[:, interior_mask], high_psd),
+                axis=1,
+            )
+            band_power[:, band_idx] = np.trapezoid(
+                band_values,
+                band_freq,
+                axis=1,
+            )
+
+        band_power = np.nan_to_num(band_power, nan=0.0, posinf=0.0, neginf=0.0)
+        band_power = np.maximum(band_power, 0.0)
+        band_total = np.sum(band_power, axis=1)
+        band_relative_pct = np.divide(
+            band_power * 100.0,
+            band_total[:, None],
+            out=np.zeros_like(band_power),
+            where=band_total[:, None] > 0.0,
+        )
+
+        average_band_power = np.mean(band_power, axis=0)
+        average_band_total = float(np.sum(average_band_power))
+        average_band_relative_pct = np.divide(
+            average_band_power * 100.0,
+            average_band_total,
+            out=np.zeros_like(average_band_power),
+            where=average_band_total > 0.0,
+        )
+
+        display_low = max(float(fmin), float(freq[0]))
+        display_high = min(float(fmax), float(freq[-1]))
+        if display_low >= display_high:
             return None
-        freq = freq[mask]
-        psd = psd[:, mask]
+
+        # Welch 频点由 fs / nfft 决定，通常不会恰好落在 1 Hz 和 45 Hz。
+        # 补齐显示边界，确保曲线从横轴起点连续绘制到终点，不产生边缘留白。
+        display_mask = (freq > display_low) & (freq < display_high)
+        display_freq = np.concatenate(
+            (
+                np.asarray([display_low], dtype=np.float64),
+                freq[display_mask],
+                np.asarray([display_high], dtype=np.float64),
+            )
+        )
+        display_low_psd = np.asarray(
+            [np.interp(display_low, freq, row) for row in linear_psd],
+            dtype=np.float64,
+        )[:, None]
+        display_high_psd = np.asarray(
+            [np.interp(display_high, freq, row) for row in linear_psd],
+            dtype=np.float64,
+        )[:, None]
+        psd = np.concatenate(
+            (display_low_psd, linear_psd[:, display_mask], display_high_psd),
+            axis=1,
+        )
+        freq = display_freq
+        average_psd = np.mean(psd, axis=0)
 
         unit = "uV^2/Hz"
         if bool(self.cfg.to_db):
             psd = 10.0 * np.log10(np.maximum(psd, 1e-20))
+            average_psd = 10.0 * np.log10(np.maximum(average_psd, 1e-20))
             unit = "dB"
 
         channels: Dict[str, List[float]] = {}
+        band_channels: Dict[str, Dict[str, object]] = {}
         for i, name in enumerate(self.channel_names):
             channels[str(name)] = psd[i, :].astype(np.float32).tolist()
+            band_channels[str(name)] = {
+                "absolute": band_power[i, :].astype(np.float32).tolist(),
+                "relative_pct": band_relative_pct[i, :].astype(np.float32).tolist(),
+                "total": float(band_total[i]),
+            }
 
         ts = float(self._ts_last) if self._ts_last > 0 else float(time.time())
         return {
@@ -204,6 +308,38 @@ class PsdWorker:
             "freq_hz": freq.astype(np.float32).tolist(),
             "channels": channels,
             "unit": unit,
+            "display_fmin_hz": float(fmin),
+            "display_fmax_hz": float(fmax),
+            "sample_count": int(window.shape[1]),
+            "average": {
+                "label": "全通道平均",
+                "channel_count": int(self.n_channels),
+                "spectrum": average_psd.astype(np.float32).tolist(),
+                "band_power": {
+                    "absolute": average_band_power.astype(np.float32).tolist(),
+                    "relative_pct": average_band_relative_pct.astype(np.float32).tolist(),
+                    "total": average_band_total,
+                },
+            },
+            "band_power": {
+                "bands": [
+                    {
+                        "key": key,
+                        "name": name,
+                        "symbol": symbol,
+                        "fmin_hz": low,
+                        "fmax_hz": high,
+                    }
+                    for key, name, symbol, low, high in EEG_BANDS
+                ],
+                "channels": band_channels,
+                "absolute_unit": "uV^2",
+                "relative_unit": "%",
+                "normalization": "sum_of_listed_bands",
+                "normalization_fmin_hz": float(EEG_BANDS[0][3]),
+                "normalization_fmax_hz": float(min(EEG_BANDS[-1][4], nyq)),
+                "normalization_complete": bool(nyq >= EEG_BANDS[-1][4]),
+            },
         }
 
     def get_update_interval_sec(self) -> float:

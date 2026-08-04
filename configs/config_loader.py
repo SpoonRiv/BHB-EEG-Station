@@ -892,8 +892,8 @@ def load_config(config_path: str) -> AppConfig:
     psd_window_sec = float(psd_raw.get("window_sec", 2.0))
     psd_update_hz = float(psd_raw.get("update_hz", 1.0))
     psd_nfft = int(psd_raw.get("nfft", 512))
-    psd_fmin_hz = float(psd_raw.get("fmin_hz", 0.5))
-    psd_fmax_hz = float(psd_raw.get("fmax_hz", 80.0))
+    psd_fmin_hz = float(psd_raw.get("fmin_hz", 1.0))
+    psd_fmax_hz = float(psd_raw.get("fmax_hz", 45.0))
     psd_to_db = bool(psd_raw.get("to_db", True))
     psd_apply_notch = bool(psd_raw.get("apply_notch", True))
 
@@ -919,7 +919,7 @@ def load_config(config_path: str) -> AppConfig:
     if psd_fmin_hz < 0:
         psd_fmin_hz = 0.0
     if psd_fmax_hz <= 0:
-        psd_fmax_hz = 80.0
+        psd_fmax_hz = 45.0
     if psd_fmax_hz >= nyq:
         psd_fmax_hz = max(1.0, nyq - 1.0)
     if psd_fmin_hz >= psd_fmax_hz:

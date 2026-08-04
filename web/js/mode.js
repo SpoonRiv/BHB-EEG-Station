@@ -16,7 +16,7 @@ function ensureDefaultDesc(btn) {
   return btn.dataset.defaultDesc || '';
 }
 
-function setModeDisabled(btn, disabled, reason) {
+function setModeUnavailable(btn, unavailable, reason) {
   if (!btn) return;
   const defaultDesc = ensureDefaultDesc(btn);
   const state = btn.querySelector('.mode-card__state');
@@ -24,20 +24,60 @@ function setModeDisabled(btn, disabled, reason) {
   if (stateLabel && !stateLabel.dataset.defaultLabel) {
     stateLabel.dataset.defaultLabel = stateLabel.textContent || 'READY';
   }
-  btn.disabled = !!disabled;
-  if (state) state.classList.toggle('mode-card__state--unavailable', !!disabled);
+  // 保持卡片可点击，设备不可用时由应用内弹窗解释原因。
+  btn.disabled = false;
+  btn.dataset.unavailable = unavailable ? 'true' : 'false';
+  if (state) state.classList.toggle('mode-card__state--unavailable', !!unavailable);
   if (stateLabel) {
-    stateLabel.textContent = disabled
+    stateLabel.textContent = unavailable
       ? 'UNAVAILABLE'
       : (stateLabel.dataset.defaultLabel || 'READY');
   }
   const desc = btn.querySelector('.mode-desc');
   if (!desc) return;
-  if (disabled) {
+  if (unavailable) {
     desc.textContent = reason || '当前功能已禁用';
     return;
   }
   desc.textContent = defaultDesc || desc.textContent;
+}
+
+function bindNoticeModal() {
+  const modal = document.getElementById('mode-notice-modal');
+  const title = document.getElementById('mode-notice-modal-title');
+  const desc = document.getElementById('mode-notice-modal-desc');
+  const confirmBtn = document.getElementById('mode-notice-modal-confirm');
+  if (!modal || !title || !desc || !confirmBtn) return () => {};
+
+  let returnFocus = null;
+
+  const closeModal = () => {
+    modal.hidden = true;
+    if (returnFocus && typeof returnFocus.focus === 'function') {
+      returnFocus.focus();
+    }
+    returnFocus = null;
+  };
+
+  const openModal = (nextTitle, nextDesc, trigger) => {
+    title.textContent = nextTitle;
+    desc.textContent = nextDesc;
+    returnFocus = trigger || document.activeElement;
+    modal.hidden = false;
+    window.requestAnimationFrame(() => {
+      confirmBtn.focus();
+    });
+  };
+
+  confirmBtn.addEventListener('click', closeModal);
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) closeModal();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !modal.hidden) closeModal();
+  });
+
+  return openModal;
 }
 
 function applyTdcsAvailability(btn, cfg, st) {
@@ -60,7 +100,7 @@ function applyTdcsAvailability(btn, cfg, st) {
     } else if (statusKnown && !statusCapable) {
       reason = '当前设备不带电刺激模块，电刺激模式已禁用';
     }
-    setModeDisabled(btn, true, reason);
+    setModeUnavailable(btn, true, reason);
     return;
   }
 
@@ -68,11 +108,11 @@ function applyTdcsAvailability(btn, cfg, st) {
     ? cfg.tdcs.supported_channel_modes.map(Number).filter(Number.isFinite)
     : [];
   if (supported.length && !supported.includes(nChannels)) {
-    setModeDisabled(btn, true, `当前 ${nChannels} 通道模式不支持电刺激（tdcs.supported_channel_modes=${supported.join(', ')}）`);
+    setModeUnavailable(btn, true, `当前 ${nChannels} 通道模式不支持电刺激（tdcs.supported_channel_modes=${supported.join(', ')}）`);
     return;
   }
 
-  setModeDisabled(btn, false);
+  setModeUnavailable(btn, false);
 }
 
 export function initModePage() {
@@ -84,6 +124,7 @@ export function initModePage() {
   if (!eeg || !imp || !tdcs) return;
 
   ensureDefaultDesc(tdcs);
+  const openNotice = bindNoticeModal();
   let lastCfg = null;
   let lastStatus = null;
 
@@ -122,7 +163,10 @@ export function initModePage() {
   });
 
   tdcs.addEventListener('click', async () => {
-    if (tdcs.disabled) return;
+    if (tdcs.dataset.unavailable === 'true') {
+      openNotice('设备不可用', '当前设备不可用，无法进入电刺激模式。', tdcs);
+      return;
+    }
     try { await modeSelect('tdcs'); } catch (_) {}
     await navigate('#tdcs');
   });
@@ -130,7 +174,7 @@ export function initModePage() {
   const bindComingSoon = (btn, label) => {
     if (!btn) return;
     btn.addEventListener('click', () => {
-      window.alert(`${label} 功能开发中，敬请期待`);
+      openNotice('功能开发中', `${label}功能正在开发中，敬请期待。`, btn);
     });
   };
 

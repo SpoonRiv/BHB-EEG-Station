@@ -80,6 +80,8 @@ const DEFAULT_ELECTRODE_POS = {
   A2: { x: 96, y: 50 },
 };
 
+let headGradientSequence = 0;
+
 function getElectrodePos(name, positions, aliases) {
   const n = String(name || '').trim();
   if (!n) return null;
@@ -100,9 +102,11 @@ function createSvgRoot() {
 }
 
 function drawHead(svg) {
+  headGradientSequence += 1;
+  const gradientId = `bhb_head_bg_${headGradientSequence}`;
   const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
   const grad = document.createElementNS('http://www.w3.org/2000/svg', 'radialGradient');
-  grad.setAttribute('id', 'bhb_imp_head_bg');
+  grad.setAttribute('id', gradientId);
   grad.setAttribute('cx', '50%');
   grad.setAttribute('cy', '45%');
   grad.setAttribute('r', '54%');
@@ -126,7 +130,7 @@ function drawHead(svg) {
   bg.setAttribute('y', '0');
   bg.setAttribute('width', '100');
   bg.setAttribute('height', '100');
-  bg.setAttribute('fill', 'url(#bhb_imp_head_bg)');
+  bg.setAttribute('fill', `url(#${gradientId})`);
   svg.appendChild(bg);
 
   const outline = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -173,28 +177,23 @@ function classifyOhm(value, goodMax, warnMax) {
   return 'bad';
 }
 
-export function createImpedanceTopomap(hostEl, channelNames, ui, positions, aliases) {
-  if (!hostEl) return null;
-
-  const goodMax = ui && typeof ui.good_max_ohm === 'number' ? ui.good_max_ohm : (ui && typeof ui.goodMaxOhm === 'number' ? ui.goodMaxOhm : 10000);
-  const warnMax = ui && typeof ui.warn_max_ohm === 'number' ? ui.warn_max_ohm : (ui && typeof ui.warnMaxOhm === 'number' ? ui.warnMaxOhm : 30000);
-
+function createElectrodeMap(hostEl, channelNames, positions, aliases, groupClasses = []) {
   const svg = createSvgRoot();
   drawHead(svg);
 
   const circles = new Map();
   const groups = new Map();
-
   const names = Array.isArray(channelNames) ? channelNames : [];
   const total = names.length;
   const r = total >= 60 ? 2.7 : (total >= 40 ? 3.2 : 4.4);
   const fontSize = total >= 60 ? 2.1 : (total >= 40 ? 2.6 : 3.55);
   const dy = total >= 60 ? 0.7 : 0.9;
+
   for (const name of names) {
     const pos = getElectrodePos(name, positions, aliases);
     if (!pos) continue;
     const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    g.classList.add('electrode', 'imp-electrode', 'imp-unknown');
+    g.classList.add('electrode', ...groupClasses);
     g.dataset.name = name;
 
     const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
@@ -222,6 +221,68 @@ export function createImpedanceTopomap(hostEl, channelNames, ui, positions, alia
 
   hostEl.innerHTML = '';
   hostEl.appendChild(svg);
+  return { circles, groups };
+}
+
+/**
+ * 只负责通道选择的通用 10-20 头皮图。
+ * 阻抗和频带能量可共享空间布局，但各自保留独立的数值与颜色语义。
+ */
+export function createSelectableTopomap(hostEl, channelNames, positions, aliases) {
+  if (!hostEl) return null;
+  const { groups } = createElectrodeMap(
+    hostEl,
+    channelNames,
+    positions,
+    aliases,
+    ['channel-electrode'],
+  );
+
+  let selected = '';
+  let onSelect = null;
+
+  function setSelected(name) {
+    selected = String(name || '');
+    for (const [n, g] of groups.entries()) {
+      const active = n === selected;
+      g.classList.toggle('selected', active);
+      g.setAttribute('aria-pressed', active ? 'true' : 'false');
+    }
+  }
+
+  function setOnSelect(fn) {
+    onSelect = typeof fn === 'function' ? fn : null;
+    for (const [n, g] of groups.entries()) {
+      g.setAttribute('role', 'button');
+      g.setAttribute('tabindex', onSelect ? '0' : '-1');
+      g.setAttribute('aria-label', `选择通道 ${n}`);
+      g.onclick = onSelect ? () => { setSelected(n); onSelect(n); } : null;
+      g.onkeydown = onSelect ? (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        setSelected(n);
+        onSelect(n);
+      } : null;
+    }
+  }
+
+  setSelected('');
+  return { setSelected, setOnSelect };
+}
+
+export function createImpedanceTopomap(hostEl, channelNames, ui, positions, aliases) {
+  if (!hostEl) return null;
+
+  const goodMax = ui && typeof ui.good_max_ohm === 'number' ? ui.good_max_ohm : (ui && typeof ui.goodMaxOhm === 'number' ? ui.goodMaxOhm : 10000);
+  const warnMax = ui && typeof ui.warn_max_ohm === 'number' ? ui.warn_max_ohm : (ui && typeof ui.warnMaxOhm === 'number' ? ui.warnMaxOhm : 30000);
+
+  const { circles, groups } = createElectrodeMap(
+    hostEl,
+    channelNames,
+    positions,
+    aliases,
+    ['imp-electrode', 'imp-unknown'],
+  );
 
   let selected = '';
   let thresholds = { goodMaxOhm: goodMax, warnMaxOhm: warnMax };

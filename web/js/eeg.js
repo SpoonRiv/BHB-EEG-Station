@@ -25,7 +25,8 @@ let eegWindowSec = 2.0;
 let eegRenderFps = 25;
 let eegMaxRenderPointsPerChannel = 800;
 let eegGlobalScale = true;
-let psdFmaxHz = null;
+let eegElectrodePositions = null;
+let eegElectrodeAliases = null;
 let triggerEnabled = false;
 let triggerActive = null;
 let eegYAxisStep = 50;
@@ -968,9 +969,13 @@ export async function enterEegPage() {
       const hz = notch && typeof notch.freq_hz === 'number' ? notch.freq_hz : 50;
       notchEl.textContent = ` ｜ 默认开启 ${hz}Hz 工频陷波`;
     }
-    const psdCfg = cfg && cfg.signal && cfg.signal.psd ? cfg.signal.psd : null;
-    const fmax = psdCfg && psdCfg.fmax_hz != null ? Number(psdCfg.fmax_hz) : null;
-    psdFmaxHz = Number.isFinite(fmax) ? fmax : null;
+    const electrodeLayout = cfg && cfg.electrode_layout_1020 ? cfg.electrode_layout_1020 : null;
+    eegElectrodePositions = electrodeLayout && electrodeLayout.positions && typeof electrodeLayout.positions === 'object'
+      ? electrodeLayout.positions
+      : null;
+    eegElectrodeAliases = electrodeLayout && electrodeLayout.aliases && typeof electrodeLayout.aliases === 'object'
+      ? electrodeLayout.aliases
+      : null;
     const trg = cfg && cfg.trigger ? cfg.trigger : null;
     triggerEnabled = trg && typeof trg.enabled === 'boolean' ? !!trg.enabled : false;
     triggerActive = (!trg || trg.active === null || trg.active === undefined) ? null : !!trg.active;
@@ -981,17 +986,24 @@ export async function enterEegPage() {
     try { psdView.dispose(); } catch (_) {}
     psdView = null;
   }
-  psdView = new EegPsdView({ channelNames, fmaxHz: psdFmaxHz, triggerEnabled, triggerActive });
+  psdView = new EegPsdView({
+    channelNames,
+    triggerEnabled,
+    triggerActive,
+    electrodePositions: eegElectrodePositions,
+    electrodeAliases: eegElectrodeAliases,
+  });
   psdView.mount({
     controlsId: 'eeg-view-controls',
     timeViewId: 'eeg-time-view',
     psdViewId: 'eeg-psd-view',
     chartId: 'psd-chart',
+    bandChartId: 'band-power-chart',
     toolbarId: 'psd-toolbar',
+    scopeControlsId: 'eeg-frequency-controls',
+    yAxisControlsId: 'eeg-yaxis-controls',
     onModeChange: (m) => {
       eegViewMode = m === 'psd' ? 'psd' : 'time';
-      const yAxis = document.getElementById('eeg-yaxis-controls');
-      if (yAxis) yAxis.classList.toggle('eeg-yaxis-controls--disabled', eegViewMode === 'psd');
     }
   });
   initCharts();
@@ -1013,6 +1025,7 @@ export async function enterEegPage() {
         document.getElementById('eeg-debug-body')
       );
       charts.forEach(c => c && c.resize());
+      if (psdView && typeof psdView.resize === 'function') psdView.resize();
       scheduleVisibleUpdate(true);
     };
     window.addEventListener('resize', eegResizeHandler);

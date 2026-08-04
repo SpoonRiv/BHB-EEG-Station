@@ -282,7 +282,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
             </div>
         </section>
 
-        <section class="page" id="page-eeg" data-page-title="脑电采集" data-page-desc="查看实时波形、频域信息与结构化调试事件">
+        <section class="page" id="page-eeg" data-page-title="脑电采集" data-page-desc="查看实时波形、功率谱与频带能量及结构化调试事件">
             <div class="eeg-layout">
                 <div class="card eeg-debug-card" style="height: 100%; display: flex; flex-direction: column;">
                     <div class="card-header" data-kicker="SYSTEM EVENTS">
@@ -315,11 +315,12 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                 <div class="card card--col">
                     <div class="card-header" data-kicker="SIGNAL MONITOR">
                         <div>
-                            <div class="card-title">EEG 波形</div>
+                            <div class="card-title" id="eeg-signal-title">实时脑电信号（时域）</div>
                             <div class="card-sub eeg-subline"><span id="eeg-sub">WebSocket 实时推送</span><span id="eeg-notch-hint"></span><div id="eeg-view-controls"></div></div>
                         </div>
                         <div class="row eeg-wave-controls">
                             <div id="eeg-yaxis-controls"></div>
+                            <div id="eeg-frequency-controls" hidden></div>
                             <div class="badge plain battery-badge error" id="battery-badge">
                                 <div class="badge-dot"></div>
                                 <div class="battery-label">电量：</div>
@@ -334,7 +335,32 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                         <div id="eeg-psd-view" class="eeg-view eeg-view--hidden">
                             <div class="eeg-psd-panel">
                                 <div class="eeg-psd-toolbar" id="psd-toolbar"></div>
-                                <div id="psd-chart" class="eeg-psd-chart"></div>
+                                <div class="spectrum-monitor-grid">
+                                    <section class="spectrum-plot-card">
+                                        <div class="spectrum-plot-heading">
+                                            <div class="band-chart-title" id="psd-spectrum-title">实时功率谱密度 Welch PSD</div>
+                                        </div>
+                                        <div id="psd-chart" class="spectrum-chart"></div>
+                                    </section>
+                                    <section class="spectrum-plot-card">
+                                        <div class="spectrum-plot-heading">
+                                            <div class="band-chart-title" id="band-power-title">不同频段能量占比</div>
+                                        </div>
+                                        <div id="band-power-chart" class="spectrum-chart"></div>
+                                    </section>
+                                </div>
+                                <aside class="band-channel-popover" id="band-channel-popover" hidden>
+                                    <div class="band-channel-popover-head">
+                                        <div>
+                                            <div class="band-panel-title">选择单通道</div>
+                                            <div class="band-panel-sub">点击电极后，两张图同步切换到该通道</div>
+                                        </div>
+                                        <button class="btn btn--sm btn--ghost" id="band-channel-popover-close" type="button" aria-label="关闭电极选择">关闭</button>
+                                    </div>
+                                    <div class="band-channel-map topomap-canvas">
+                                        <div id="band-channel-topomap" class="topomap-svg band-power-map"></div>
+                                    </div>
+                                </aside>
                             </div>
                         </div>
                     </div>
@@ -661,6 +687,16 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
         <div class="modal-actions">
             <button class="btn btn--primary btn--lg" id="power-modal-confirm" type="button">确定</button>
             <button class="btn btn--ghost btn--lg" id="power-modal-cancel" type="button">取消</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-backdrop" id="mode-notice-modal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="mode-notice-modal-title" aria-describedby="mode-notice-modal-desc">
+        <div class="modal-title" id="mode-notice-modal-title">功能提示</div>
+        <div class="modal-desc" id="mode-notice-modal-desc"></div>
+        <div class="modal-actions">
+            <button class="btn btn--primary btn--lg" id="mode-notice-modal-confirm" type="button">确定</button>
         </div>
     </div>
 </div>
