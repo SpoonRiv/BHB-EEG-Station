@@ -1,7 +1,7 @@
 /*
 Copyright (c) 2026 BUAA BHB. All rights reserved.
 
-文件功能: EEG 频谱与频带能量视图：展示实时 Welch PSD、频带功率及多/单通道切换
+文件功能: EEG 频谱与频带特征视图：展示实时 Welch PSD、频带能量、微分熵及多/单通道切换
 作者: Spoon
 */
 
@@ -72,6 +72,7 @@ export class EegPsdView {
     this.channelNames = Array.isArray(channelNames) ? channelNames.map(String) : [];
     this.mode = 'time';
     this.scopeMode = 'average';
+    this.bandMetricMode = 'energy';
     this.activeChannel = this.channelNames[0] || '';
     this.ws = null;
     this.reconnectTimer = null;
@@ -89,6 +90,8 @@ export class EegPsdView {
     this.elSignalTitle = null;
     this.elSpectrumChart = null;
     this.elBandChart = null;
+    this.elBandTitle = null;
+    this.elBandMetricControls = null;
     this.elChannelPopover = null;
     this.elLegend = null;
 
@@ -101,6 +104,7 @@ export class EegPsdView {
     this.channelMapBtn = null;
     this.triggerStartBtn = null;
     this.triggerStopBtn = null;
+    this.bandMetricButtons = [];
     this.onModeChange = null;
     this.legendSignature = '';
 
@@ -122,11 +126,14 @@ export class EegPsdView {
     this.elSignalTitle = document.getElementById('eeg-signal-title');
     this.elSpectrumChart = document.getElementById(chartId);
     this.elBandChart = document.getElementById(bandChartId);
+    this.elBandTitle = document.getElementById('band-power-title');
+    this.elBandMetricControls = document.getElementById('band-metric-controls');
     this.elChannelPopover = document.getElementById('band-channel-popover');
     this.onModeChange = typeof onModeChange === 'function' ? onModeChange : null;
 
     this._buildControls();
     this._buildToolbar();
+    this._buildBandMetricControls();
     this._initTopomap();
     this._bindPopover();
     this._initCharts();
@@ -153,7 +160,7 @@ export class EegPsdView {
     if (this.elPsdView) this.elPsdView.classList.toggle('eeg-view--hidden', next !== 'psd');
     if (this.elSignalTitle) {
       this.elSignalTitle.textContent = next === 'psd'
-        ? '脑电功率谱与频带能量（频域）'
+        ? '脑电功率谱与频带特征（频域）'
         : '实时脑电信号（时域）';
     }
     this._syncButtons();
@@ -307,7 +314,7 @@ export class EegPsdView {
     const mapBtn = document.createElement('button');
     mapBtn.type = 'button';
     mapBtn.className = 'btn btn--ghost eeg-view-btn spectrum-map-btn';
-    mapBtn.textContent = '地形图选择';
+    mapBtn.textContent = '选择通道';
     mapBtn.setAttribute('aria-label', '通过地形图选择通道');
     mapBtn.setAttribute('aria-expanded', 'false');
     mapBtn.setAttribute('aria-controls', 'band-channel-popover');
@@ -334,6 +341,50 @@ export class EegPsdView {
     this.channelMapBtn = mapBtn;
     this.elLegend = legend;
     this._renderBandLegend(FALLBACK_BANDS);
+  }
+
+  _buildBandMetricControls() {
+    if (!this.elBandMetricControls) return;
+    this.elBandMetricControls.innerHTML = '';
+    this.bandMetricButtons = [];
+
+    const options = [
+      { key: 'energy', label: '%', ariaLabel: '相对功率百分比', title: '显示各频段相对功率' },
+      { key: 'de', label: 'DE', ariaLabel: '微分熵 DE', title: '显示各频段微分熵（Differential Entropy）' },
+    ];
+    for (const option of options) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'btn seg-btn band-metric-btn';
+      button.dataset.metric = option.key;
+      button.textContent = option.label;
+      button.setAttribute('aria-label', option.ariaLabel);
+      button.title = option.title;
+      button.onclick = () => this._setBandMetricMode(option.key);
+      this.elBandMetricControls.appendChild(button);
+      this.bandMetricButtons.push(button);
+    }
+    this._syncBandMetricControls();
+  }
+
+  _setBandMetricMode(mode) {
+    const next = mode === 'de' ? 'de' : 'energy';
+    if (this.bandMetricMode === next) return;
+    this.bandMetricMode = next;
+    this._syncBandMetricControls();
+    this._renderIfReady();
+  }
+
+  _syncBandMetricControls() {
+    const isDe = this.bandMetricMode === 'de';
+    if (this.elBandTitle) {
+      this.elBandTitle.textContent = isDe ? '各频段微分熵' : '各频段相对功率';
+    }
+    for (const button of this.bandMetricButtons) {
+      const active = button.dataset.metric === this.bandMetricMode;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    }
   }
 
   _initTopomap() {
@@ -498,9 +549,19 @@ export class EegPsdView {
     if (values.length < bandCount) return null;
     const sum = values.reduce((total, value) => total + value, 0);
     if (sum > 0) values = values.map((value) => (value * 100) / sum);
+    const differentialEntropy = Array.isArray(row.differential_entropy)
+      ? row.differential_entropy.slice(0, bandCount).map((value) => {
+        if (value === null || value === undefined) return null;
+        const number = Number(value);
+        return Number.isFinite(number) ? number : null;
+      })
+      : [];
     return {
       values,
       absolute: absolute.length >= bandCount ? absolute : new Array(bandCount).fill(null),
+      differentialEntropy: differentialEntropy.length >= bandCount
+        ? differentialEntropy
+        : new Array(bandCount).fill(null),
       totalPower: Number.isFinite(Number(row.total)) ? Number(row.total) : null,
     };
   }
@@ -526,7 +587,17 @@ export class EegPsdView {
     }
     for (let i = 0; i < bandCount; i++) absolute[i] /= rows.length;
     const total = absolute.reduce((sum, value) => sum + value, 0);
-    return this._normalizeBandRow({ absolute, total }, bandCount);
+    const differentialEntropy = new Array(bandCount).fill(null);
+    for (let i = 0; i < bandCount; i++) {
+      const values = rows
+        .map((row) => Array.isArray(row.differential_entropy) ? row.differential_entropy[i] : null)
+        .filter((value) => value !== null && value !== undefined && Number.isFinite(Number(value)))
+        .map(Number);
+      if (values.length) {
+        differentialEntropy[i] = values.reduce((sum, value) => sum + value, 0) / values.length;
+      }
+    }
+    return this._normalizeBandRow({ absolute, differential_entropy: differentialEntropy, total }, bandCount);
   }
 
   _sourceBandData(bandCount) {
@@ -696,16 +767,47 @@ export class EegPsdView {
     if (!this.bandChart) return;
     const source = this._sourceLabel();
     const colors = this._chartTheme();
-    const maxValue = Math.max(0, ...row.values);
-    const yMax = Math.min(100, Math.max(50, Math.ceil((maxValue * 1.25) / 10) * 10));
+    const isDe = this.bandMetricMode === 'de';
+    const metricValues = isDe ? row.differentialEntropy : row.values;
+    if (!Array.isArray(metricValues)
+      || metricValues.length < bands.length
+      || metricValues.some((value) => (
+        value === null || value === undefined || !Number.isFinite(Number(value))
+      ))) {
+      this.bandChart.setOption(
+        this._waitingOption(isDe ? '当前数据无法计算微分熵' : '当前数据范围暂无可用数据'),
+        true,
+        false,
+      );
+      return;
+    }
+
+    let yMin = 0;
+    let yMax = 100;
+    if (isDe) {
+      const minValue = Math.min(...metricValues);
+      const maxValue = Math.max(...metricValues);
+      const padding = Math.max(0.5, (maxValue - minValue) * 0.18);
+      yMin = minValue < 0 ? Math.floor((minValue - padding) * 2) / 2 : 0;
+      yMax = maxValue > 0 ? Math.ceil((maxValue + padding) * 2) / 2 : 0;
+      if (yMax <= yMin) yMax = yMin + 1;
+    } else {
+      const maxValue = Math.max(0, ...metricValues);
+      yMax = Math.min(100, Math.max(50, Math.ceil((maxValue * 1.25) / 10) * 10));
+    }
+
     const categories = bands.map((band) => `${band.name}`);
-    const data = bands.map((band, index) => ({
-      value: Number(row.values[index].toFixed(3)),
-      itemStyle: {
-        color: BAND_COLORS[band.key] || '#38BDF8',
-        borderRadius: [7, 7, 2, 2],
-      },
-    }));
+    const data = bands.map((band, index) => {
+      const value = Number(Number(metricValues[index]).toFixed(3));
+      return {
+        value,
+        itemStyle: {
+          color: BAND_COLORS[band.key] || '#38BDF8',
+          borderRadius: value >= 0 ? [7, 7, 2, 2] : [2, 2, 7, 7],
+        },
+        label: isDe ? { position: value >= 0 ? 'top' : 'bottom' } : undefined,
+      };
+    });
 
     this.bandChart.setOption({
       backgroundColor: 'transparent',
@@ -720,7 +822,10 @@ export class EegPsdView {
           const band = bands[item.dataIndex];
           const absolute = row.absolute[item.dataIndex];
           const power = absolute === null ? '' : `<div>功率 ${formatPower(absolute)} μV²</div>`;
-          return `<div class="band-tooltip-title">${escapeHtml(source)} · ${escapeHtml(band.name)}</div><div>${formatHz(band.fmin_hz)}–${formatHz(band.fmax_hz)} Hz</div>${power}<strong>${Number(item.value).toFixed(1)}%</strong>`;
+          const metric = isDe
+            ? `<strong>DE ${Number(item.value).toFixed(3)} nat</strong>`
+            : `<strong>${Number(item.value).toFixed(1)}%</strong>`;
+          return `<div class="band-tooltip-title">${escapeHtml(source)} · ${escapeHtml(band.name)}</div><div>${formatHz(band.fmin_hz)}–${formatHz(band.fmax_hz)} Hz</div>${power}${metric}`;
         },
       },
       xAxis: {
@@ -732,15 +837,15 @@ export class EegPsdView {
       },
       yAxis: {
         type: 'value',
-        min: 0,
+        min: yMin,
         max: yMax,
-        name: '能量占比 (%)',
+        name: isDe ? '微分熵 (nat)' : '相对功率 (%)',
         nameLocation: 'middle',
         nameGap: 38,
         nameTextStyle: { color: colors.axis, fontWeight: 750 },
         axisLine: { show: false },
         axisTick: { show: false },
-        axisLabel: { color: colors.axis, formatter: '{value}%' },
+        axisLabel: { color: colors.axis, formatter: isDe ? '{value}' : '{value}%' },
         splitLine: { lineStyle: { color: colors.split, type: 'dashed' } },
       },
       series: [{
@@ -753,7 +858,9 @@ export class EegPsdView {
           position: 'top',
           color: colors.axis,
           fontWeight: 800,
-          formatter: (item) => `${Number(item.value).toFixed(1)}%`,
+          formatter: (item) => isDe
+            ? Number(item.value).toFixed(2)
+            : `${Number(item.value).toFixed(1)}%`,
         },
       }],
       animation: true,

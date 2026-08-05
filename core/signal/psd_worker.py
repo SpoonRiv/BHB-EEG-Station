@@ -31,6 +31,7 @@ EEG_BANDS: Tuple[Tuple[str, str, str, float, float], ...] = (
 )
 PSD_DISPLAY_FMIN_HZ = 1.0
 PSD_DISPLAY_FMAX_HZ = 45.0
+DE_POWER_FLOOR_UV2 = 1e-12
 
 @dataclass(frozen=True)
 class PsdWorkerConfig:
@@ -246,8 +247,17 @@ class PsdWorker:
             out=np.zeros_like(band_power),
             where=band_total[:, None] > 0.0,
         )
+        # Under the common Gaussian-band assumption, EEG differential entropy
+        # is a logarithmic transform of the band-limited signal variance. The
+        # integrated Welch band power is that variance in uV^2.
+        band_de = 0.5 * np.log(
+            2.0 * np.pi * np.e * np.maximum(band_power, DE_POWER_FLOOR_UV2)
+        )
 
         average_band_power = np.mean(band_power, axis=0)
+        # Average the per-channel DE features. Do not take the logarithm of the
+        # averaged power because DE is nonlinear in variance.
+        average_band_de = np.mean(band_de, axis=0)
         average_band_total = float(np.sum(average_band_power))
         average_band_relative_pct = np.divide(
             average_band_power * 100.0,
@@ -299,6 +309,7 @@ class PsdWorker:
             band_channels[str(name)] = {
                 "absolute": band_power[i, :].astype(np.float32).tolist(),
                 "relative_pct": band_relative_pct[i, :].astype(np.float32).tolist(),
+                "differential_entropy": band_de[i, :].astype(np.float32).tolist(),
                 "total": float(band_total[i]),
             }
 
@@ -318,6 +329,7 @@ class PsdWorker:
                 "band_power": {
                     "absolute": average_band_power.astype(np.float32).tolist(),
                     "relative_pct": average_band_relative_pct.astype(np.float32).tolist(),
+                    "differential_entropy": average_band_de.astype(np.float32).tolist(),
                     "total": average_band_total,
                 },
             },
@@ -335,6 +347,11 @@ class PsdWorker:
                 "channels": band_channels,
                 "absolute_unit": "uV^2",
                 "relative_unit": "%",
+                "differential_entropy_unit": "nat",
+                "differential_entropy_log_base": "e",
+                "differential_entropy_method": "gaussian_from_band_power",
+                "differential_entropy_reference_unit": "uV",
+                "differential_entropy_power_floor_uV2": float(DE_POWER_FLOOR_UV2),
                 "normalization": "sum_of_listed_bands",
                 "normalization_fmin_hz": float(EEG_BANDS[0][3]),
                 "normalization_fmax_hz": float(min(EEG_BANDS[-1][4], nyq)),

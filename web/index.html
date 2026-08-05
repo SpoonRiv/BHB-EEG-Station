@@ -294,14 +294,15 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             <input id="debug-filter" placeholder="过滤关键字" style="width: 220px;" />
                             <button class="btn btn--ghost" id="debug-clear">清空</button>
                             <button class="btn btn--ghost" id="debug-pause">暂停输出</button>
-                            <button class="btn btn--ghost eeg-focus-toggle" id="eeg-focus-toggle" type="button" aria-label="全屏显示" aria-pressed="false" aria-expanded="true" aria-controls="eeg-debug-body" title="全屏显示">
-                                <svg class="eeg-focus-icon eeg-focus-icon--expand" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                    <path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+                            <button class="btn btn--ghost eeg-focus-toggle" id="eeg-focus-toggle" type="button" aria-label="隐藏调试" aria-pressed="false" aria-expanded="true" aria-controls="eeg-debug-body" title="隐藏调试">
+                                <svg class="eeg-focus-icon eeg-focus-icon--hide" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <path d="M3 14.5c2.4-3 5.4-4.5 9-4.5s6.6 1.5 9 4.5M6 17l1.4-2.4M12 18v-3M18 17l-1.4-2.4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
                                 </svg>
-                                <svg class="eeg-focus-icon eeg-focus-icon--restore" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                    <path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+                                <svg class="eeg-focus-icon eeg-focus-icon--show" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6S2.5 12 2.5 12Z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.9"/>
                                 </svg>
-                                <span id="eeg-focus-label">全屏显示</span>
+                                <span id="eeg-focus-label">隐藏调试</span>
                             </button>
                             <button class="btn btn--primary" id="btn-eeg-start">开始EEG采集</button>
                             <button class="btn btn--danger" id="btn-eeg-stop">停止EEG采集</button>
@@ -344,7 +345,8 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                                     </section>
                                     <section class="spectrum-plot-card">
                                         <div class="spectrum-plot-heading">
-                                            <div class="band-chart-title" id="band-power-title">不同频段能量占比</div>
+                                            <div class="band-chart-title" id="band-power-title">各频段相对功率</div>
+                                            <div class="segmented band-metric-switch" id="band-metric-controls" role="group" aria-label="右图展示指标"></div>
                                         </div>
                                         <div id="band-power-chart" class="spectrum-chart"></div>
                                     </section>
@@ -533,14 +535,15 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             <input id="imp-debug-filter" placeholder="过滤关键字" style="width: 220px;" />
                             <button class="btn btn--ghost" id="imp-debug-clear">清空</button>
                             <button class="btn btn--ghost" id="imp-debug-pause">暂停输出</button>
-                            <button class="btn btn--ghost eeg-focus-toggle" id="imp-focus-toggle" type="button" aria-label="全屏显示" aria-pressed="false" aria-expanded="true" aria-controls="imp-debug-body" title="全屏显示">
-                                <svg class="eeg-focus-icon eeg-focus-icon--expand" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                    <path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+                            <button class="btn btn--ghost eeg-focus-toggle" id="imp-focus-toggle" type="button" aria-label="隐藏调试" aria-pressed="false" aria-expanded="true" aria-controls="imp-debug-body" title="隐藏调试">
+                                <svg class="eeg-focus-icon eeg-focus-icon--hide" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <path d="M3 14.5c2.4-3 5.4-4.5 9-4.5s6.6 1.5 9 4.5M6 17l1.4-2.4M12 18v-3M18 17l-1.4-2.4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
                                 </svg>
-                                <svg class="eeg-focus-icon eeg-focus-icon--restore" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                    <path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+                                <svg class="eeg-focus-icon eeg-focus-icon--show" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6S2.5 12 2.5 12Z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.9"/>
                                 </svg>
-                                <span id="imp-focus-label">全屏显示</span>
+                                <span id="imp-focus-label">隐藏调试</span>
                             </button>
                             <button class="btn btn--primary" id="btn-imp-start">开启阻抗检测</button>
                             <button class="btn btn--danger" id="btn-imp-stop">停止阻抗检测</button>

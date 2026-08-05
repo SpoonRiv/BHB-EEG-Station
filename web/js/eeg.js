@@ -202,14 +202,14 @@ function setEegWaveFocus(enabled, { persist = true, resize = true } = {}) {
     debugBody.inert = eegWaveFocusEnabled;
   }
   if (toggle) {
-    const nextLabel = eegWaveFocusEnabled ? '恢复布局' : '全屏显示';
+    const nextLabel = eegWaveFocusEnabled ? '显示调试' : '隐藏调试';
     toggle.classList.toggle('is-active', eegWaveFocusEnabled);
     toggle.setAttribute('aria-pressed', eegWaveFocusEnabled ? 'true' : 'false');
     toggle.setAttribute('aria-expanded', eegWaveFocusEnabled ? 'false' : 'true');
     toggle.setAttribute('aria-label', nextLabel);
     toggle.setAttribute('title', nextLabel);
   }
-  if (label) label.textContent = eegWaveFocusEnabled ? '恢复布局' : '全屏显示';
+  if (label) label.textContent = eegWaveFocusEnabled ? '显示调试' : '隐藏调试';
 
   if (persist) {
     try { localStorage.setItem(EEG_WAVE_FOCUS_STORAGE_KEY, eegWaveFocusEnabled ? '1' : '0'); } catch (_) {}

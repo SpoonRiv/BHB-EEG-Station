@@ -549,14 +549,14 @@ function setImpedanceFocus(enabled, { persist = true } = {}) {
     debugBody.inert = impFocusEnabled;
   }
   if (toggle) {
-    const nextLabel = impFocusEnabled ? '恢复布局' : '全屏显示';
+    const nextLabel = impFocusEnabled ? '显示调试' : '隐藏调试';
     toggle.classList.toggle('is-active', impFocusEnabled);
     toggle.setAttribute('aria-pressed', impFocusEnabled ? 'true' : 'false');
     toggle.setAttribute('aria-expanded', impFocusEnabled ? 'false' : 'true');
     toggle.setAttribute('aria-label', nextLabel);
     toggle.setAttribute('title', nextLabel);
   }
-  if (label) label.textContent = impFocusEnabled ? '恢复布局' : '全屏显示';
+  if (label) label.textContent = impFocusEnabled ? '显示调试' : '隐藏调试';
 
   if (persist) {
     try { localStorage.setItem(IMPEDANCE_FOCUS_STORAGE_KEY, impFocusEnabled ? '1' : '0'); } catch (_) {}

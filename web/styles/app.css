@@ -1859,15 +1859,15 @@ select option {
   flex: 0 0 15px;
 }
 
-.eeg-focus-icon--restore {
+.eeg-focus-icon--show {
   display: none;
 }
 
-.eeg-focus-toggle.is-active .eeg-focus-icon--expand {
+.eeg-focus-toggle.is-active .eeg-focus-icon--hide {
   display: none;
 }
 
-.eeg-focus-toggle.is-active .eeg-focus-icon--restore {
+.eeg-focus-toggle.is-active .eeg-focus-icon--show {
   display: block;
 }
 
@@ -2432,8 +2432,31 @@ select option {
 
 .spectrum-plot-heading {
   flex: 0 0 auto;
-  min-height: 22px;
-  padding: 0 3px 4px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0 3px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  box-sizing: border-box;
+}
+
+.band-metric-switch {
+  flex: 0 0 auto;
+  padding: 2px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.band-metric-switch .seg-btn {
+  height: 28px;
+  min-height: 28px;
+  min-width: 48px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .spectrum-chart {
@@ -2559,9 +2582,13 @@ select option {
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: 118px minmax(120px, 1fr) 56px;
+  grid-template-rows: 36px;
+  position: relative;
   align-items: center;
   gap: 8px;
   width: 100%;
+  height: 36px;
+  min-height: 0;
   justify-content: stretch;
 }
 
@@ -2570,9 +2597,14 @@ select option {
 }
 
 #eeg-frequency-controls .spectrum-channel-tools {
-  grid-column: 2 / -1;
+  position: absolute;
+  top: 0;
+  right: 12px;
+  width: 112px;
+  height: 40px;
+  min-height: 0;
   justify-content: flex-end;
-  padding-right: 12px;
+  padding: 0;
   box-sizing: border-box;
 }
 
