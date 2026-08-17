@@ -1,5 +1,5 @@
 app:
-  ui_version: "3.1.2"
+  ui_version: "3.2.0"
 
 ui:
   waveform:
@@ -69,12 +69,12 @@ eeg:
   sampling_rate_hz: 500
   channel_names:
     - "P3"
-    - "PO4"
     - "P7"
-    - "PO8"
     - "PO7"
-    - "P8"
     - "PO3"
+    - "PO4"
+    - "PO8"
+    - "P8"
     - "P4"
   ref_channel_name: "Pz"
   # 参考电极可选列表（用于 UI 单独下拉选择；不参与“通道选择满 n 个”的计数）
@@ -151,7 +151,7 @@ eeg:
   presets:
     - name: "BHB-脑电头环组合"
       n_channels: 8
-      channel_names: ["P3", "PO4", "P7", "PO8", "PO7", "P8", "PO3", "P4"]
+      channel_names: ["P3", "P7", "PO7", "PO3", "PO4", "PO8", "P8", "P4"]
       ref_channel_name: "Pz"
     - name: "BHB-脑电帽组合"
       n_channels: 16
@@ -252,7 +252,7 @@ signal:
     freq_hz: 50.0
     quality_factor: 30.0
   bandpass:
-    enabled: false
+    enabled: true
     lowcut_hz: 1.0
     highcut_hz: 45.0
     order: 4

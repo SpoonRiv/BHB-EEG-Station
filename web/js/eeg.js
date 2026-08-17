@@ -5,7 +5,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 作者: Spoon
 */
 
-import { getConfig, getStatus, modeStart, modeStop, setSignalBandpass } from './api.js';
+import { getConfig, getStatus, modeStart, modeStop, getSignalBandpass, setSignalBandpass } from './api.js';
 import { navigate } from './router.js';
 import { EegPsdView } from './eeg_psd.js';
 
@@ -111,14 +111,14 @@ function renderBatteryBadge(battery, running, streaming) {
   badge.classList.remove('active', 'warn', 'error');
 
   if (!running) {
-    textEl.textContent = '--';
+    textEl.textContent = '';
     badge.classList.add('error');
     applyBatteryFill(badge, 0, '#ff4d6d');
     return;
   }
 
   if (streaming && (!battery || typeof battery !== 'object')) {
-    textEl.textContent = '获取中';
+    textEl.textContent = '';
     badge.classList.add('warn');
     applyBatteryFill(badge, 0, '#ffcc66');
     return;
@@ -126,7 +126,7 @@ function renderBatteryBadge(battery, running, streaming) {
 
   const v = battery && typeof battery.value === 'number' ? battery.value : null;
   if (v === null || !Number.isFinite(v)) {
-    textEl.textContent = streaming ? '获取中' : '--';
+    textEl.textContent = '';
     if (streaming) {
       badge.classList.add('warn');
       applyBatteryFill(badge, 0, '#ffcc66');
@@ -379,12 +379,12 @@ function buildSettingsPopover() {
   };
   body.innerHTML = '';
 
-  // === Section 1: Y轴 ===
+  // === Section 1: 垂直量程 ===
   const sec1 = document.createElement('div');
   sec1.className = 'eeg-settings-section';
   const sec1Title = document.createElement('div');
   sec1Title.className = 'eeg-settings-section-title';
-  sec1Title.textContent = 'Y轴 (幅值)';
+  sec1Title.textContent = '垂直量程（幅值）';
   sec1.appendChild(sec1Title);
 
   const row1Switch = document.createElement('div');
@@ -400,7 +400,7 @@ function buildSettingsPopover() {
   swLabel1.appendChild(swSlider1);
   const dynText = document.createElement('span');
   dynText.className = 'eeg-settings-label';
-  dynText.textContent = '动态Y轴';
+  dynText.textContent = '自动量程';
   row1Switch.appendChild(dynText);
   row1Switch.appendChild(swLabel1);
   sec1.appendChild(row1Switch);
@@ -409,7 +409,7 @@ function buildSettingsPopover() {
   row1Range.className = 'eeg-settings-row';
   const rangeLabel = document.createElement('span');
   rangeLabel.className = 'eeg-settings-label';
-  rangeLabel.textContent = '固定范围';
+  rangeLabel.textContent = '固定量程';
   const rangeInput = document.createElement('input');
   rangeInput.type = 'range';
   rangeInput.min = String(eegYAxisFixedMaxMin);
@@ -439,19 +439,19 @@ function buildSettingsPopover() {
     applyYUiState();
   };
 
-  // === Section 2: X轴 ===
+  // === Section 2: 水平时基 ===
   const sec2 = document.createElement('div');
   sec2.className = 'eeg-settings-section';
   const sec2Title = document.createElement('div');
   sec2Title.className = 'eeg-settings-section-title';
-  sec2Title.textContent = 'X轴 (时间窗口)';
+  sec2Title.textContent = '水平时基（时间窗）';
   sec2.appendChild(sec2Title);
 
   const row2 = document.createElement('div');
   row2.className = 'eeg-settings-row';
   const xLabel = document.createElement('span');
   xLabel.className = 'eeg-settings-label';
-  xLabel.textContent = '窗口(秒)';
+  xLabel.textContent = '时窗长度（秒）';
   const xInput = document.createElement('input');
   xInput.type = 'number';
   xInput.min = '0.5';
@@ -490,14 +490,14 @@ function buildSettingsPopover() {
   bpSwLabel.className = 'ios-switch';
   const bpInput = document.createElement('input');
   bpInput.type = 'checkbox';
-  bpInput.checked = false;
+  bpInput.checked = true; // 默认开启；后端读取失败时亦保持 ON
   const bpSlider = document.createElement('span');
   bpSlider.className = 'ios-slider';
   bpSwLabel.appendChild(bpInput);
   bpSwLabel.appendChild(bpSlider);
   const bpText = document.createElement('span');
   bpText.className = 'eeg-settings-label';
-  bpText.textContent = '启用带通';
+  bpText.textContent = '启用滤波器';
   row3Sw.appendChild(bpText);
   row3Sw.appendChild(bpSwLabel);
   sec3.appendChild(row3Sw);
@@ -506,7 +506,7 @@ function buildSettingsPopover() {
   row3Low.className = 'eeg-settings-row';
   const lowLabel = document.createElement('span');
   lowLabel.className = 'eeg-settings-label';
-  lowLabel.textContent = '低切(Hz)';
+  lowLabel.textContent = '低截止频率（Hz）';
   const lowInput = document.createElement('input');
   lowInput.type = 'number';
   lowInput.min = '0.1';
@@ -522,7 +522,7 @@ function buildSettingsPopover() {
   row3High.className = 'eeg-settings-row';
   const highLabel = document.createElement('span');
   highLabel.className = 'eeg-settings-label';
-  highLabel.textContent = '高切(Hz)';
+  highLabel.textContent = '高截止频率（Hz）';
   const highInput = document.createElement('input');
   highInput.type = 'number';
   highInput.min = '1';
@@ -538,7 +538,7 @@ function buildSettingsPopover() {
   row3Order.className = 'eeg-settings-row';
   const orderLabel = document.createElement('span');
   orderLabel.className = 'eeg-settings-label';
-  orderLabel.textContent = '阶数';
+  orderLabel.textContent = '滤波器阶数';
   const orderInput = document.createElement('input');
   orderInput.type = 'number';
   orderInput.min = '2';
@@ -569,6 +569,15 @@ function buildSettingsPopover() {
       await setSignalBandpass({ enabled, lowcut_hz, highcut_hz, order });
     } catch (_) {}
   };
+
+  // 初始状态以后端有效参数为准；API 失败/未返回 enabled 时兜底保持 checked=true
+  getSignalBandpass()
+    .then((bp) => {
+      if (bp && typeof bp === 'object' && typeof bp.enabled === 'boolean') {
+        bpInput.checked = bp.enabled;
+      }
+    })
+    .catch(() => { bpInput.checked = true; });
 }
 
 function closeTimeSettingsPopover() {

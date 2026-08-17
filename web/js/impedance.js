@@ -78,17 +78,6 @@ function renderDebug() {
   if (!debugPaused && shouldStickToBottom) el.scrollTop = el.scrollHeight;
 }
 
-function setBadge(kind, text) {
-  const badge = document.getElementById('imp-badge');
-  const textEl = document.getElementById('imp-badge-text');
-  if (!badge || !textEl) return;
-  badge.classList.remove('active', 'warn', 'error');
-  if (kind === 'active') badge.classList.add('active');
-  else if (kind === 'warn') badge.classList.add('warn');
-  else if (kind === 'error') badge.classList.add('error');
-  textEl.textContent = String(text || '');
-}
-
 function renderImpControlButtons(running, connected, taskActive) {
   const startBtn = document.getElementById('btn-imp-start');
   const stopBtn = document.getElementById('btn-imp-stop');
@@ -406,18 +395,6 @@ function updateList(valuesByName) {
   }
 }
 
-function renderBadgeByFreshness() {
-  const now = Date.now();
-  if (!impLastRecvAtMs) {
-    setBadge('warn', '等待数据');
-    return;
-  }
-  const ageMs = Math.max(0, now - impLastRecvAtMs);
-  if (ageMs < 2000) setBadge('active', '数据更新中');
-  else if (ageMs < 6000) setBadge('warn', '数据延迟');
-  else setBadge('error', '数据超时');
-}
-
 function renderSubtitle(stateText) {
   return;
 }
@@ -696,7 +673,6 @@ function startTimers() {
       if (topo) topo.update(impValuesByName);
       updateList(impValuesByName);
     }
-    renderBadgeByFreshness();
   }, Math.round(1000 / hz));
   refreshImpStatusHint();
   impStatusTimer = setInterval(refreshImpStatusHint, 1000);
@@ -722,7 +698,6 @@ export async function enterImpedancePage() {
   impValuesDirty = false;
   impTaskActive = false;
   selectedName = '';
-  setBadge('warn', '等待数据');
   bindControls();
   bindImpedanceFocusToggle();
   await initImpedanceUiOnce();

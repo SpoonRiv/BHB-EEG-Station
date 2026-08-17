@@ -51,7 +51,7 @@ function renderBatteryBadge(battery, running) {
   badge.classList.remove('active', 'warn', 'error');
 
   if (!running) {
-    textEl.textContent = '--';
+    textEl.textContent = '';
     badge.classList.add('error');
     applyBatteryFill(badge, 0, '#ff4d6d');
     return;
@@ -59,7 +59,7 @@ function renderBatteryBadge(battery, running) {
 
   const v = battery && typeof battery.value === 'number' ? battery.value : null;
   if (v === null || !Number.isFinite(v)) {
-    textEl.textContent = '获取中';
+    textEl.textContent = '';
     badge.classList.add('warn');
     applyBatteryFill(badge, 0, '#ffcc66');
     return;

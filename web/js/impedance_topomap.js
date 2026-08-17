@@ -227,9 +227,26 @@ function createElectrodeMap(hostEl, channelNames, positions, aliases, groupClass
 /**
  * 只负责通道选择的通用 10-20 头皮图。
  * 阻抗和频带能量可共享空间布局，但各自保留独立的数值与颜色语义。
+ *
+ * options（可选，保持向后兼容）：
+ * - maxCount: 最多可选通道数，默认 1（为 1 时保留旧的"直接替换"行为）
+ * - minCount: 最少保留通道数，缺省跟随 maxCount（单选默认不会取消到空），再 clamp 到 [0, maxCount]
+ * - onReject: 已选满 maxCount 时再点击未选电极的回调，参数为被拒绝的通道名
+ * onSelect 回调传出当前已选通道名的有序数组。
  */
-export function createSelectableTopomap(hostEl, channelNames, positions, aliases) {
+export function createSelectableTopomap(hostEl, channelNames, positions, aliases, options = {}) {
   if (!hostEl) return null;
+  const opts = options && typeof options === 'object' ? options : {};
+  const maxCountRaw = Math.floor(Number(opts.maxCount));
+  const maxCount = Number.isFinite(maxCountRaw) && maxCountRaw >= 1 ? maxCountRaw : 1;
+  const minCountSource = opts.minCount !== undefined && opts.minCount !== null
+    ? Math.floor(Number(opts.minCount))
+    : maxCount;
+  const minCount = Number.isFinite(minCountSource)
+    ? Math.max(0, Math.min(maxCount, minCountSource))
+    : maxCount;
+  const onReject = typeof opts.onReject === 'function' ? opts.onReject : null;
+
   const { groups } = createElectrodeMap(
     hostEl,
     channelNames,
@@ -238,16 +255,45 @@ export function createSelectableTopomap(hostEl, channelNames, positions, aliases
     ['channel-electrode'],
   );
 
-  let selected = '';
+  let selected = [];
   let onSelect = null;
 
-  function setSelected(name) {
-    selected = String(name || '');
+  function paint() {
     for (const [n, g] of groups.entries()) {
-      const active = n === selected;
-      g.classList.toggle('selected', active);
-      g.setAttribute('aria-pressed', active ? 'true' : 'false');
+      const index = selected.indexOf(n);
+      g.classList.toggle('selected', index >= 0);
+      g.classList.toggle('selected-1', index === 0);
+      g.classList.toggle('selected-2', index === 1);
+      g.setAttribute('aria-pressed', index >= 0 ? 'true' : 'false');
     }
+  }
+
+  function setSelected(value) {
+    const list = Array.isArray(value) ? value : [value];
+    selected = list
+      .map((name) => String(name || ''))
+      .filter((name, index, arr) => name && arr.indexOf(name) === index)
+      .slice(0, maxCount);
+    paint();
+  }
+
+  function toggle(name) {
+    const index = selected.indexOf(name);
+    if (index >= 0) {
+      // 已选：数量允许时取消，否则忽略
+      if (selected.length > minCount) selected.splice(index, 1);
+      else return;
+    } else if (selected.length < maxCount) {
+      selected.push(name);
+    } else if (maxCount === 1) {
+      // 单选兼容：保持旧的"直接替换"行为
+      selected = [name];
+    } else {
+      if (onReject) onReject(name);
+      return;
+    }
+    paint();
+    if (onSelect) onSelect(selected.slice());
   }
 
   function setOnSelect(fn) {
@@ -256,17 +302,16 @@ export function createSelectableTopomap(hostEl, channelNames, positions, aliases
       g.setAttribute('role', 'button');
       g.setAttribute('tabindex', onSelect ? '0' : '-1');
       g.setAttribute('aria-label', `选择通道 ${n}`);
-      g.onclick = onSelect ? () => { setSelected(n); onSelect(n); } : null;
+      g.onclick = onSelect ? () => toggle(n) : null;
       g.onkeydown = onSelect ? (event) => {
         if (event.key !== 'Enter' && event.key !== ' ') return;
         event.preventDefault();
-        setSelected(n);
-        onSelect(n);
+        toggle(n);
       } : null;
     }
   }
 
-  setSelected('');
+  setSelected([]);
   return { setSelected, setOnSelect };
 }
 

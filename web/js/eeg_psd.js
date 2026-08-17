@@ -11,6 +11,9 @@ import { createSelectableTopomap } from './impedance_topomap.js';
 const PSD_DISPLAY_MIN_HZ = 1;
 const PSD_DISPLAY_MAX_HZ = 45;
 
+const MAP_HINT_DEFAULT = '点击电极选择通道，最多 2 个进入对比视图，再次点击取消';
+const MAP_HINT_WARN = '最多对比 2 个通道，请先取消一个';
+
 const GEAR_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
 const CLOSE_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
 
@@ -76,7 +79,7 @@ export class EegPsdView {
     this.mode = 'time';
     this.scopeMode = 'average';
     this.bandMetricMode = 'energy';
-    this.activeChannel = this.channelNames[0] || '';
+    this.activeChannels = this.channelNames.length ? [this.channelNames[0]] : [];
     this.ws = null;
     this.reconnectTimer = null;
     this.reconnectAttempt = 0;
@@ -105,6 +108,8 @@ export class EegPsdView {
     this.scopeToggle = null;
     this.settingsToggleBtn = null;
     this.elTopomapSection = null;
+    this.elMapHint = null;
+    this.hintWarnTimer = null;
     this.triggerStartBtn = null;
     this.triggerStopBtn = null;
     this.bandMetricButtons = [];
@@ -343,15 +348,15 @@ export class EegPsdView {
     rowAvg.className = 'eeg-settings-row';
     const avgText = document.createElement('span');
     avgText.className = 'eeg-settings-label';
-    avgText.textContent = '通道平均';
+    avgText.textContent = '全通道平均';
     const avgLabel = document.createElement('label');
     avgLabel.className = 'ios-switch';
-    avgLabel.title = '开启为通道平均，关闭为单通道';
+    avgLabel.title = '开启为全通道平均，关闭为按选中通道显示';
     const avgInput = document.createElement('input');
     avgInput.type = 'checkbox';
     avgInput.checked = this.scopeMode === 'average';
     avgInput.setAttribute('role', 'switch');
-    avgInput.setAttribute('aria-label', '通道平均');
+    avgInput.setAttribute('aria-label', '全通道平均');
     avgInput.onchange = () => this._setScopeMode(avgInput.checked ? 'average' : 'channel');
     const avgSlider = document.createElement('span');
     avgSlider.className = 'ios-slider';
@@ -372,7 +377,7 @@ export class EegPsdView {
 
     const mapHint = document.createElement('div');
     mapHint.className = 'eeg-settings-hint';
-    mapHint.textContent = '点击电极后，两张图同步切换到该通道';
+    mapHint.textContent = MAP_HINT_DEFAULT;
     sec2.appendChild(mapHint);
 
     const mapWrap = document.createElement('div');
@@ -392,6 +397,7 @@ export class EegPsdView {
     this.settingsToggleBtn = toggleBtn;
     this.elSettingsPopover = popover;
     this.scopeToggle = avgInput;
+    this.elMapHint = mapHint;
     this.elTopomapSection = sec2;
   }
 
@@ -446,10 +452,11 @@ export class EegPsdView {
       this.channelNames,
       this.electrodePositions,
       this.electrodeAliases,
+      { maxCount: 2, minCount: 1, onReject: () => this._flashMapHintWarn() },
     );
     if (!this.topomap) return;
-    this.topomap.setOnSelect((name) => this._setActiveChannel(name));
-    this.topomap.setSelected(this.activeChannel);
+    this.topomap.setOnSelect((list) => this._setActiveChannels(list));
+    this.topomap.setSelected(this.activeChannels);
   }
 
   _setSettingsPopoverOpen(open) {
@@ -459,7 +466,8 @@ export class EegPsdView {
       this.settingsToggleBtn.innerHTML = shouldOpen ? CLOSE_SVG : GEAR_SVG;
       this.settingsToggleBtn.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
     }
-    if (shouldOpen && this.topomap) this.topomap.setSelected(this.activeChannel);
+    if (shouldOpen && this.topomap) this.topomap.setSelected(this.activeChannels);
+    if (!shouldOpen) this._clearMapHintWarn();
   }
 
   _initCharts() {
@@ -470,8 +478,9 @@ export class EegPsdView {
   }
 
   _setScopeMode(mode) {
-    this.scopeMode = mode === 'channel' ? 'channel' : 'average';
-    if (!this.activeChannel && this.channelNames.length) this.activeChannel = this.channelNames[0];
+    const next = mode === 'channel' ? 'channel' : 'average';
+    this.scopeMode = next;
+    if (!this.activeChannels.length && this.channelNames.length) this.activeChannels = [this.channelNames[0]];
     this._syncScopeControls();
     this._renderIfReady();
     requestAnimationFrame(() => this.resize());
@@ -483,12 +492,47 @@ export class EegPsdView {
     if (this.elTopomapSection) this.elTopomapSection.classList.toggle('is-dim', !isChannel);
   }
 
-  _setActiveChannel(name) {
-    const next = String(name || '');
-    if (!this.channelNames.includes(next)) return;
-    this.activeChannel = next;
-    if (this.topomap) this.topomap.setSelected(next);
+  _setActiveChannels(list) {
+    const names = (Array.isArray(list) ? list : [list])
+      .map((name) => String(name || ''))
+      .filter((name, index, arr) => (
+        name && this.channelNames.includes(name) && arr.indexOf(name) === index
+      ));
+    if (!names.length) return;
+    this.activeChannels = names;
+    if (this.topomap) this.topomap.setSelected(names);
+    this._syncScopeControls();
+    // 选中第 2 个通道时自动关闭通道平均（_setScopeMode 内部会同步开关并重渲染）
+    if (names.length > 1 && this.scopeMode === 'average') {
+      this._setScopeMode('channel');
+      return;
+    }
     if (this.scopeMode === 'channel') this._renderIfReady();
+  }
+
+  _flashMapHintWarn() {
+    if (!this.elMapHint) return;
+    if (this.hintWarnTimer !== null) window.clearTimeout(this.hintWarnTimer);
+    this.elMapHint.textContent = MAP_HINT_WARN;
+    this.elMapHint.classList.add('is-warn');
+    this.hintWarnTimer = window.setTimeout(() => {
+      this.hintWarnTimer = null;
+      this._restoreMapHint();
+    }, 1200);
+  }
+
+  _restoreMapHint() {
+    if (!this.elMapHint) return;
+    this.elMapHint.textContent = MAP_HINT_DEFAULT;
+    this.elMapHint.classList.remove('is-warn');
+  }
+
+  _clearMapHintWarn() {
+    if (this.hintWarnTimer !== null) {
+      window.clearTimeout(this.hintWarnTimer);
+      this.hintWarnTimer = null;
+    }
+    this._restoreMapHint();
   }
 
   _syncButtons() {
@@ -579,10 +623,6 @@ export class EegPsdView {
     return { fmin: PSD_DISPLAY_MIN_HZ, fmax: PSD_DISPLAY_MAX_HZ };
   }
 
-  _sourceLabel() {
-    return this.scopeMode === 'channel' ? (this.activeChannel || '单通道') : '全通道平均';
-  }
-
   _normalizeBandRow(row, bandCount) {
     if (!row || typeof row !== 'object') return null;
     const absolute = Array.isArray(row.absolute)
@@ -650,11 +690,20 @@ export class EegPsdView {
   }
 
   _sourceBandData(bandCount) {
-    if (this.scopeMode === 'average') return this._averageBandData(bandCount);
+    if (this.scopeMode === 'average') {
+      const row = this._averageBandData(bandCount);
+      return row ? [{ name: '全通道平均', bandPower: row }] : null;
+    }
     const channels = this.psdPayload && this.psdPayload.band_power
       ? this.psdPayload.band_power.channels
       : null;
-    return this._normalizeBandRow(channels ? channels[this.activeChannel] : null, bandCount);
+    const rows = [];
+    for (const name of this.activeChannels) {
+      const row = this._normalizeBandRow(channels ? channels[name] : null, bandCount);
+      if (!row) return null;
+      rows.push({ name, bandPower: row });
+    }
+    return rows.length ? rows : null;
   }
 
   _sourceSpectrum() {
@@ -662,11 +711,18 @@ export class EegPsdView {
     if (!payload || !Array.isArray(payload.freq_hz)) return null;
     const targetLength = payload.freq_hz.length;
     if (this.scopeMode === 'channel') {
-      const values = payload.channels && payload.channels[this.activeChannel];
-      return Array.isArray(values) && values.length === targetLength ? values.map(Number) : null;
+      const sources = [];
+      for (const name of this.activeChannels) {
+        const values = payload.channels && payload.channels[name];
+        if (!Array.isArray(values) || values.length !== targetLength) return null;
+        sources.push({ name, data: values.map(Number) });
+      }
+      return sources.length ? sources : null;
     }
     const average = payload.average && payload.average.spectrum;
-    if (Array.isArray(average) && average.length === targetLength) return average.map(Number);
+    if (Array.isArray(average) && average.length === targetLength) {
+      return [{ name: '全通道平均', data: average.map(Number) }];
+    }
 
     const rows = this.channelNames
       .map((name) => payload.channels && payload.channels[name])
@@ -683,7 +739,7 @@ export class EegPsdView {
       const mean = sum / rows.length;
       result[i] = isDb ? 10 * Math.log10(Math.max(mean, 1e-20)) : mean;
     }
-    return result;
+    return [{ name: '全通道平均', data: result }];
   }
 
   _chartTheme() {
@@ -696,6 +752,11 @@ export class EegPsdView {
       tooltipBorder: isLight ? 'rgba(39, 52, 73, 0.16)' : 'rgba(148, 184, 225, 0.22)',
       line: isLight ? '#118AB2' : '#38BDF8',
     };
+  }
+
+  // 双通道对比专用：蓝/橙色盲友好组合，与 BAND_COLORS 频段色不重叠
+  _channelPairColors() {
+    return this.theme === 'light' ? ['#118AB2', '#F76707'] : ['#38BDF8', '#FB923C'];
   }
 
   _waitingOption(message) {
@@ -728,25 +789,25 @@ export class EegPsdView {
       return;
     }
     const bands = this._bandsFromPayload();
-    const spectrum = this._sourceSpectrum();
-    const bandData = this._sourceBandData(bands.length);
-    if (!spectrum || !bandData) {
+    const sources = this._sourceSpectrum();
+    const bandRows = this._sourceBandData(bands.length);
+    if (!sources || !sources.length || !bandRows || !bandRows.length) {
       this._renderWaitingCharts('当前数据范围暂无可用数据');
       return;
     }
     this._renderBandLegend(bands);
-    this._renderSpectrumChart(bands, spectrum);
-    this._renderBandChart(bands, bandData);
+    this._renderSpectrumChart(bands, sources);
+    this._renderBandChart(bands, bandRows);
   }
 
-  _renderSpectrumChart(bands, spectrum) {
+  _renderSpectrumChart(bands, sources) {
     if (!this.spectrumChart || !this.psdPayload) return;
     const frequencies = this.psdPayload.freq_hz;
-    const source = this._sourceLabel();
     const range = this._displayRange();
     const unit = String(this.psdPayload.unit || '');
     const colors = this._chartTheme();
-    const data = frequencies.map((frequency, index) => [Number(frequency), Number(spectrum[index])]);
+    const pair = sources.length > 1;
+    const seriesColors = pair ? this._channelPairColors() : [colors.line];
     const markAreaData = bands.map((band) => ([
       {
         name: band.name,
@@ -756,10 +817,34 @@ export class EegPsdView {
       { xAxis: Number(band.fmax_hz) },
     ]));
 
+    const series = sources.map((source, seriesIndex) => ({
+      name: source.name,
+      type: 'line',
+      data: frequencies.map((frequency, index) => [Number(frequency), Number(source.data[index])]),
+      showSymbol: false,
+      smooth: 0.08,
+      sampling: 'lttb',
+      lineStyle: { width: 2, color: seriesColors[seriesIndex] },
+      itemStyle: { color: seriesColors[seriesIndex] },
+      markArea: seriesIndex === 0
+        ? { silent: true, label: { show: false }, data: markAreaData }
+        : undefined,
+    }));
+
     this.spectrumChart.setOption({
       backgroundColor: 'transparent',
       title: { show: false },
-      grid: { top: 12, right: 18, bottom: 42, left: 58, containLabel: false },
+      grid: { top: pair ? 26 : 12, right: 18, bottom: 42, left: 58, containLabel: false },
+      legend: pair ? {
+        show: true,
+        right: 6,
+        top: 2,
+        icon: 'roundRect',
+        itemWidth: 12,
+        itemHeight: 3,
+        itemGap: 12,
+        textStyle: { color: colors.axis, fontSize: 11, fontWeight: 700 },
+      } : { show: false },
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'cross', label: { backgroundColor: colors.axis } },
@@ -767,16 +852,24 @@ export class EegPsdView {
         borderColor: colors.tooltipBorder,
         textStyle: { color: colors.axis },
         formatter: (params) => {
-          const item = Array.isArray(params) ? params[0] : params;
-          if (!item || !Array.isArray(item.value)) return '';
-          return `<div class="band-tooltip-title">${escapeHtml(source)}</div><div>${Number(item.value[0]).toFixed(1)} Hz</div><strong>${Number(item.value[1]).toFixed(2)} ${escapeHtml(unit)}</strong>`;
+          const items = (Array.isArray(params) ? params : [params])
+            .filter((item) => item && Array.isArray(item.value));
+          if (!items.length) return '';
+          const freqLabel = `${Number(items[0].value[0]).toFixed(1)} Hz`;
+          if (items.length === 1) {
+            return `<div class="band-tooltip-title">${escapeHtml(items[0].seriesName)}</div><div>${freqLabel}</div><strong>${Number(items[0].value[1]).toFixed(2)} ${escapeHtml(unit)}</strong>`;
+          }
+          const rows = items.map((item) => (
+            `<div>${item.marker || ''}${escapeHtml(item.seriesName)}：<strong>${Number(item.value[1]).toFixed(2)} ${escapeHtml(unit)}</strong></div>`
+          )).join('');
+          return `<div class="band-tooltip-title">${freqLabel}</div>${rows}`;
         },
       },
       xAxis: {
         type: 'value',
         min: range.fmin,
         max: range.fmax,
-        name: '频率 (Hz)',
+        name: '频率（Hz）',
         nameLocation: 'middle',
         nameGap: 28,
         nameTextStyle: { color: colors.axis, fontWeight: 750 },
@@ -797,32 +890,25 @@ export class EegPsdView {
         axisLabel: { color: colors.axis },
         splitLine: { lineStyle: { color: colors.split, type: 'dashed' } },
       },
-      series: [{
-        name: source,
-        type: 'line',
-        data,
-        showSymbol: false,
-        smooth: 0.08,
-        sampling: 'lttb',
-        lineStyle: { width: 2, color: colors.line },
-        itemStyle: { color: colors.line },
-        markArea: { silent: true, label: { show: false }, data: markAreaData },
-      }],
+      series,
       animation: false,
     }, true, false);
   }
 
-  _renderBandChart(bands, row) {
+  _renderBandChart(bands, rows) {
     if (!this.bandChart) return;
-    const source = this._sourceLabel();
     const colors = this._chartTheme();
     const isDe = this.bandMetricMode === 'de';
-    const metricValues = isDe ? row.differentialEntropy : row.values;
-    if (!Array.isArray(metricValues)
-      || metricValues.length < bands.length
-      || metricValues.some((value) => (
-        value === null || value === undefined || !Number.isFinite(Number(value))
-      ))) {
+    const metricOf = (entry) => (isDe ? entry.bandPower.differentialEntropy : entry.bandPower.values);
+    const usable = rows.every((entry) => {
+      const metricValues = metricOf(entry);
+      return Array.isArray(metricValues)
+        && metricValues.length >= bands.length
+        && !metricValues.some((value) => (
+          value === null || value === undefined || !Number.isFinite(Number(value))
+        ));
+    });
+    if (!usable) {
       this.bandChart.setOption(
         this._waitingOption(isDe ? '当前数据无法计算微分熵' : '当前数据范围暂无可用数据'),
         true,
@@ -831,64 +917,153 @@ export class EegPsdView {
       return;
     }
 
+    // 合并所有数据源（单通道或双通道）的极值计算 y 轴范围
+    const allValues = rows.flatMap((entry) => metricOf(entry).map(Number));
     let yMin = 0;
     let yMax = 100;
     if (isDe) {
-      const minValue = Math.min(...metricValues);
-      const maxValue = Math.max(...metricValues);
+      const minValue = Math.min(...allValues);
+      const maxValue = Math.max(...allValues);
       const padding = Math.max(0.5, (maxValue - minValue) * 0.18);
       yMin = minValue < 0 ? Math.floor((minValue - padding) * 2) / 2 : 0;
       yMax = maxValue > 0 ? Math.ceil((maxValue + padding) * 2) / 2 : 0;
       if (yMax <= yMin) yMax = yMin + 1;
     } else {
-      const maxValue = Math.max(0, ...metricValues);
+      const maxValue = Math.max(0, ...allValues);
       yMax = Math.min(100, Math.max(50, Math.ceil((maxValue * 1.25) / 10) * 10));
     }
 
+    const pair = rows.length > 1;
+    const pairColors = pair ? this._channelPairColors() : [];
     const categories = bands.map((band) => `${band.name}`);
-    const data = bands.map((band, index) => {
-      const value = Number(Number(metricValues[index]).toFixed(3));
+    const labelFormatter = (item) => (isDe
+      ? Number(item.value).toFixed(2)
+      : `${Number(item.value).toFixed(1)}%`);
+
+    const buildBarData = (entry, seriesColor) => bands.map((band, index) => {
+      const value = Number(Number(metricOf(entry)[index]).toFixed(3));
       return {
         value,
         itemStyle: {
-          color: BAND_COLORS[band.key] || '#38BDF8',
+          color: seriesColor || BAND_COLORS[band.key] || '#38BDF8',
           borderRadius: value >= 0 ? [7, 7, 2, 2] : [2, 2, 7, 7],
         },
         label: isDe ? { position: value >= 0 ? 'top' : 'bottom' } : undefined,
       };
     });
 
-    this.bandChart.setOption({
-      backgroundColor: 'transparent',
-      title: { show: false },
-      grid: { top: 28, right: 18, bottom: 42, left: 54, containLabel: false },
-      tooltip: {
+    const series = pair
+      ? rows.map((entry, seriesIndex) => ({
+        name: entry.name,
+        type: 'bar',
+        data: buildBarData(entry, pairColors[seriesIndex]),
+        // series 级颜色：供图例与 tooltip marker 使用（柱体本身仍由 data item 级 itemStyle 设色）
+        itemStyle: { color: pairColors[seriesIndex] },
+        barGap: '35%',
+        barMaxWidth: 44,
+        label: {
+          show: true,
+          position: 'top',
+          fontSize: 10,
+          color: pairColors[seriesIndex],
+          fontWeight: 800,
+          formatter: labelFormatter,
+        },
+      }))
+      : [{
+        name: rows[0].name,
+        type: 'bar',
+        data: buildBarData(rows[0], null),
+        barMaxWidth: 68,
+        label: {
+          show: true,
+          position: 'top',
+          color: colors.axis,
+          fontWeight: 800,
+          formatter: labelFormatter,
+        },
+      }];
+
+    const tooltip = pair
+      ? {
+        trigger: 'axis',
+        axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(148, 184, 225, 0.08)' } },
+        backgroundColor: colors.tooltipBg,
+        borderColor: colors.tooltipBorder,
+        textStyle: { color: colors.axis },
+        formatter: (params) => {
+          const items = Array.isArray(params) ? params : [params];
+          if (!items.length) return '';
+          const band = bands[items[0].dataIndex];
+          if (!band) return '';
+          const detail = items.map((item) => {
+            const entry = rows.find((row) => row.name === item.seriesName) || rows[item.seriesIndex];
+            const absolute = entry ? entry.bandPower.absolute[item.dataIndex] : null;
+            const power = (absolute === null || absolute === undefined)
+              ? ''
+              : ` · 功率 ${formatPower(absolute)} μV²`;
+            const metric = isDe
+              ? `${Number(item.value).toFixed(3)} nat`
+              : `${Number(item.value).toFixed(1)}%`;
+            return `<div>${item.marker || ''}${escapeHtml(item.seriesName)}：<strong>${metric}</strong>${power}</div>`;
+          }).join('');
+          return `<div class="band-tooltip-title">${escapeHtml(band.name)}</div><div>${formatHz(band.fmin_hz)}–${formatHz(band.fmax_hz)} Hz</div>${detail}`;
+        },
+      }
+      : {
         trigger: 'item',
         backgroundColor: colors.tooltipBg,
         borderColor: colors.tooltipBorder,
         textStyle: { color: colors.axis },
         formatter: (item) => {
           const band = bands[item.dataIndex];
-          const absolute = row.absolute[item.dataIndex];
+          const absolute = rows[0].bandPower.absolute[item.dataIndex];
           const power = absolute === null ? '' : `<div>功率 ${formatPower(absolute)} μV²</div>`;
           const metric = isDe
             ? `<strong>DE ${Number(item.value).toFixed(3)} nat</strong>`
             : `<strong>${Number(item.value).toFixed(1)}%</strong>`;
-          return `<div class="band-tooltip-title">${escapeHtml(source)} · ${escapeHtml(band.name)}</div><div>${formatHz(band.fmin_hz)}–${formatHz(band.fmax_hz)} Hz</div>${power}${metric}`;
+          return `<div class="band-tooltip-title">${escapeHtml(rows[0].name)} · ${escapeHtml(band.name)}</div><div>${formatHz(band.fmin_hz)}–${formatHz(band.fmax_hz)} Hz</div>${power}${metric}`;
         },
-      },
+      };
+
+    this.bandChart.setOption({
+      backgroundColor: 'transparent',
+      title: { show: false },
+      grid: { top: pair ? 30 : 28, right: 18, bottom: 42, left: 54, containLabel: false },
+      legend: pair ? {
+        show: true,
+        right: 6,
+        top: 0,
+        icon: 'roundRect',
+        itemWidth: 12,
+        itemHeight: 8,
+        itemGap: 12,
+        textStyle: { color: colors.axis, fontSize: 11, fontWeight: 700 },
+      } : { show: false },
+      tooltip,
       xAxis: {
         type: 'category',
         data: categories,
         axisLine: { lineStyle: { color: colors.split } },
         axisTick: { show: false },
-        axisLabel: { color: colors.axis, fontWeight: 750, interval: 0, margin: 13 },
+        // 对比模式：x 轴刻度文字按频段着色（ECharts 5 支持 axisLabel.color 回调），保留频段语义
+        axisLabel: pair
+          ? {
+            color: (value, index) => {
+              const band = bands[index];
+              return (band && BAND_COLORS[band.key]) || colors.axis;
+            },
+            fontWeight: 750,
+            interval: 0,
+            margin: 13,
+          }
+          : { color: colors.axis, fontWeight: 750, interval: 0, margin: 13 },
       },
       yAxis: {
         type: 'value',
         min: yMin,
         max: yMax,
-        name: isDe ? '微分熵 (nat)' : '相对功率 (%)',
+        name: isDe ? '微分熵（nat）' : '相对功率（%）',
         nameLocation: 'middle',
         nameGap: 38,
         nameTextStyle: { color: colors.axis, fontWeight: 750 },
@@ -897,21 +1072,7 @@ export class EegPsdView {
         axisLabel: { color: colors.axis, formatter: isDe ? '{value}' : '{value}%' },
         splitLine: { lineStyle: { color: colors.split, type: 'dashed' } },
       },
-      series: [{
-        name: source,
-        type: 'bar',
-        data,
-        barMaxWidth: 68,
-        label: {
-          show: true,
-          position: 'top',
-          color: colors.axis,
-          fontWeight: 800,
-          formatter: (item) => isDe
-            ? Number(item.value).toFixed(2)
-            : `${Number(item.value).toFixed(1)}%`,
-        },
-      }],
+      series,
       animation: true,
       animationDuration: 220,
       animationDurationUpdate: 320,

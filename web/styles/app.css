@@ -73,6 +73,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
   --fx-aurora-3: rgba(255, 255, 255, 0.00);
   --card-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.00) 62%);
   --page-max: 100%;
+  /* PSD 双通道对比色（蓝/橙色盲友好）：通道 A / 通道 B */
+  --psd-ch-a: #38bdf8;
+  --psd-ch-a-rgb: 56, 189, 248;
+  --psd-ch-b: #fb923c;
+  --psd-ch-b-rgb: 251, 146, 60;
 }
 
 * { box-sizing: border-box; }
@@ -115,6 +120,11 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
   --fx-aurora-2: rgba(139, 92, 246, 0.06);
   --fx-aurora-3: rgba(0, 0, 0, 0.00);
   --card-sheen: linear-gradient(180deg, rgba(10, 18, 32, 0.02) 0%, rgba(10, 18, 32, 0.00) 62%);
+  /* PSD 双通道对比色（亮色主题）：通道 A / 通道 B */
+  --psd-ch-a: #118ab2;
+  --psd-ch-a-rgb: 17, 138, 178;
+  --psd-ch-b: #f76707;
+  --psd-ch-b-rgb: 247, 103, 7;
 }
 
 html, body {
@@ -2276,6 +2286,55 @@ select option {
   transform: none;
 }
 
+/* PSD 双通道对比：按选中顺序用通道 A / B 色高亮（优先级高于上方 .selected 兜底规则） */
+.band-power-map .channel-electrode.selected-1 .electrode-circle {
+  stroke: rgba(var(--psd-ch-a-rgb), 0.92);
+  stroke-width: 0.55;
+  fill: rgba(var(--psd-ch-a-rgb), 0.20);
+}
+
+.band-power-map .channel-electrode.selected-1 .electrode-text {
+  fill: rgba(var(--psd-ch-a-rgb), 0.96);
+}
+
+.band-power-map .channel-electrode.selected-1 {
+  filter: drop-shadow(0 0 12px rgba(var(--psd-ch-a-rgb), 0.34));
+  transform: none;
+}
+
+.band-power-map .channel-electrode.selected-1:hover {
+  filter: drop-shadow(0 0 12px rgba(var(--psd-ch-a-rgb), 0.38));
+  transform: none;
+}
+
+.band-power-map .channel-electrode.selected-2 .electrode-circle {
+  stroke: rgba(var(--psd-ch-b-rgb), 0.92);
+  stroke-width: 0.55;
+  fill: rgba(var(--psd-ch-b-rgb), 0.20);
+}
+
+.band-power-map .channel-electrode.selected-2 .electrode-text {
+  fill: rgba(var(--psd-ch-b-rgb), 0.96);
+}
+
+.band-power-map .channel-electrode.selected-2 {
+  filter: drop-shadow(0 0 12px rgba(var(--psd-ch-b-rgb), 0.34));
+  transform: none;
+}
+
+.band-power-map .channel-electrode.selected-2:hover {
+  filter: drop-shadow(0 0 12px rgba(var(--psd-ch-b-rgb), 0.38));
+  transform: none;
+}
+
+[data-theme="light"] .band-power-map .channel-electrode.selected-1 .electrode-text {
+  fill: var(--psd-ch-a);
+}
+
+[data-theme="light"] .band-power-map .channel-electrode.selected-2 .electrode-text {
+  fill: var(--psd-ch-b);
+}
+
 .band-channel-select-label {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -2592,17 +2651,16 @@ select option {
   position: absolute;
   inset: 0;
   border-radius: 999px;
-  border: 1px solid rgba(120, 170, 210, 0.20);
+  /* 轨道描边用 inset 阴影模拟（不占用 border 盒），保证 ::before 圆钮以完整 44x24 为定位基准 */
   background: rgba(0, 0, 0, 0.18);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04) inset, 0 10px 22px rgba(0, 0, 0, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(120, 170, 210, 0.20), inset 0 0 0 2px rgba(255, 255, 255, 0.04), 0 10px 22px rgba(0, 0, 0, 0.14);
   cursor: pointer;
-  transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+  transition: background-color 160ms ease, box-shadow 160ms ease;
 }
 
 [data-theme="light"] .ios-slider {
-  border-color: rgba(17, 24, 39, 0.18);
   background: rgba(255, 255, 255, 0.72);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.04) inset, 0 10px 22px rgba(17, 24, 39, 0.10);
+  box-shadow: inset 0 0 0 1px rgba(17, 24, 39, 0.18), inset 0 0 0 2px rgba(0, 0, 0, 0.04), 0 10px 22px rgba(17, 24, 39, 0.10);
 }
 
 .ios-slider::before {
@@ -2612,7 +2670,7 @@ select option {
   height: 20px;
   left: 2px;
   top: 50%;
-  transform: translateY(-50%);
+  transform: translate(0, -50%);
   border-radius: 999px;
   border: 1px solid rgba(120, 170, 210, 0.26);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 252, 255, 0.92) 62%, rgba(236, 245, 255, 0.86) 100%);
@@ -2626,10 +2684,16 @@ select option {
 
 .ios-switch input:checked + .ios-slider {
   background: rgba(49, 215, 255, 0.32);
-  border-color: rgba(49, 215, 255, 0.46);
-  box-shadow: 0 0 0 1px rgba(49, 215, 255, 0.10) inset, 0 10px 22px rgba(0, 0, 0, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(49, 215, 255, 0.46), inset 0 0 0 2px rgba(49, 215, 255, 0.10), 0 10px 22px rgba(0, 0, 0, 0.14);
 }
 
+/* 双通道对比期间通道平均开关置灰（保留光标与 title 提示语义） */
+.ios-switch.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* checked 位移 = 轨道宽44 - 圆钮宽20 - 左2 - 右2 = 20px，两态均保持 2px 内边距 */
 .ios-switch input:checked + .ios-slider::before {
   transform: translate(20px, -50%);
   border-color: rgba(49, 215, 255, 0.40);
@@ -2673,17 +2737,20 @@ select option {
 }
 
 .battery-btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 32px;
-  padding: 0 4px;
+  height: 26px;
+  padding: 0;
   color: var(--text-secondary, #adb5bd);
   pointer-events: none;
   user-select: none;
 }
 
 .battery-btn svg {
+  width: 36px;
+  height: 18px;
   flex-shrink: 0;
   display: block;
 }
@@ -2691,17 +2758,13 @@ select option {
 .battery-btn .battery-value {
   position: absolute;
   left: 0;
-  width: 28px;
+  width: 31px;
   text-align: center;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   color: currentColor;
   font-variant-numeric: tabular-nums;
   line-height: 1;
-}
-
-.battery-btn {
-  position: relative;
 }
 
 .imp-legend {
@@ -3650,6 +3713,13 @@ select option {
   line-height: 1.45;
   color: var(--muted);
   opacity: 0.82;
+  transition: color 0.2s ease, opacity 0.2s ease;
+}
+
+.eeg-settings-hint.is-warn {
+  color: var(--warn, #ffcc66);
+  opacity: 1;
+  font-weight: 700;
 }
 
 .eeg-settings-topomap-section {
@@ -3719,6 +3789,39 @@ select option {
   transform: none;
 }
 
+/* PSD 双通道对比：弹窗作用域内的通道 A / B 色覆盖（同特异性、位置更后，压过上方 .selected 绿色规则；绿色规则保留作兜底） */
+.eeg-settings-popover .band-power-map .channel-electrode.selected-1 .electrode-circle {
+  stroke: rgba(var(--psd-ch-a-rgb), 0.92);
+  stroke-width: 0.55;
+  fill: rgba(var(--psd-ch-a-rgb), 0.20);
+}
+
+.eeg-settings-popover .band-power-map .channel-electrode.selected-1 .electrode-text {
+  fill: rgba(var(--psd-ch-a-rgb), 0.96);
+}
+
+.eeg-settings-popover .band-power-map .channel-electrode.selected-1,
+.eeg-settings-popover .band-power-map .channel-electrode.selected-1:hover {
+  filter: drop-shadow(0 0 12px rgba(var(--psd-ch-a-rgb), 0.34));
+  transform: none;
+}
+
+.eeg-settings-popover .band-power-map .channel-electrode.selected-2 .electrode-circle {
+  stroke: rgba(var(--psd-ch-b-rgb), 0.92);
+  stroke-width: 0.55;
+  fill: rgba(var(--psd-ch-b-rgb), 0.20);
+}
+
+.eeg-settings-popover .band-power-map .channel-electrode.selected-2 .electrode-text {
+  fill: rgba(var(--psd-ch-b-rgb), 0.96);
+}
+
+.eeg-settings-popover .band-power-map .channel-electrode.selected-2,
+.eeg-settings-popover .band-power-map .channel-electrode.selected-2:hover {
+  filter: drop-shadow(0 0 12px rgba(var(--psd-ch-b-rgb), 0.34));
+  transform: none;
+}
+
 [data-theme="light"] .eeg-settings-popover .band-power-map .electrode-circle {
   stroke: rgba(12, 18, 28, 0.50);
   fill: rgba(255, 255, 255, 0.70);
@@ -3730,6 +3833,14 @@ select option {
 
 [data-theme="light"] .eeg-settings-popover .band-power-map .channel-electrode.selected .electrode-text {
   fill: var(--good-text, #087a55);
+}
+
+[data-theme="light"] .eeg-settings-popover .band-power-map .channel-electrode.selected-1 .electrode-text {
+  fill: var(--psd-ch-a);
+}
+
+[data-theme="light"] .eeg-settings-popover .band-power-map .channel-electrode.selected-2 .electrode-text {
+  fill: var(--psd-ch-b);
 }
 
 /* Light theme overrides */

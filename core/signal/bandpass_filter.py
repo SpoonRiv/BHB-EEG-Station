@@ -28,7 +28,7 @@ class BandpassFilterConfig:
         order: Butterworth 滤波器阶数（默认 4）。
         channel_count: 输入通道数（包含可选触发通道）。
         has_trigger_channel: 是否包含触发通道（触发通道不滤波）。
-        enabled: 是否启用带通滤波（默认 False，不处理直接透传）。
+        enabled: 是否启用带通滤波（默认 True；关闭时不处理直接透传）。
     """
 
     sampling_rate_hz: int
@@ -37,7 +37,7 @@ class BandpassFilterConfig:
     order: int = 4
     channel_count: int = 0
     has_trigger_channel: bool = False
-    enabled: bool = False
+    enabled: bool = True
 
 
 class BandpassFilter:
