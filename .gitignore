@@ -46,6 +46,9 @@ raw_float32.bin
 # IDE
 .idea/
 .vscode/
+.qoder/
+.codex_tmp/
+.uploads/
 
 # Local reference & project rules (runtime should not depend on these)
 ref/

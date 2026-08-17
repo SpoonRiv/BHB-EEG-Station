@@ -320,12 +320,24 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             <div class="card-sub eeg-subline"><span id="eeg-sub">WebSocket 实时推送</span><span id="eeg-notch-hint"></span><div id="eeg-view-controls"></div></div>
                         </div>
                         <div class="row eeg-wave-controls">
-                            <div id="eeg-yaxis-controls"></div>
+                            <div id="eeg-settings-btn-wrap">
+                              <aside class="eeg-settings-popover" id="eeg-settings-popover" hidden>
+                                <div class="eeg-settings-popover-head">
+                                  <div class="band-panel-title">示波器设置</div>
+                                </div>
+                                <div class="eeg-settings-popover-body" id="eeg-settings-body">
+                                  <!-- Content built by JS -->
+                                </div>
+                              </aside>
+                            </div>
                             <div id="eeg-frequency-controls" hidden></div>
-                            <div class="badge plain battery-badge error" id="battery-badge">
-                                <div class="badge-dot"></div>
-                                <div class="battery-label">电量：</div>
-                                <div class="battery-value" id="battery-text">--</div>
+                            <div class="battery-btn" id="battery-badge">
+                                <svg width="32" height="16" viewBox="0 0 32 16" fill="none">
+                                    <rect x="0.5" y="0.5" width="27" height="15" rx="3" stroke="currentColor" stroke-opacity="0.5" stroke-width="1"/>
+                                    <path d="M28 5h1.5a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5H28" stroke="currentColor" stroke-opacity="0.5" stroke-width="1" fill="none"/>
+                                    <rect class="battery-fill" x="2" y="2" width="24" height="12" rx="2" fill="currentColor" opacity="0.35"/>
+                                </svg>
+                                <span class="battery-value" id="battery-text">--</span>
                             </div>
                         </div>
                     </div>
@@ -333,6 +345,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                         <div id="eeg-time-view" class="eeg-view eeg-view--active">
                             <div class="charts-grid" id="charts-grid"></div>
                         </div>
+
                         <div id="eeg-psd-view" class="eeg-view eeg-view--hidden">
                             <div class="eeg-psd-panel">
                                 <div class="eeg-psd-toolbar" id="psd-toolbar"></div>
@@ -351,18 +364,6 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                                         <div id="band-power-chart" class="spectrum-chart"></div>
                                     </section>
                                 </div>
-                                <aside class="band-channel-popover" id="band-channel-popover" hidden>
-                                    <div class="band-channel-popover-head">
-                                        <div>
-                                            <div class="band-panel-title">选择单通道</div>
-                                            <div class="band-panel-sub">点击电极后，两张图同步切换到该通道</div>
-                                        </div>
-                                        <button class="btn btn--sm btn--ghost" id="band-channel-popover-close" type="button" aria-label="关闭电极选择">关闭</button>
-                                    </div>
-                                    <div class="band-channel-map topomap-canvas">
-                                        <div id="band-channel-topomap" class="topomap-svg band-power-map"></div>
-                                    </div>
-                                </aside>
                             </div>
                         </div>
                     </div>
@@ -615,10 +616,13 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
                             <div class="card-sub">监测数据与两级指令控制面板</div>
                         </div>
                         <div class="row">
-                            <div class="badge plain battery-badge error" id="tdcs-battery-badge">
-                                <div class="badge-dot"></div>
-                                <div class="battery-label">电量：</div>
-                                <div class="battery-value" id="tdcs-battery-text">--</div>
+                            <div class="battery-btn" id="tdcs-battery-badge">
+                                <svg width="32" height="16" viewBox="0 0 32 16" fill="none">
+                                    <rect x="0.5" y="0.5" width="27" height="15" rx="3" stroke="currentColor" stroke-opacity="0.5" stroke-width="1"/>
+                                    <path d="M28 5h1.5a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5H28" stroke="currentColor" stroke-opacity="0.5" stroke-width="1" fill="none"/>
+                                    <rect class="battery-fill" x="2" y="2" width="24" height="12" rx="2" fill="currentColor" opacity="0.35"/>
+                                </svg>
+                                <span class="battery-value" id="tdcs-battery-text">--</span>
                             </div>
                         </div>
                     </div>

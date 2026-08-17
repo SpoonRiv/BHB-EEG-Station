@@ -697,7 +697,7 @@ body::after {
 }
 
 select,
-input:not([type="checkbox"]):not([type="range"]),
+input:not([type="checkbox"]):not([type="range"]):not(.eeg-settings-num),
 .custom-select__trigger {
   min-height: var(--control-h);
   border-radius: 11px;

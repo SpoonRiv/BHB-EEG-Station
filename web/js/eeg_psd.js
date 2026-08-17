@@ -11,6 +11,9 @@ import { createSelectableTopomap } from './impedance_topomap.js';
 const PSD_DISPLAY_MIN_HZ = 1;
 const PSD_DISPLAY_MAX_HZ = 45;
 
+const GEAR_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
+const CLOSE_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+
 const FALLBACK_BANDS = [
   { key: 'delta', name: 'Delta', symbol: '', fmin_hz: 1, fmax_hz: 4 },
   { key: 'theta', name: 'Theta', symbol: '', fmin_hz: 4, fmax_hz: 8 },
@@ -92,7 +95,7 @@ export class EegPsdView {
     this.elBandChart = null;
     this.elBandTitle = null;
     this.elBandMetricControls = null;
-    this.elChannelPopover = null;
+    this.elSettingsPopover = null;
     this.elLegend = null;
 
     this.spectrumChart = null;
@@ -100,8 +103,8 @@ export class EegPsdView {
     this.topomap = null;
     this.toggleBtn = null;
     this.scopeToggle = null;
-    this.channelTools = null;
-    this.channelMapBtn = null;
+    this.settingsToggleBtn = null;
+    this.elTopomapSection = null;
     this.triggerStartBtn = null;
     this.triggerStopBtn = null;
     this.bandMetricButtons = [];
@@ -128,14 +131,13 @@ export class EegPsdView {
     this.elBandChart = document.getElementById(bandChartId);
     this.elBandTitle = document.getElementById('band-power-title');
     this.elBandMetricControls = document.getElementById('band-metric-controls');
-    this.elChannelPopover = document.getElementById('band-channel-popover');
     this.onModeChange = typeof onModeChange === 'function' ? onModeChange : null;
 
     this._buildControls();
     this._buildToolbar();
+    this._buildSettingsPopover();
     this._buildBandMetricControls();
     this._initTopomap();
-    this._bindPopover();
     this._initCharts();
     this._syncScopeControls();
     this.setMode(this.mode, true);
@@ -156,6 +158,7 @@ export class EegPsdView {
   setMode(mode, silent = false) {
     const next = mode === 'psd' ? 'psd' : 'time';
     this.mode = next;
+    this._setSettingsPopoverOpen(false);
     if (this.elTimeView) this.elTimeView.classList.toggle('eeg-view--hidden', next !== 'time');
     if (this.elPsdView) this.elPsdView.classList.toggle('eeg-view--hidden', next !== 'psd');
     if (this.elSignalTitle) {
@@ -212,7 +215,7 @@ export class EegPsdView {
     if (socket) {
       try { socket.close(); } catch (_) {}
     }
-    this._setPopoverOpen(false);
+    this._setSettingsPopoverOpen(false);
   }
 
   dispose() {
@@ -285,46 +288,6 @@ export class EegPsdView {
     const row = document.createElement('div');
     row.className = 'band-toolbar-row';
 
-    const sourceArea = document.createElement('div');
-    sourceArea.className = 'spectrum-source-area';
-    const scopeSwitch = document.createElement('div');
-    scopeSwitch.className = 'eeg-yaxis-switch spectrum-average-switch';
-    const scopeText = document.createElement('span');
-    scopeText.className = 'eeg-yaxis-label';
-    scopeText.textContent = '通道平均';
-    const scopeLabel = document.createElement('label');
-    scopeLabel.className = 'ios-switch';
-    scopeLabel.title = '开启为通道平均，关闭为单通道';
-    const scopeInput = document.createElement('input');
-    scopeInput.type = 'checkbox';
-    scopeInput.checked = true;
-    scopeInput.setAttribute('role', 'switch');
-    scopeInput.setAttribute('aria-label', '通道平均');
-    scopeInput.onchange = () => this._setScopeMode(scopeInput.checked ? 'average' : 'channel');
-    const scopeSlider = document.createElement('span');
-    scopeSlider.className = 'ios-slider';
-    scopeLabel.appendChild(scopeInput);
-    scopeLabel.appendChild(scopeSlider);
-    scopeSwitch.appendChild(scopeText);
-    scopeSwitch.appendChild(scopeLabel);
-    sourceArea.appendChild(scopeSwitch);
-
-    const channelTools = document.createElement('div');
-    channelTools.className = 'spectrum-channel-tools';
-    const mapBtn = document.createElement('button');
-    mapBtn.type = 'button';
-    mapBtn.className = 'btn btn--ghost eeg-view-btn spectrum-map-btn';
-    mapBtn.textContent = '选择通道';
-    mapBtn.setAttribute('aria-label', '通过地形图选择通道');
-    mapBtn.setAttribute('aria-expanded', 'false');
-    mapBtn.setAttribute('aria-controls', 'band-channel-popover');
-    mapBtn.onclick = () => this._setPopoverOpen(!this.elChannelPopover || this.elChannelPopover.hidden);
-    channelTools.appendChild(mapBtn);
-    sourceArea.appendChild(channelTools);
-
-    if (this.elScopeControls) this.elScopeControls.appendChild(sourceArea);
-    else row.appendChild(sourceArea);
-
     const legend = document.createElement('div');
     legend.className = 'band-legend';
     legend.setAttribute('aria-label', '频带范围图例');
@@ -336,11 +299,100 @@ export class EegPsdView {
     row.appendChild(metaArea);
     this.elToolbar.appendChild(row);
 
-    this.scopeToggle = scopeInput;
-    this.channelTools = channelTools;
-    this.channelMapBtn = mapBtn;
     this.elLegend = legend;
     this._renderBandLegend(FALLBACK_BANDS);
+  }
+
+  _buildSettingsPopover() {
+    const wrap = this.elScopeControls;
+    if (!wrap) return;
+    wrap.innerHTML = '';
+
+    const toggleBtn = document.createElement('button');
+    toggleBtn.type = 'button';
+    toggleBtn.className = 'btn btn--sm btn--icon btn--ghost eeg-settings-toggle-btn';
+    toggleBtn.innerHTML = GEAR_SVG;
+    toggleBtn.title = '频谱设置';
+    toggleBtn.setAttribute('aria-expanded', 'false');
+    wrap.appendChild(toggleBtn);
+
+    const popover = document.createElement('aside');
+    popover.className = 'eeg-settings-popover eeg-psd-settings-popover';
+    popover.hidden = true;
+
+    const head = document.createElement('div');
+    head.className = 'eeg-settings-popover-head';
+    const headTitle = document.createElement('div');
+    headTitle.className = 'band-panel-title';
+    headTitle.textContent = '频谱设置';
+    head.appendChild(headTitle);
+    popover.appendChild(head);
+
+    const body = document.createElement('div');
+    body.className = 'eeg-settings-popover-body';
+
+    // === Section 1: 数据源（通道平均开关） ===
+    const sec1 = document.createElement('div');
+    sec1.className = 'eeg-settings-section';
+    const sec1Title = document.createElement('div');
+    sec1Title.className = 'eeg-settings-section-title';
+    sec1Title.textContent = '数据源';
+    sec1.appendChild(sec1Title);
+
+    const rowAvg = document.createElement('div');
+    rowAvg.className = 'eeg-settings-row';
+    const avgText = document.createElement('span');
+    avgText.className = 'eeg-settings-label';
+    avgText.textContent = '通道平均';
+    const avgLabel = document.createElement('label');
+    avgLabel.className = 'ios-switch';
+    avgLabel.title = '开启为通道平均，关闭为单通道';
+    const avgInput = document.createElement('input');
+    avgInput.type = 'checkbox';
+    avgInput.checked = this.scopeMode === 'average';
+    avgInput.setAttribute('role', 'switch');
+    avgInput.setAttribute('aria-label', '通道平均');
+    avgInput.onchange = () => this._setScopeMode(avgInput.checked ? 'average' : 'channel');
+    const avgSlider = document.createElement('span');
+    avgSlider.className = 'ios-slider';
+    avgLabel.appendChild(avgInput);
+    avgLabel.appendChild(avgSlider);
+    rowAvg.appendChild(avgText);
+    rowAvg.appendChild(avgLabel);
+    sec1.appendChild(rowAvg);
+    body.appendChild(sec1);
+
+    // === Section 2: 选择通道（地形图） ===
+    const sec2 = document.createElement('div');
+    sec2.className = 'eeg-settings-section eeg-settings-topomap-section';
+    const sec2Title = document.createElement('div');
+    sec2Title.className = 'eeg-settings-section-title';
+    sec2Title.textContent = '选择通道';
+    sec2.appendChild(sec2Title);
+
+    const mapHint = document.createElement('div');
+    mapHint.className = 'eeg-settings-hint';
+    mapHint.textContent = '点击电极后，两张图同步切换到该通道';
+    sec2.appendChild(mapHint);
+
+    const mapWrap = document.createElement('div');
+    mapWrap.className = 'band-channel-map topomap-canvas';
+    const mapHost = document.createElement('div');
+    mapHost.id = 'band-channel-topomap';
+    mapHost.className = 'topomap-svg band-power-map';
+    mapWrap.appendChild(mapHost);
+    sec2.appendChild(mapWrap);
+    body.appendChild(sec2);
+
+    popover.appendChild(body);
+    wrap.appendChild(popover);
+
+    toggleBtn.onclick = () => this._setSettingsPopoverOpen(popover.hidden);
+
+    this.settingsToggleBtn = toggleBtn;
+    this.elSettingsPopover = popover;
+    this.scopeToggle = avgInput;
+    this.elTopomapSection = sec2;
   }
 
   _buildBandMetricControls() {
@@ -400,15 +452,13 @@ export class EegPsdView {
     this.topomap.setSelected(this.activeChannel);
   }
 
-  _bindPopover() {
-    const closeBtn = document.getElementById('band-channel-popover-close');
-    if (closeBtn) closeBtn.onclick = () => this._setPopoverOpen(false);
-  }
-
-  _setPopoverOpen(open) {
-    const shouldOpen = !!open && this.scopeMode === 'channel';
-    if (this.elChannelPopover) this.elChannelPopover.hidden = !shouldOpen;
-    if (this.channelMapBtn) this.channelMapBtn.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+  _setSettingsPopoverOpen(open) {
+    const shouldOpen = !!open;
+    if (this.elSettingsPopover) this.elSettingsPopover.hidden = !shouldOpen;
+    if (this.settingsToggleBtn) {
+      this.settingsToggleBtn.innerHTML = shouldOpen ? CLOSE_SVG : GEAR_SVG;
+      this.settingsToggleBtn.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+    }
     if (shouldOpen && this.topomap) this.topomap.setSelected(this.activeChannel);
   }
 
@@ -430,8 +480,7 @@ export class EegPsdView {
   _syncScopeControls() {
     const isChannel = this.scopeMode === 'channel';
     if (this.scopeToggle) this.scopeToggle.checked = !isChannel;
-    if (this.channelTools) this.channelTools.hidden = !isChannel;
-    if (!isChannel) this._setPopoverOpen(false);
+    if (this.elTopomapSection) this.elTopomapSection.classList.toggle('is-dim', !isChannel);
   }
 
   _setActiveChannel(name) {

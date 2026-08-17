@@ -5,7 +5,7 @@ Copyright (c) 2026 BUAA BHB. All rights reserved.
 作者: Spoon
 */
 
-import { getConfig, getStatus, modeStart, modeStop } from './api.js';
+import { getConfig, getStatus, modeStart, modeStop, setSignalBandpass } from './api.js';
 import { navigate } from './router.js';
 import { EegPsdView } from './eeg_psd.js';
 
@@ -87,6 +87,21 @@ let eegSessionLocked = false;
 let eegStopping = false;
 let eegViewMode = 'time';
 let eegWaveFocusEnabled = false;
+let eegSettingsToggleBtn = null;
+let eegSettingsPopoverEl = null;
+
+const GEAR_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
+const CLOSE_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+
+function applyBatteryFill(badgeEl, percent, color) {
+  if (!badgeEl) return;
+  const fill = badgeEl.querySelector('.battery-fill');
+  if (!fill) return;
+  const w = Math.max(0, Math.min(24, (percent / 100) * 24));
+  fill.setAttribute('width', String(w));
+  fill.setAttribute('fill', color);
+  fill.setAttribute('opacity', '1');
+}
 
 function renderBatteryBadge(battery, running, streaming) {
   const badge = document.getElementById('battery-badge');
@@ -98,28 +113,37 @@ function renderBatteryBadge(battery, running, streaming) {
   if (!running) {
     textEl.textContent = '--';
     badge.classList.add('error');
+    applyBatteryFill(badge, 0, '#ff4d6d');
     return;
   }
 
   if (streaming && (!battery || typeof battery !== 'object')) {
     textEl.textContent = '获取中';
     badge.classList.add('warn');
+    applyBatteryFill(badge, 0, '#ffcc66');
     return;
   }
 
   const v = battery && typeof battery.value === 'number' ? battery.value : null;
   if (v === null || !Number.isFinite(v)) {
     textEl.textContent = streaming ? '获取中' : '--';
-    if (streaming) badge.classList.add('warn');
+    if (streaming) {
+      badge.classList.add('warn');
+      applyBatteryFill(badge, 0, '#ffcc66');
+    } else {
+      applyBatteryFill(badge, 0, '#ff4d6d');
+    }
     return;
   }
 
   const isPercent = Number.isInteger(v) && v >= 0 && v <= 100;
   if (isPercent) {
     textEl.textContent = `${v}%`;
-    if (v >= 50) badge.classList.add('active');
-    else if (v >= 20) badge.classList.add('warn');
-    else badge.classList.add('error');
+    let color;
+    if (v >= 50) { color = '#2fe58b'; badge.classList.add('active'); }
+    else if (v >= 20) { color = '#ffcc66'; badge.classList.add('warn'); }
+    else { color = '#ff4d6d'; badge.classList.add('error'); }
+    applyBatteryFill(badge, v, color);
     return;
   }
 
@@ -329,68 +353,230 @@ function setFixedYAxisMax(nextMax) {
   eegDataDirty = true;
 }
 
-function buildYAxisControls() {
-  const host = document.getElementById('eeg-yaxis-controls');
-  if (!host) return;
-  host.innerHTML = '';
+function buildSettingsPopover() {
+  const btnWrap = document.getElementById('eeg-settings-btn-wrap');
+  const popover = document.getElementById('eeg-settings-popover');
+  const body = document.getElementById('eeg-settings-body');
+  if (!btnWrap || !popover || !body) return;
+  btnWrap.innerHTML = '';
 
-  const sw = document.createElement('div');
-  sw.className = 'eeg-yaxis-switch';
-  const swText = document.createElement('span');
-  swText.className = 'eeg-yaxis-label';
-  swText.textContent = '动态Y轴';
-  const swLabel = document.createElement('label');
-  swLabel.className = 'ios-switch';
-  const dynamicInput = document.createElement('input');
-  dynamicInput.type = 'checkbox';
-  dynamicInput.checked = !!eegYAxisDynamicEnabled;
-  const swSlider = document.createElement('span');
-  swSlider.className = 'ios-slider';
-  swLabel.appendChild(dynamicInput);
-  swLabel.appendChild(swSlider);
-  sw.appendChild(swText);
-  sw.appendChild(swLabel);
+  const toggleBtn = document.createElement('button');
+  toggleBtn.type = 'button';
+  toggleBtn.className = 'btn btn--sm btn--icon btn--ghost eeg-settings-toggle-btn';
+  toggleBtn.innerHTML = GEAR_SVG;
+  toggleBtn.title = '示波器设置';
+  btnWrap.appendChild(toggleBtn);
+  eegSettingsToggleBtn = toggleBtn;
+  eegSettingsPopoverEl = popover;
 
-  const range = document.createElement('div');
-  range.className = 'imp-range';
-  const track = document.createElement('div');
-  track.className = 'imp-range-track';
-  range.appendChild(track);
+  /* Re-attach popover so it lives inside btnWrap (positioning anchor) */
+  btnWrap.appendChild(popover);
 
-  const r = document.createElement('input');
-  r.type = 'range';
-  r.min = String(eegYAxisFixedMaxMin);
-  r.max = String(eegYAxisFixedMaxMax);
-  r.step = String(eegYAxisFixedMaxStep);
-  r.value = String(eegYAxisFixedMax);
-  r.disabled = !!eegYAxisDynamicEnabled;
-  range.appendChild(r);
+  toggleBtn.onclick = () => {
+    const opening = popover.hidden;
+    popover.hidden = !opening;
+    toggleBtn.innerHTML = opening ? CLOSE_SVG : GEAR_SVG;
+  };
+  body.innerHTML = '';
 
-  const pill = document.createElement('div');
-  pill.className = 'eeg-yaxis-pill';
-  pill.textContent = `±${Math.round(Number(eegYAxisFixedMax) || 0)}`;
-  if (eegYAxisDynamicEnabled) pill.classList.add('eeg-hidden');
+  // === Section 1: Y轴 ===
+  const sec1 = document.createElement('div');
+  sec1.className = 'eeg-settings-section';
+  const sec1Title = document.createElement('div');
+  sec1Title.className = 'eeg-settings-section-title';
+  sec1Title.textContent = 'Y轴 (幅值)';
+  sec1.appendChild(sec1Title);
 
-  const applyUiState = () => {
-    r.disabled = !!eegYAxisDynamicEnabled;
-    pill.classList.toggle('eeg-hidden', !!eegYAxisDynamicEnabled);
-    pill.textContent = `±${Math.round(Number(eegYAxisFixedMax) || 0)}`;
+  const row1Switch = document.createElement('div');
+  row1Switch.className = 'eeg-settings-row';
+  const swLabel1 = document.createElement('label');
+  swLabel1.className = 'ios-switch';
+  const dynInput = document.createElement('input');
+  dynInput.type = 'checkbox';
+  dynInput.checked = !!eegYAxisDynamicEnabled;
+  const swSlider1 = document.createElement('span');
+  swSlider1.className = 'ios-slider';
+  swLabel1.appendChild(dynInput);
+  swLabel1.appendChild(swSlider1);
+  const dynText = document.createElement('span');
+  dynText.className = 'eeg-settings-label';
+  dynText.textContent = '动态Y轴';
+  row1Switch.appendChild(dynText);
+  row1Switch.appendChild(swLabel1);
+  sec1.appendChild(row1Switch);
+
+  const row1Range = document.createElement('div');
+  row1Range.className = 'eeg-settings-row';
+  const rangeLabel = document.createElement('span');
+  rangeLabel.className = 'eeg-settings-label';
+  rangeLabel.textContent = '固定范围';
+  const rangeInput = document.createElement('input');
+  rangeInput.type = 'range';
+  rangeInput.min = String(eegYAxisFixedMaxMin);
+  rangeInput.max = String(eegYAxisFixedMaxMax);
+  rangeInput.step = String(eegYAxisFixedMaxStep);
+  rangeInput.value = String(eegYAxisFixedMax);
+  rangeInput.disabled = !!eegYAxisDynamicEnabled;
+  const pill = document.createElement('span');
+  pill.className = 'eeg-settings-pill';
+  pill.textContent = `\u00b1${Math.round(Number(eegYAxisFixedMax) || 0)}`;
+  if (eegYAxisDynamicEnabled) pill.classList.add('is-dim');
+  row1Range.appendChild(rangeLabel);
+  row1Range.appendChild(rangeInput);
+  row1Range.appendChild(pill);
+  sec1.appendChild(row1Range);
+  body.appendChild(sec1);
+
+  const applyYUiState = () => {
+    rangeInput.disabled = !!eegYAxisDynamicEnabled;
+    pill.classList.toggle('is-dim', !!eegYAxisDynamicEnabled);
+    pill.textContent = `\u00b1${Math.round(Number(eegYAxisFixedMax) || 0)}`;
+  };
+  dynInput.onchange = () => { setYAxisMode(dynInput.checked); applyYUiState(); };
+  rangeInput.oninput = () => {
+    setFixedYAxisMax(rangeInput.value);
+    rangeInput.value = String(eegYAxisFixedMax);
+    applyYUiState();
   };
 
-  dynamicInput.onchange = () => {
-    setYAxisMode(dynamicInput.checked);
-    applyUiState();
+  // === Section 2: X轴 ===
+  const sec2 = document.createElement('div');
+  sec2.className = 'eeg-settings-section';
+  const sec2Title = document.createElement('div');
+  sec2Title.className = 'eeg-settings-section-title';
+  sec2Title.textContent = 'X轴 (时间窗口)';
+  sec2.appendChild(sec2Title);
+
+  const row2 = document.createElement('div');
+  row2.className = 'eeg-settings-row';
+  const xLabel = document.createElement('span');
+  xLabel.className = 'eeg-settings-label';
+  xLabel.textContent = '窗口(秒)';
+  const xInput = document.createElement('input');
+  xInput.type = 'number';
+  xInput.min = '0.5';
+  xInput.max = '10';
+  xInput.step = '0.5';
+  xInput.value = String(eegWindowSec);
+  xInput.className = 'eeg-settings-num';
+  row2.appendChild(xLabel);
+  row2.appendChild(xInput);
+  sec2.appendChild(row2);
+  body.appendChild(sec2);
+
+  xInput.onchange = () => {
+    const v = clampNumber(xInput.value, 0.5, 10, eegWindowSec);
+    eegWindowSec = v;
+    xInput.value = String(v);
+    maxPoints = Math.max(50, Math.floor(Math.max(1, eegSamplingRateHz) * Math.max(0.2, eegWindowSec)));
+    clearEegWaveformData();
+    for (const ch of charts) {
+      if (!ch) continue;
+      try { ch.setOption({ xAxis: { min: -eegWindowSec, max: 0 } }, false, false); } catch (_) {}
+    }
   };
 
-  r.oninput = () => {
-    setFixedYAxisMax(r.value);
-    r.value = String(eegYAxisFixedMax);
-    applyUiState();
-  };
+  // === Section 3: 带通滤波 ===
+  const sec3 = document.createElement('div');
+  sec3.className = 'eeg-settings-section';
+  const sec3Title = document.createElement('div');
+  sec3Title.className = 'eeg-settings-section-title';
+  sec3Title.textContent = '带通滤波';
+  sec3.appendChild(sec3Title);
 
-  host.appendChild(sw);
-  host.appendChild(range);
-  host.appendChild(pill);
+  const row3Sw = document.createElement('div');
+  row3Sw.className = 'eeg-settings-row';
+  const bpSwLabel = document.createElement('label');
+  bpSwLabel.className = 'ios-switch';
+  const bpInput = document.createElement('input');
+  bpInput.type = 'checkbox';
+  bpInput.checked = false;
+  const bpSlider = document.createElement('span');
+  bpSlider.className = 'ios-slider';
+  bpSwLabel.appendChild(bpInput);
+  bpSwLabel.appendChild(bpSlider);
+  const bpText = document.createElement('span');
+  bpText.className = 'eeg-settings-label';
+  bpText.textContent = '启用带通';
+  row3Sw.appendChild(bpText);
+  row3Sw.appendChild(bpSwLabel);
+  sec3.appendChild(row3Sw);
+
+  const row3Low = document.createElement('div');
+  row3Low.className = 'eeg-settings-row';
+  const lowLabel = document.createElement('span');
+  lowLabel.className = 'eeg-settings-label';
+  lowLabel.textContent = '低切(Hz)';
+  const lowInput = document.createElement('input');
+  lowInput.type = 'number';
+  lowInput.min = '0.1';
+  lowInput.max = '100';
+  lowInput.step = '0.1';
+  lowInput.value = '0.5';
+  lowInput.className = 'eeg-settings-num';
+  row3Low.appendChild(lowLabel);
+  row3Low.appendChild(lowInput);
+  sec3.appendChild(row3Low);
+
+  const row3High = document.createElement('div');
+  row3High.className = 'eeg-settings-row';
+  const highLabel = document.createElement('span');
+  highLabel.className = 'eeg-settings-label';
+  highLabel.textContent = '高切(Hz)';
+  const highInput = document.createElement('input');
+  highInput.type = 'number';
+  highInput.min = '1';
+  highInput.max = '125';
+  highInput.step = '1';
+  highInput.value = '80';
+  highInput.className = 'eeg-settings-num';
+  row3High.appendChild(highLabel);
+  row3High.appendChild(highInput);
+  sec3.appendChild(row3High);
+
+  const row3Order = document.createElement('div');
+  row3Order.className = 'eeg-settings-row';
+  const orderLabel = document.createElement('span');
+  orderLabel.className = 'eeg-settings-label';
+  orderLabel.textContent = '阶数';
+  const orderInput = document.createElement('input');
+  orderInput.type = 'number';
+  orderInput.min = '2';
+  orderInput.max = '8';
+  orderInput.step = '2';
+  orderInput.value = '4';
+  orderInput.className = 'eeg-settings-num';
+  row3Order.appendChild(orderLabel);
+  row3Order.appendChild(orderInput);
+  sec3.appendChild(row3Order);
+
+  const applyBtn = document.createElement('button');
+  applyBtn.type = 'button';
+  applyBtn.className = 'eeg-settings-apply-btn';
+  applyBtn.textContent = '应用';
+  sec3.appendChild(applyBtn);
+  body.appendChild(sec3);
+
+  applyBtn.onclick = async () => {
+    const enabled = bpInput.checked;
+    const lowcut_hz = clampNumber(lowInput.value, 0.1, 100, 0.5);
+    const highcut_hz = clampNumber(highInput.value, 1, 125, 80);
+    const order = clampNumber(orderInput.value, 2, 8, 4);
+    lowInput.value = String(lowcut_hz);
+    highInput.value = String(highcut_hz);
+    orderInput.value = String(order);
+    try {
+      await setSignalBandpass({ enabled, lowcut_hz, highcut_hz, order });
+    } catch (_) {}
+  };
+}
+
+function closeTimeSettingsPopover() {
+  if (eegSettingsPopoverEl) eegSettingsPopoverEl.hidden = true;
+  if (eegSettingsToggleBtn) {
+    eegSettingsToggleBtn.innerHTML = GEAR_SVG;
+    try { eegSettingsToggleBtn.setAttribute('aria-expanded', 'false'); } catch (_) {}
+  }
 }
 
 function scheduleDebugRender() {
@@ -981,7 +1167,7 @@ export async function enterEegPage() {
     triggerActive = (!trg || trg.active === null || trg.active === undefined) ? null : !!trg.active;
   } catch (_) {}
 
-  buildYAxisControls();
+  buildSettingsPopover();
   if (psdView) {
     try { psdView.dispose(); } catch (_) {}
     psdView = null;
@@ -1001,9 +1187,10 @@ export async function enterEegPage() {
     bandChartId: 'band-power-chart',
     toolbarId: 'psd-toolbar',
     scopeControlsId: 'eeg-frequency-controls',
-    yAxisControlsId: 'eeg-yaxis-controls',
+    yAxisControlsId: 'eeg-settings-btn-wrap',
     onModeChange: (m) => {
       eegViewMode = m === 'psd' ? 'psd' : 'time';
+      closeTimeSettingsPopover();
     }
   });
   initCharts();

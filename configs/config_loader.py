@@ -990,7 +990,7 @@ def load_config(config_path: str) -> AppConfig:
             trigger_label=str(export_raw.get("trigger_label", "TRIG") or "TRIG"),
         ),
         filter=OfflineFilterConfig(
-            order=max(1, int(filter_raw.get("order", 5))),
+            order=max(1, int(filter_raw.get("order", 4))),
             lowcut_hz_default=float(filter_raw.get("lowcut_hz_default", 3.0)),
             highcut_hz_default=float(filter_raw.get("highcut_hz_default", 50.0)),
         ),

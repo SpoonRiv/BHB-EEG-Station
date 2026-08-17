@@ -251,6 +251,11 @@ signal:
   notch:
     freq_hz: 50.0
     quality_factor: 30.0
+  bandpass:
+    enabled: false
+    lowcut_hz: 1.0
+    highcut_hz: 45.0
+    order: 4
   psd:
     enabled: true
     # 使用最近 4 秒数据估计 Welch PSD；界面每秒更新一次。
@@ -274,6 +279,6 @@ offline:
     count_divisor: 120.0
     trigger_label: "TRIG"
   filter:
-    order: 5
+    order: 4
     lowcut_hz_default: 0.5
     highcut_hz_default: 80.0

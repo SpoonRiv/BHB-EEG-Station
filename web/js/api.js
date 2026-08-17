@@ -175,3 +175,15 @@ export async function sendTwoLevelCommand(l1, l2, data) {
     body: JSON.stringify({ l1, l2, data: data || null }),
   });
 }
+
+export async function getSignalBandpass() {
+  return fetchJson('/api/signal/bandpass');
+}
+
+export async function setSignalBandpass(payload) {
+  return fetchJson('/api/signal/bandpass', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+  });
+}

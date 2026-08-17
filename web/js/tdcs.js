@@ -33,6 +33,16 @@ function setStatus(text, kind) {
   box.style.display = t ? '' : 'none';
 }
 
+function applyBatteryFill(badgeEl, percent, color) {
+  if (!badgeEl) return;
+  const fill = badgeEl.querySelector('.battery-fill');
+  if (!fill) return;
+  const w = Math.max(0, Math.min(24, (percent / 100) * 24));
+  fill.setAttribute('width', String(w));
+  fill.setAttribute('fill', color);
+  fill.setAttribute('opacity', '1');
+}
+
 function renderBatteryBadge(battery, running) {
   const badge = document.getElementById('tdcs-battery-badge');
   const textEl = document.getElementById('tdcs-battery-text');
@@ -43,6 +53,7 @@ function renderBatteryBadge(battery, running) {
   if (!running) {
     textEl.textContent = '--';
     badge.classList.add('error');
+    applyBatteryFill(badge, 0, '#ff4d6d');
     return;
   }
 
@@ -50,15 +61,18 @@ function renderBatteryBadge(battery, running) {
   if (v === null || !Number.isFinite(v)) {
     textEl.textContent = '获取中';
     badge.classList.add('warn');
+    applyBatteryFill(badge, 0, '#ffcc66');
     return;
   }
 
   const isPercent = Number.isInteger(v) && v >= 0 && v <= 100;
   if (isPercent) {
     textEl.textContent = `${v}%`;
-    if (v >= 50) badge.classList.add('active');
-    else if (v >= 20) badge.classList.add('warn');
-    else badge.classList.add('error');
+    let color;
+    if (v >= 50) { color = '#2fe58b'; badge.classList.add('active'); }
+    else if (v >= 20) { color = '#ffcc66'; badge.classList.add('warn'); }
+    else { color = '#ff4d6d'; badge.classList.add('error'); }
+    applyBatteryFill(badge, v, color);
     return;
   }
 

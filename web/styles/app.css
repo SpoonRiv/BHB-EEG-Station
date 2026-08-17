@@ -421,6 +421,10 @@ body::after {
   box-shadow: none;
 }
 
+[data-theme="light"] .battery-btn {
+  color: var(--text-secondary, #6c757d);
+}
+
 .badge.plain {
   padding: 0;
   border: none;
@@ -1983,6 +1987,7 @@ select option {
 }
 
 #eeg-frequency-controls {
+  position: relative;
   min-width: 0;
   height: 36px;
   display: flex;
@@ -1991,18 +1996,8 @@ select option {
 }
 
 #eeg-frequency-controls[hidden],
-#eeg-yaxis-controls[hidden] {
+#eeg-settings-btn-wrap[hidden] {
   display: none;
-}
-
-#eeg-frequency-controls .spectrum-source-area {
-  flex-wrap: nowrap;
-  justify-content: flex-end;
-}
-
-#eeg-frequency-controls .spectrum-map-btn {
-  min-width: 76px;
-  padding-inline: 10px;
 }
 
 #eeg-view-controls {
@@ -2035,8 +2030,7 @@ select option {
   gap: 10px;
 }
 
-.eeg-view-controls-row .eeg-view-btn,
-#eeg-frequency-controls .spectrum-map-btn {
+.eeg-view-controls-row .eeg-view-btn {
   min-width: 112px;
   padding: 0 18px;
   font-weight: 750;
@@ -2383,20 +2377,11 @@ select option {
 }
 
 .spectrum-source-area,
-.spectrum-channel-tools,
 .spectrum-toolbar-meta {
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.spectrum-channel-tools[hidden] {
-  display: none;
-}
-
-.spectrum-map-btn {
-  white-space: nowrap;
 }
 
 .spectrum-toolbar-meta {
@@ -2466,56 +2451,9 @@ select option {
   flex: 1 1 auto;
 }
 
-.band-channel-popover {
-  position: absolute;
-  z-index: 30;
-  top: 50px;
-  right: 10px;
-  width: min(340px, calc(100% - 20px));
-  height: min(420px, calc(100% - 62px));
-  min-height: 330px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  box-sizing: border-box;
-  padding: 11px;
-  border: 1px solid rgba(var(--accent-rgb), 0.30);
-  border-radius: 16px;
-  background: rgba(8, 14, 24, 0.98);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(255, 255, 255, 0.035) inset;
-}
-
-.band-channel-popover[hidden] {
-  display: none;
-}
-
-[data-theme="light"] .band-channel-popover {
-  border-color: rgba(39, 120, 165, 0.20);
-  background: rgba(248, 252, 255, 0.985);
-  box-shadow: 0 24px 65px rgba(25, 70, 100, 0.22);
-}
-
-.band-channel-popover-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.band-channel-popover .band-channel-map.topomap-canvas {
-  flex: 1 1 auto;
-  width: 100%;
-  height: auto;
-  min-height: 260px;
-}
-
 @media (max-width: 1060px) {
   .band-toolbar-row {
     align-items: flex-start;
-  }
-
-  .spectrum-source-area {
-    flex-wrap: wrap;
   }
 
   .spectrum-monitor-grid {
@@ -2546,7 +2484,6 @@ select option {
 
 @media (max-width: 620px) {
   .spectrum-source-area,
-  .spectrum-channel-tools,
   .spectrum-toolbar-meta {
     width: 100%;
   }
@@ -2557,8 +2494,7 @@ select option {
   }
 }
 
-#eeg-yaxis-controls,
-#eeg-frequency-controls {
+#eeg-yaxis-controls {
   display: grid;
   grid-template-columns: 118px minmax(120px, 1fr) 56px;
   align-items: center;
@@ -2578,38 +2514,7 @@ select option {
   justify-self: end;
 }
 
-#eeg-frequency-controls .spectrum-source-area {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: 118px minmax(120px, 1fr) 56px;
-  grid-template-rows: 36px;
-  position: relative;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 36px;
-  min-height: 0;
-  justify-content: stretch;
-}
-
-#eeg-frequency-controls .spectrum-average-switch {
-  grid-column: 1;
-}
-
-#eeg-frequency-controls .spectrum-channel-tools {
-  position: absolute;
-  top: 0;
-  right: 12px;
-  width: 112px;
-  height: 40px;
-  min-height: 0;
-  justify-content: flex-end;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-#eeg-yaxis-controls .eeg-yaxis-switch,
-#eeg-frequency-controls .eeg-yaxis-switch {
+#eeg-yaxis-controls .eeg-yaxis-switch {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 44px;
   align-items: center;
@@ -2619,8 +2524,7 @@ select option {
   box-sizing: border-box;
 }
 
-#eeg-yaxis-controls .eeg-yaxis-label,
-#eeg-frequency-controls .eeg-yaxis-label {
+#eeg-yaxis-controls .eeg-yaxis-label {
   font-weight: 850;
   font-size: 12px;
   color: var(--muted);
@@ -2657,8 +2561,7 @@ select option {
   box-shadow: none;
 }
 
-[data-theme="light"] #eeg-yaxis-controls .eeg-yaxis-switch,
-[data-theme="light"] #eeg-frequency-controls .eeg-yaxis-switch {
+[data-theme="light"] #eeg-yaxis-controls .eeg-yaxis-switch {
   background: transparent;
   border-color: transparent;
   box-shadow: none;
@@ -2670,23 +2573,22 @@ select option {
   box-shadow: none;
 }
 
-#eeg-yaxis-controls .ios-switch,
-#eeg-frequency-controls .ios-switch {
+/* Standard iOS-style switch (shared by #eeg-frequency-controls, popovers, etc.) */
+.ios-switch {
   position: relative;
   width: 44px;
   height: 24px;
   display: inline-block;
+  flex-shrink: 0;
 }
 
-#eeg-yaxis-controls .ios-switch input,
-#eeg-frequency-controls .ios-switch input {
+.ios-switch input {
   opacity: 0;
   width: 0;
   height: 0;
 }
 
-#eeg-yaxis-controls .ios-slider,
-#eeg-frequency-controls .ios-slider {
+.ios-slider {
   position: absolute;
   inset: 0;
   border-radius: 999px;
@@ -2697,15 +2599,13 @@ select option {
   transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
-[data-theme="light"] #eeg-yaxis-controls .ios-slider,
-[data-theme="light"] #eeg-frequency-controls .ios-slider {
+[data-theme="light"] .ios-slider {
   border-color: rgba(17, 24, 39, 0.18);
   background: rgba(255, 255, 255, 0.72);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.04) inset, 0 10px 22px rgba(17, 24, 39, 0.10);
 }
 
-#eeg-yaxis-controls .ios-slider::before,
-#eeg-frequency-controls .ios-slider::before {
+.ios-slider::before {
   content: '';
   position: absolute;
   width: 20px;
@@ -2724,15 +2624,13 @@ select option {
   transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
-#eeg-yaxis-controls .ios-switch input:checked + .ios-slider,
-#eeg-frequency-controls .ios-switch input:checked + .ios-slider {
+.ios-switch input:checked + .ios-slider {
   background: rgba(49, 215, 255, 0.32);
   border-color: rgba(49, 215, 255, 0.46);
   box-shadow: 0 0 0 1px rgba(49, 215, 255, 0.10) inset, 0 10px 22px rgba(0, 0, 0, 0.14);
 }
 
-#eeg-yaxis-controls .ios-switch input:checked + .ios-slider::before,
-#eeg-frequency-controls .ios-switch input:checked + .ios-slider::before {
+.ios-switch input:checked + .ios-slider::before {
   transform: translate(20px, -50%);
   border-color: rgba(49, 215, 255, 0.40);
   box-shadow:
@@ -2774,28 +2672,36 @@ select option {
   cursor: not-allowed;
 }
 
-.battery-badge,
-#battery-badge,
-#tdcs-battery-badge {
-  width: 120px;
-  justify-content: flex-start;
-  gap: 8px;
+.battery-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 4px;
+  color: var(--text-secondary, #adb5bd);
+  pointer-events: none;
+  user-select: none;
 }
 
-.battery-label {
-  flex: 0 0 auto;
-  white-space: nowrap;
+.battery-btn svg {
+  flex-shrink: 0;
+  display: block;
 }
 
-.battery-value,
-#battery-text,
-#tdcs-battery-text {
-  flex: 1 1 auto;
-  width: 100%;
-  text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.battery-btn .battery-value {
+  position: absolute;
+  left: 0;
+  width: 28px;
+  text-align: center;
+  font-size: 9px;
+  font-weight: 700;
+  color: currentColor;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.battery-btn {
+  position: relative;
 }
 
 .imp-legend {
@@ -3510,4 +3416,357 @@ select option {
 
 .tdcs-cmd-input {
   width: 100%;
+}
+
+/* ===== EEG Settings Popover ===== */
+.eeg-settings-popover {
+  position: absolute;
+  z-index: 30;
+  top: -7px;
+  right: -7px;
+  width: 280px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 40px 16px 14px;
+  border: 1px solid rgba(var(--accent-rgb), 0.28);
+  border-radius: 12px;
+  background: rgba(8, 14, 24, 0.94);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.40), 0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+  color: var(--text);
+}
+
+.eeg-settings-popover[hidden] {
+  display: none;
+}
+
+.eeg-settings-popover-head {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(140, 170, 210, 0.12);
+}
+
+.eeg-settings-popover-head .band-panel-title {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.3px;
+  color: rgba(var(--accent-rgb), 0.90);
+}
+
+.eeg-settings-section {
+  margin-bottom: 2px;
+}
+
+.eeg-settings-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.5px;
+  margin: 10px 0 6px;
+}
+
+.eeg-settings-section:first-child .eeg-settings-section-title {
+  margin-top: 0;
+}
+
+.eeg-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 30px;
+  margin-bottom: 6px;
+  gap: 10px;
+}
+
+.eeg-settings-row:last-child {
+  margin-bottom: 0;
+}
+
+.eeg-settings-label {
+  font-size: 12px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.eeg-settings-row input[type="number"],
+.eeg-settings-popover input.eeg-settings-num {
+  width: 64px;
+  height: 26px;
+  min-height: 0;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  outline: none;
+  appearance: textfield;
+  -moz-appearance: textfield;
+  transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.eeg-settings-row input[type="number"]::-webkit-inner-spin-button,
+.eeg-settings-row input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.eeg-settings-row input[type="number"]:focus,
+.eeg-settings-popover input.eeg-settings-num:focus {
+  border-color: rgba(var(--accent-rgb), 0.55);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.12);
+}
+
+.eeg-settings-row input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  margin: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+.eeg-settings-row input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.eeg-settings-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  border: none;
+  border-radius: 999px;
+  background: rgb(var(--accent-rgb));
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.18);
+  transition: box-shadow 120ms ease;
+}
+
+.eeg-settings-row input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.eeg-settings-row input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 999px;
+  background: rgb(var(--accent-rgb));
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.18);
+}
+
+.eeg-settings-row input[type="range"]:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.eeg-settings-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 48px;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  letter-spacing: 0.2px;
+  transition: opacity 120ms ease;
+}
+
+.eeg-settings-pill.is-dim {
+  opacity: 0.35;
+}
+
+.eeg-settings-apply-btn {
+  width: 100%;
+  height: 30px;
+  margin-top: 8px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: rgb(var(--accent-rgb));
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  letter-spacing: 0.4px;
+  cursor: pointer;
+  transition: filter 120ms ease, transform 120ms ease;
+}
+
+.eeg-settings-apply-btn:hover {
+  filter: brightness(1.12);
+}
+
+.eeg-settings-apply-btn:active {
+  transform: translateY(1px);
+}
+
+.btn.eeg-settings-toggle-btn {
+  --btn-h: 26px;
+  width: 26px;
+  position: relative;
+  z-index: 31;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.btn.eeg-settings-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+#eeg-settings-btn-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+/* ===== PSD (frequency-domain) settings popover extras ===== */
+.eeg-psd-settings-popover {
+  width: 300px;
+}
+
+.eeg-settings-hint {
+  margin-bottom: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+  opacity: 0.82;
+}
+
+.eeg-settings-topomap-section {
+  transition: opacity 160ms ease;
+}
+
+.eeg-settings-topomap-section.is-dim {
+  opacity: 0.6;
+}
+
+.eeg-settings-topomap-section.is-dim .band-channel-map {
+  pointer-events: none;
+}
+
+.eeg-settings-popover .band-channel-map.topomap-canvas {
+  width: 100%;
+  height: 218px;
+  min-height: 218px;
+  padding: 6px;
+  border-radius: 10px;
+  box-sizing: border-box;
+}
+
+.eeg-settings-popover .band-channel-map.topomap-canvas::after {
+  right: 9px;
+  bottom: 7px;
+}
+
+/* ===== Topomap visual restore: identical colors to the original #band-channel-popover ===== */
+.eeg-settings-popover .band-power-map .electrode-circle {
+  stroke: rgba(236, 242, 255, 0.55);
+  stroke-width: 0.55;
+  fill: rgba(12, 18, 28, 0.18);
+}
+
+.eeg-settings-popover .band-power-map .electrode-text {
+  fill: rgba(236, 242, 255, 0.92);
+}
+
+.eeg-settings-popover .band-power-map .channel-electrode .electrode-circle {
+  transition: fill 160ms ease, stroke 160ms ease, filter 160ms ease;
+}
+
+.eeg-settings-popover .band-power-map .channel-electrode:focus-visible {
+  outline: none;
+  filter: drop-shadow(0 0 12px rgba(47, 229, 139, 0.40));
+}
+
+.eeg-settings-popover .band-power-map .channel-electrode:focus-visible .electrode-circle {
+  stroke: rgba(47, 229, 139, 0.95);
+  stroke-width: 0.9;
+}
+
+.eeg-settings-popover .band-power-map .channel-electrode.selected .electrode-circle {
+  stroke: rgba(47, 229, 139, 0.92);
+  stroke-width: 0.55;
+  fill: rgba(47, 229, 139, 0.20);
+}
+
+.eeg-settings-popover .band-power-map .channel-electrode.selected .electrode-text {
+  fill: rgba(47, 229, 139, 0.96);
+}
+
+.eeg-settings-popover .band-power-map .channel-electrode.selected,
+.eeg-settings-popover .band-power-map .channel-electrode.selected:hover {
+  filter: drop-shadow(0 0 12px rgba(47, 229, 139, 0.34));
+  transform: none;
+}
+
+[data-theme="light"] .eeg-settings-popover .band-power-map .electrode-circle {
+  stroke: rgba(12, 18, 28, 0.50);
+  fill: rgba(255, 255, 255, 0.70);
+}
+
+[data-theme="light"] .eeg-settings-popover .band-power-map .electrode-text {
+  fill: rgba(12, 18, 28, 0.88);
+}
+
+[data-theme="light"] .eeg-settings-popover .band-power-map .channel-electrode.selected .electrode-text {
+  fill: var(--good-text, #087a55);
+}
+
+/* Light theme overrides */
+[data-theme="light"] .eeg-settings-popover {
+  border-color: rgba(39, 120, 165, 0.22);
+  background: rgba(250, 252, 255, 0.96);
+  box-shadow: 0 18px 50px rgba(25, 70, 100, 0.20);
+}
+
+[data-theme="light"] .eeg-settings-popover-head {
+  border-bottom-color: rgba(17, 24, 39, 0.10);
+}
+
+[data-theme="light"] .eeg-settings-popover-head .band-panel-title {
+  color: var(--accent-text, #0b628f);
+}
+
+[data-theme="light"] .eeg-settings-row input[type="number"],
+[data-theme="light"] .eeg-settings-popover input.eeg-settings-num {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(17, 24, 39, 0.14);
+  color: #111827;
+}
+
+[data-theme="light"] .eeg-settings-row input[type="range"]::-webkit-slider-runnable-track {
+  background: rgba(17, 24, 39, 0.14);
+}
+
+[data-theme="light"] .eeg-settings-row input[type="range"]::-moz-range-track {
+  background: rgba(17, 24, 39, 0.14);
+}
+
+[data-theme="light"] .eeg-settings-apply-btn {
+  background: var(--accent-text, rgb(var(--accent-rgb)));
+}
+
+[data-theme="light"] .btn.eeg-settings-toggle-btn:hover {
+  background: rgba(17, 24, 39, 0.06);
+  color: #111827;
 }

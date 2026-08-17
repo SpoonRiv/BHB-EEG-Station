@@ -36,6 +36,7 @@ from core.ble.scanner import scan_devices
 from core.ble.module_naming import parse_ble_module_name
 from core.offline.offline_service import BandpassConfig, ExportTarget, OfflineService
 from core.signal.notch_filter import NotchFilter, NotchFilterConfig
+from core.signal.bandpass_filter import BandpassFilter, BandpassFilterConfig
 from core.signal.psd_worker import PsdWorker, PsdWorkerConfig
 from core.trigger.trigger_service import TriggerService, TriggerServiceConfig
 from ws_hub_eeg import EegWsHub, EegWsHubConfig
@@ -200,6 +201,17 @@ class AppState:
                 quality_factor=float(self.config.signal.notch.quality_factor),
                 channel_count=channel_count,
                 has_trigger_channel=bool(self.config.eeg.lsl.include_trigger_channel),
+            )
+        )
+        self.bandpass = BandpassFilter(
+            BandpassFilterConfig(
+                sampling_rate_hz=int(self.config.eeg.sampling_rate_hz),
+                lowcut_hz=float(self.config.signal.bandpass.lowcut_hz),
+                highcut_hz=float(self.config.signal.bandpass.highcut_hz),
+                order=int(self.config.signal.bandpass.order),
+                channel_count=channel_count,
+                has_trigger_channel=bool(self.config.eeg.lsl.include_trigger_channel),
+                enabled=bool(self.config.signal.bandpass.enabled),
             )
         )
         self.eeg_ws_hub = EegWsHub(
@@ -634,6 +646,17 @@ class AppState:
                 has_trigger_channel=bool(self.config.eeg.lsl.include_trigger_channel),
             )
         )
+        self.bandpass = BandpassFilter(
+            BandpassFilterConfig(
+                sampling_rate_hz=int(self.config.eeg.sampling_rate_hz),
+                lowcut_hz=float(self.config.signal.bandpass.lowcut_hz),
+                highcut_hz=float(self.config.signal.bandpass.highcut_hz),
+                order=int(self.config.signal.bandpass.order),
+                channel_count=channel_count,
+                has_trigger_channel=bool(self.config.eeg.lsl.include_trigger_channel),
+                enabled=bool(self.config.signal.bandpass.enabled),
+            )
+        )
         self.psd_worker = self._create_psd_worker()
         self.eeg_ws_hub.set_transform(self._apply_signal_preprocess_safe)
 
@@ -644,6 +667,7 @@ class AppState:
         out = chunk
         try:
             out = self.notch.apply(out)
+            out = self.bandpass.apply(out)
         except Exception:
             out = chunk
         return self._scale_eeg_chunk(out)
@@ -1129,6 +1153,7 @@ async def start_eeg():
         await state.ensure_debug_forwarding()
         try:
             state.notch.reset()
+            state.bandpass.reset()
         except Exception:
             pass
         state.streamer.start()
@@ -1137,6 +1162,55 @@ async def start_eeg():
     if state.config.debug.ui_enabled:
         state.debug_bus.publish(tag="UI", message="开始采集失败", data={"reason": last.get("message", "")})
     return {"status": "error", "message": last.get("message", "启动失败"), "detail": last, "device": state.controller.get_status()}
+
+class BandpassUpdateRequest(BaseModel):
+    enabled: bool
+    lowcut_hz: float
+    highcut_hz: float
+    order: int
+
+
+@app.get("/api/signal/bandpass")
+async def get_bandpass():
+    """
+    获取当前带通滤波器的有效参数。
+    """
+    return {
+        "enabled": bool(state.bandpass.enabled),
+        "lowcut_hz": float(state.bandpass.lowcut_hz),
+        "highcut_hz": float(state.bandpass.highcut_hz),
+        "order": int(state.bandpass.order),
+    }
+
+
+@app.post("/api/signal/bandpass")
+async def update_bandpass(req: BandpassUpdateRequest):
+    """
+    更新带通滤波器参数并立即生效。
+    """
+    nyquist = float(state.config.eeg.sampling_rate_hz) / 2.0
+    if req.lowcut_hz <= 0 or req.highcut_hz <= 0:
+        raise HTTPException(status_code=400, detail="lowcut_hz 和 highcut_hz 必须大于 0")
+    if req.lowcut_hz >= req.highcut_hz:
+        raise HTTPException(status_code=400, detail="lowcut_hz 必须小于 highcut_hz")
+    if req.highcut_hz >= nyquist:
+        raise HTTPException(status_code=400, detail=f"highcut_hz 必须小于奈奎斯特频率 ({nyquist} Hz)")
+    if not (1 <= req.order <= 12):
+        raise HTTPException(status_code=400, detail="order 必须在 1 到 12 之间")
+    state.bandpass.reconfigure(
+        enabled=req.enabled,
+        lowcut_hz=req.lowcut_hz,
+        highcut_hz=req.highcut_hz,
+        order=req.order,
+    )
+    return {
+        "status": "success",
+        "enabled": bool(state.bandpass.enabled),
+        "lowcut_hz": float(state.bandpass.lowcut_hz),
+        "highcut_hz": float(state.bandpass.highcut_hz),
+        "order": int(state.bandpass.order),
+    }
+
 
 @app.get("/api/config")
 async def get_config():
@@ -1804,6 +1878,7 @@ async def start_mode(req: ModeRequest):
             # 每次采集都是新的信号会话，不能沿用上一轮 IIR 陷波器状态。
             try:
                 state.notch.reset()
+                state.bandpass.reset()
             except Exception:
                 pass
             try:

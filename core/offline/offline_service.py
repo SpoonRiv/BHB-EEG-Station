@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
-from scipy.signal import butter, iirnotch, lfilter, lfilter_zi
+from scipy.signal import butter, iirnotch, lfilter, lfilter_zi, sosfilt, sosfilt_zi
 
 
 @dataclass(frozen=True)
@@ -178,12 +178,9 @@ def _ensure_ext(filename: str, ext: str) -> str:
     return f"{filename}.{e}"
 
 
-def _butter_bandpass(lowcut_hz: float, highcut_hz: float, fs_hz: float, order: int) -> Tuple[np.ndarray, np.ndarray]:
-    nyq = 0.5 * float(fs_hz)
-    low = float(lowcut_hz) / nyq
-    high = float(highcut_hz) / nyq
-    b, a = butter(int(order), [low, high], btype="band")
-    return b, a
+def _butter_bandpass(lowcut_hz: float, highcut_hz: float, fs_hz: float, order: int) -> np.ndarray:
+    sos = butter(int(order), [float(lowcut_hz), float(highcut_hz)], btype="band", fs=float(fs_hz), output="sos")
+    return sos
 
 
 def _iter_blocks(total: int, block_size: int) -> Iterable[Tuple[int, int]]:
@@ -730,13 +727,13 @@ class OfflineService:
         notch_primed = False
 
         use_bp = bool(bandpass and bandpass.enabled)
-        b_b = a_b = None
+        sos_b = None
         states_b = None
         bp_primed = False
         if use_bp:
-            b_b, a_b = _butter_bandpass(float(bandpass.lowcut_hz), float(bandpass.highcut_hz), float(sampling_rate_hz), int(bandpass.order))
-            zi_b = lfilter_zi(b_b, a_b).astype(np.float64)
-            states_b = np.tile(zi_b.reshape(1, -1), (n_filter_ch, 1))
+            sos_b = _butter_bandpass(float(bandpass.lowcut_hz), float(bandpass.highcut_hz), float(sampling_rate_hz), int(bandpass.order))
+            zi_b = sosfilt_zi(sos_b).astype(np.float64)
+            states_b = np.tile(zi_b[np.newaxis, :, :], (n_filter_ch, 1, 1))
 
         for s, e in _iter_blocks(int(data.shape[0]), int(block_size_samples)):
             block = np.asarray(data[s:e, :], dtype=np.float64)
@@ -756,14 +753,14 @@ class OfflineService:
             if has_trigger:
                 y[:, -1] = block[:, -1]
 
-            if use_bp and b_b is not None and a_b is not None and states_b is not None:
+            if use_bp and sos_b is not None and states_b is not None:
                 if not bp_primed:
                     for ch in range(n_filter_ch):
                         states_b[ch] = states_b[ch] * float(y[0, ch])
                     bp_primed = True
                 out = np.empty_like(y, dtype=np.float64)
                 for ch in range(n_filter_ch):
-                    yb, zf = lfilter(b_b, a_b, y[:, ch], zi=states_b[ch])
+                    yb, zf = sosfilt(sos_b, y[:, ch], zi=states_b[ch])
                     states_b[ch] = zf
                     out[:, ch] = yb
                 if has_trigger:
@@ -775,15 +772,14 @@ class OfflineService:
     def _bandpass_apply_block(
         self,
         block: np.ndarray,
-        b: np.ndarray,
-        a: np.ndarray,
+        sos: np.ndarray,
         states: np.ndarray,
         n_filter_ch: int,
         has_trigger: bool,
     ) -> np.ndarray:
         out = np.empty_like(block, dtype=np.float64)
         for ch in range(n_filter_ch):
-            y, zf = lfilter(b, a, block[:, ch], zi=states[ch])
+            y, zf = sosfilt(sos, block[:, ch], zi=states[ch])
             states[ch] = zf
             out[:, ch] = y
         if has_trigger:
@@ -797,15 +793,15 @@ class OfflineService:
         has_trigger = self._trigger_enabled and n_ch == (len(self._base_channel_names) + 1)
         n_filter_ch = n_ch - (1 if has_trigger else 0)
 
-        b, a = _butter_bandpass(cfg.lowcut_hz, cfg.highcut_hz, info.sampling_rate_hz, cfg.order)
-        zi = lfilter_zi(b, a).astype(np.float64)
-        states = np.tile(zi.reshape(1, -1), (n_filter_ch, 1))
+        sos = _butter_bandpass(cfg.lowcut_hz, cfg.highcut_hz, info.sampling_rate_hz, cfg.order)
+        zi = sosfilt_zi(sos).astype(np.float64)
+        states = np.tile(zi[np.newaxis, :, :], (n_filter_ch, 1, 1))
         out = np.empty_like(data, dtype=np.float32)
 
         for s, e in _iter_blocks(int(data.shape[0]), int(block_size_samples)):
             block = np.asarray(data[s:e, :], dtype=np.float64)
             for ch in range(n_filter_ch):
-                y, zf = lfilter(b, a, block[:, ch], zi=states[ch])
+                y, zf = sosfilt(sos, block[:, ch], zi=states[ch])
                 states[ch] = zf
                 out[s:e, ch] = y.astype(np.float32)
             if has_trigger:
