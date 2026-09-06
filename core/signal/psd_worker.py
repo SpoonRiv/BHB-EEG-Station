@@ -3,7 +3,7 @@
 """
 Copyright (c) 2026 BUAA BHB. All rights reserved.
 
-文件功能: 在线 PSD 频域分析（缓存最近窗口并计算 Welch 功率谱密度，供 WebSocket 推送使用）
+文件功能: 在线频域分析、连续公共平均参考与因果频带方差计算
 作者: Spoon
 """
 
@@ -17,27 +17,23 @@ from dataclasses import dataclass
 from typing import Deque, Dict, List, Optional, Tuple
 
 import numpy as np
-from scipy.signal import filtfilt, iirnotch, welch
+from scipy.signal import butter, filtfilt, iirnotch, sosfilt, welch
 
 
-# 与 attention_monitor.py 一致的 EEG 节律频带。
-# 相对功率以这些频带的功率和为分母，当前覆盖 1~45 Hz。
-EEG_BANDS: Tuple[Tuple[str, str, str, float, float], ...] = (
-    ("delta", "Delta", "", 1.0, 4.0),
-    ("theta", "Theta", "", 4.0, 8.0),
-    ("alpha", "Alpha", "", 8.0, 13.0),
-    ("beta", "Beta", "", 13.0, 30.0),
-    ("gamma", "Gamma", "", 30.0, 45.0),
-)
-PSD_DISPLAY_FMIN_HZ = 1.0
-PSD_DISPLAY_FMAX_HZ = 45.0
-DE_POWER_FLOOR_UV2 = 1e-12
+@dataclass(frozen=True)
+class PsdBandDefinition:
+    """描述一个在线分析频带及其展示元数据。"""
+
+    key: str
+    name: str
+    symbol: str
+    fmin_hz: float
+    fmax_hz: float
+
 
 @dataclass(frozen=True)
 class PsdWorkerConfig:
-    """
-    在线 PSD 计算配置。
-    """
+    """描述在线频域分析、CAR 与因果方差计算参数。"""
 
     enabled: bool
     window_sec: float
@@ -47,12 +43,25 @@ class PsdWorkerConfig:
     fmax_hz: float
     to_db: bool
     apply_notch: bool
+    car_enabled: bool
+    band_filter_order: int
+    variance_window_sec: float
+    variance_step_sec: float
+    variance_floor_uv2: float
+    bands: Tuple[PsdBandDefinition, ...]
+
+
+@dataclass(frozen=True)
+class PsdSnapshot:
+    """封装同一数据版本的频谱窗口与因果频带方差。"""
+
+    window: np.ndarray
+    causal_band_variance: np.ndarray
+    timestamp: float
 
 
 class PsdWorker:
-    """
-    在线 PSD 计算器。
-    """
+    """连续摄取 EEG，并生成配置化频带的频谱和因果方差特征。"""
 
     def __init__(
         self,
@@ -64,7 +73,8 @@ class PsdWorker:
         notch_freq_hz: float,
         notch_quality_factor: float,
         units_per_count: Optional[float] = None,
-    ):
+    ) -> None:
+        """初始化计算器并建立连续滤波状态与固定长度窗口。"""
         self.cfg = cfg
         self.sampling_rate_hz = int(max(1, sampling_rate_hz))
         self.channel_names = list(eeg_channel_names)
@@ -73,122 +83,242 @@ class PsdWorker:
         self.count_divisor = float(count_divisor) if float(count_divisor) > 0 else 120.0
         try:
             parsed_units_per_count = float(units_per_count) if units_per_count is not None else None
-        except Exception:
+        except (TypeError, ValueError):
             parsed_units_per_count = None
         self.units_per_count = (
             parsed_units_per_count
-            if parsed_units_per_count is not None and np.isfinite(parsed_units_per_count) and parsed_units_per_count > 0
+            if parsed_units_per_count is not None
+            and np.isfinite(parsed_units_per_count)
+            and parsed_units_per_count > 0
             else None
         )
         self.notch_freq_hz = float(notch_freq_hz)
         self.notch_quality_factor = float(notch_quality_factor)
-
         self._window_points = int(max(8, round(float(cfg.window_sec) * float(self.sampling_rate_hz))))
-        self._buf: List[Deque[float]] = [deque(maxlen=self._window_points) for _ in range(self.n_channels)]
+        self._variance_window_points = int(
+            max(2, round(float(cfg.variance_window_sec) * float(self.sampling_rate_hz)))
+        )
+        self._variance_step_points = int(
+            max(1, round(float(cfg.variance_step_sec) * float(self.sampling_rate_hz)))
+        )
+        self._buf: List[Deque[float]] = [
+            deque(maxlen=self._window_points) for _ in range(self.n_channels)
+        ]
+        self._band_buf: List[List[Deque[float]]] = [
+            [deque(maxlen=self._variance_window_points) for _ in range(self.n_channels)]
+            for _ in cfg.bands
+        ]
+        self._band_sos = [
+            butter(
+                int(cfg.band_filter_order),
+                [float(band.fmin_hz), float(band.fmax_hz)],
+                btype="bandpass",
+                fs=float(self.sampling_rate_hz),
+                output="sos",
+            )
+            for band in cfg.bands
+        ]
+        self._band_zi = [
+            np.zeros((sos.shape[0], 2, self.n_channels), dtype=np.float64)
+            for sos in self._band_sos
+        ]
         self._lock = threading.Lock()
-
         self._notch_ba: Optional[Tuple[np.ndarray, np.ndarray]] = None
-        self._ts_last: float = 0.0
-        self._data_version: int = 0
-        self._last_snapshot_version: int = -1
+        self._data_version = 0
+        self._last_psd_snapshot_version = -1
+        self._last_variance_snapshot_version = -1
 
     def reset(self) -> None:
-        """
-        清空缓存。
-        """
+        """清空窗口并重置全部连续因果滤波器状态。"""
         with self._lock:
-            for d in self._buf:
-                d.clear()
-            self._ts_last = 0.0
+            for channel_buffer in self._buf:
+                channel_buffer.clear()
+            for band_buffers in self._band_buf:
+                for channel_buffer in band_buffers:
+                    channel_buffer.clear()
+            for index, sos in enumerate(self._band_sos):
+                self._band_zi[index] = np.zeros(
+                    (sos.shape[0], 2, self.n_channels),
+                    dtype=np.float64,
+                )
             self._data_version = 0
-            self._last_snapshot_version = -1
+            self._last_psd_snapshot_version = -1
+            self._last_variance_snapshot_version = -1
 
     def append_chunk(self, chunk: List[List[float]]) -> None:
-        """
-        追加一个 EEG 数据块到环形缓存。
-        """
-        if not self.cfg.enabled:
+        """换算并连续摄取一个 EEG 数据块，逐样本应用 CAR 和因果频带滤波。"""
+        if not self.cfg.enabled or not chunk or self.n_channels <= 0:
             return
-        if not chunk or self.n_channels <= 0:
-            return
-
         try:
-            arr = np.asarray(chunk, dtype=np.float32)
-        except Exception:
+            arr = np.asarray(chunk, dtype=np.float64)
+        except (TypeError, ValueError):
             return
-        if arr.ndim != 2:
+        if arr.ndim != 2 or arr.shape[1] < self.n_channels:
             return
-        if arr.shape[1] < self.n_channels:
-            return
-
         eeg = arr[:, : self.n_channels]
         if self.units_per_count is not None:
-            # 8 通道：raw_signed × 2 × Vref × 1e6 / (ADC gain × G × 2^bits)。
             eeg = eeg * float(self.units_per_count)
         elif self.count_divisor != 1.0:
-            # 16 通道兼容旧协议。
             eeg = eeg / float(self.count_divisor)
-
+        if bool(self.cfg.car_enabled):
+            eeg = eeg - np.mean(eeg, axis=1, keepdims=True)
         with self._lock:
-            for ch in range(self.n_channels):
-                self._buf[ch].extend(eeg[:, ch].tolist())
+            for channel_index in range(self.n_channels):
+                self._buf[channel_index].extend(eeg[:, channel_index].tolist())
+            for band_index, sos in enumerate(self._band_sos):
+                filtered, next_zi = sosfilt(
+                    sos,
+                    eeg,
+                    axis=0,
+                    zi=self._band_zi[band_index],
+                )
+                self._band_zi[band_index] = next_zi
+                for channel_index in range(self.n_channels):
+                    self._band_buf[band_index][channel_index].extend(
+                        filtered[:, channel_index].tolist()
+                    )
             self._data_version += int(eeg.shape[0])
 
-    def snapshot_window(self) -> Optional[np.ndarray]:
-        """
-        获取当前窗口快照。
-        """
+    def get_warmup_status(self) -> Dict[str, object]:
+        """返回当前 PSD 窗口的预热进度、样本数与就绪状态。"""
+        with self._lock:
+            sample_count = len(self._buf[0]) if self.n_channels > 0 else 0
+        return self._build_warmup_status(sample_count, self._window_points, self.cfg.window_sec)
+
+    def get_variance_warmup_status(self) -> Dict[str, object]:
+        """返回因果频带方差窗口的预热进度、样本数与就绪状态。"""
+        with self._lock:
+            sample_count = (
+                len(self._band_buf[0][0])
+                if self.n_channels > 0 and self._band_buf and self._band_buf[0]
+                else 0
+            )
+        return self._build_warmup_status(
+            sample_count,
+            self._variance_window_points,
+            self.cfg.variance_window_sec,
+        )
+
+    def snapshot_window(self) -> Optional[PsdSnapshot]:
+        """原子获取当前 CAR 窗口及对应的连续因果频带方差。"""
         if not self.cfg.enabled:
             return None
         with self._lock:
-            if self.n_channels <= 0:
+            if self.n_channels <= 0 or len(self._buf[0]) < self._window_points:
                 return None
-            if len(self._buf[0]) < self._window_points:
+            if self._data_version <= self._last_psd_snapshot_version:
                 return None
-            if self._data_version <= self._last_snapshot_version:
-                return None
-            out = np.empty((self.n_channels, self._window_points), dtype=np.float32)
-            for ch in range(self.n_channels):
-                out[ch, :] = np.asarray(self._buf[ch], dtype=np.float32)
-            self._last_snapshot_version = self._data_version
-            self._ts_last = time.time()
-            return out
+            window = np.empty((self.n_channels, self._window_points), dtype=np.float32)
+            for channel_index in range(self.n_channels):
+                window[channel_index, :] = np.asarray(
+                    self._buf[channel_index],
+                    dtype=np.float32,
+                )
+            causal_variance = np.empty(
+                (self.n_channels, len(self.cfg.bands)),
+                dtype=np.float64,
+            )
+            for band_index, band_buffers in enumerate(self._band_buf):
+                for channel_index, channel_buffer in enumerate(band_buffers):
+                    values = np.asarray(channel_buffer, dtype=np.float64)
+                    causal_variance[channel_index, band_index] = float(np.var(values))
+            self._last_psd_snapshot_version = self._data_version
+            return PsdSnapshot(
+                window=window,
+                causal_band_variance=causal_variance,
+                timestamp=float(time.time()),
+            )
 
-    def compute_psd_payload(self, window: np.ndarray) -> Optional[Dict[str, object]]:
-        """
-        计算 PSD，并构造 WebSocket 推送载荷。
-        """
+    def build_variance_warmup_payload(self) -> Dict[str, object]:
+        """生成带频带元数据的因果方差预热载荷。"""
+        warmup = self.get_variance_warmup_status()
+        return {
+            "ts": float(time.time()),
+            "warmup": warmup,
+            "bands": self._bands_payload(),
+            "unit": "uV^2",
+            "window_sec": float(self.cfg.variance_window_sec),
+            "step_sec": float(self.cfg.variance_step_sec),
+            "sample_count": int(warmup.get("sample_count", 0)),
+            "channels": {},
+            "average": [],
+        }
+
+    def snapshot_variance_payload(self) -> Optional[Dict[str, object]]:
+        """按配置步长原子生成最近因果窗口的频带方差 WebSocket 载荷。"""
         if not self.cfg.enabled:
             return None
-        if window is None:
+        with self._lock:
+            if (
+                self.n_channels <= 0
+                or not self._band_buf
+                or len(self._band_buf[0][0]) < self._variance_window_points
+            ):
+                return None
+            if self._data_version - self._last_variance_snapshot_version < self._variance_step_points:
+                return None
+            causal_variance = np.empty(
+                (self.n_channels, len(self.cfg.bands)),
+                dtype=np.float64,
+            )
+            for band_index, band_buffers in enumerate(self._band_buf):
+                for channel_index, channel_buffer in enumerate(band_buffers):
+                    causal_variance[channel_index, band_index] = float(
+                        np.var(np.asarray(channel_buffer, dtype=np.float64))
+                    )
+            self._last_variance_snapshot_version = self._data_version
+        causal_variance = np.maximum(
+            np.nan_to_num(causal_variance, nan=0.0, posinf=0.0, neginf=0.0),
+            0.0,
+        )
+        timestamp = float(time.time())
+        warmup = self._build_warmup_status(
+            self._variance_window_points,
+            self._variance_window_points,
+            self.cfg.variance_window_sec,
+        )
+        return {
+            "ts": timestamp,
+            "warmup": warmup,
+            "bands": self._bands_payload(),
+            "unit": "uV^2",
+            "window_sec": float(self.cfg.variance_window_sec),
+            "step_sec": float(self.cfg.variance_step_sec),
+            "sample_count": int(self._variance_window_points),
+            "channels": {
+                str(channel_name): causal_variance[channel_index, :].astype(np.float32).tolist()
+                for channel_index, channel_name in enumerate(self.channel_names)
+            },
+            "average": np.mean(causal_variance, axis=0).astype(np.float32).tolist(),
+        }
+
+    def compute_psd_payload(self, snapshot: PsdSnapshot) -> Optional[Dict[str, object]]:
+        """计算 Welch 频谱并组合因果方差、差分熵和动态频带元数据。"""
+        if not self.cfg.enabled or not isinstance(snapshot, PsdSnapshot):
             return None
+        window = snapshot.window
         if not isinstance(window, np.ndarray) or window.ndim != 2:
             return None
         if window.shape[0] != self.n_channels:
             return None
-
         data = window.astype(np.float64, copy=False)
         fs = float(self.sampling_rate_hz)
-        nyq = fs / 2.0
-
-        # 此页面固定展示 1–45 Hz，不随旧配置或本地覆盖扩大/缩小。
-        fmin = PSD_DISPLAY_FMIN_HZ
-        fmax = min(PSD_DISPLAY_FMAX_HZ, nyq)
-        if fmin >= fmax:
-            fmin = 0.0
-
+        nyquist = fs / 2.0
+        display_fmin = max(0.0, float(self.cfg.fmin_hz))
+        display_fmax = min(float(self.cfg.fmax_hz), nyquist)
+        if display_fmin >= display_fmax:
+            return None
         if bool(self.cfg.apply_notch):
             b, a = self._get_notch_ba(fs)
             if b is not None and a is not None and data.shape[1] >= 32:
                 try:
                     data = filtfilt(b, a, data, axis=1).astype(np.float64, copy=False)
-                except Exception:
+                except ValueError:
                     pass
-
         nfft = int(self.cfg.nfft)
         nperseg = min(int(max(16, data.shape[1])), int(max(16, nfft)))
         try:
-            freq, psd = welch(
+            freq, linear_psd = welch(
                 data,
                 fs=fs,
                 nperseg=nperseg,
@@ -196,50 +326,9 @@ class PsdWorker:
                 axis=1,
                 scaling="density",
             )
-        except Exception:
+        except ValueError:
             return None
-
-        # 频带功率必须在线性、未裁剪的 Welch PSD 上积分，不能受 PSD 横轴
-        # fmin/fmax 配置影响，也不能对 dB 数值直接积分。
-        linear_psd = psd
-        band_power = np.zeros((self.n_channels, len(EEG_BANDS)), dtype=np.float64)
-        for band_idx, (_, _, _, band_low, band_high) in enumerate(EEG_BANDS):
-            # Welch bins rarely land exactly on the EEG-band boundaries. Add
-            # interpolated boundary samples before integrating so narrow bands
-            # (especially Delta/Theta) do not lose their edge intervals.
-            integration_low = max(float(band_low), float(freq[0]))
-            integration_high = min(float(band_high), float(freq[-1]))
-            if integration_low >= integration_high:
-                continue
-
-            interior_mask = (freq > integration_low) & (freq < integration_high)
-            band_freq = np.concatenate(
-                (
-                    np.asarray([integration_low], dtype=np.float64),
-                    freq[interior_mask],
-                    np.asarray([integration_high], dtype=np.float64),
-                )
-            )
-            low_psd = np.asarray(
-                [np.interp(integration_low, freq, row) for row in linear_psd],
-                dtype=np.float64,
-            )[:, None]
-            high_psd = np.asarray(
-                [np.interp(integration_high, freq, row) for row in linear_psd],
-                dtype=np.float64,
-            )[:, None]
-            band_values = np.concatenate(
-                (low_psd, linear_psd[:, interior_mask], high_psd),
-                axis=1,
-            )
-            band_power[:, band_idx] = np.trapezoid(
-                band_values,
-                band_freq,
-                axis=1,
-            )
-
-        band_power = np.nan_to_num(band_power, nan=0.0, posinf=0.0, neginf=0.0)
-        band_power = np.maximum(band_power, 0.0)
+        band_power = self._integrate_band_power(freq, linear_psd)
         band_total = np.sum(band_power, axis=1)
         band_relative_pct = np.divide(
             band_power * 100.0,
@@ -247,17 +336,18 @@ class PsdWorker:
             out=np.zeros_like(band_power),
             where=band_total[:, None] > 0.0,
         )
-        # Under the common Gaussian-band assumption, EEG differential entropy
-        # is a logarithmic transform of the band-limited signal variance. The
-        # integrated Welch band power is that variance in uV^2.
-        band_de = 0.5 * np.log(
-            2.0 * np.pi * np.e * np.maximum(band_power, DE_POWER_FLOOR_UV2)
+        causal_variance = np.nan_to_num(
+            snapshot.causal_band_variance,
+            nan=0.0,
+            posinf=0.0,
+            neginf=0.0,
         )
-
+        causal_variance = np.maximum(causal_variance, 0.0)
+        variance_floor = float(self.cfg.variance_floor_uv2)
+        band_de = 0.5 * np.log(
+            2.0 * np.pi * np.e * np.maximum(causal_variance, variance_floor)
+        )
         average_band_power = np.mean(band_power, axis=0)
-        # Average the per-channel DE features. Do not take the logarithm of the
-        # averaged power because DE is nonlinear in variance.
-        average_band_de = np.mean(band_de, axis=0)
         average_band_total = float(np.sum(average_band_power))
         average_band_relative_pct = np.divide(
             average_band_power * 100.0,
@@ -265,63 +355,54 @@ class PsdWorker:
             out=np.zeros_like(average_band_power),
             where=average_band_total > 0.0,
         )
-
-        display_low = max(float(fmin), float(freq[0]))
-        display_high = min(float(fmax), float(freq[-1]))
-        if display_low >= display_high:
+        average_causal_variance = np.mean(causal_variance, axis=0)
+        average_band_de = np.mean(band_de, axis=0)
+        display_freq, display_psd = self._slice_display_spectrum(
+            freq,
+            linear_psd,
+            display_fmin,
+            display_fmax,
+        )
+        if display_freq is None or display_psd is None:
             return None
-
-        # Welch 频点由 fs / nfft 决定，通常不会恰好落在 1 Hz 和 45 Hz。
-        # 补齐显示边界，确保曲线从横轴起点连续绘制到终点，不产生边缘留白。
-        display_mask = (freq > display_low) & (freq < display_high)
-        display_freq = np.concatenate(
-            (
-                np.asarray([display_low], dtype=np.float64),
-                freq[display_mask],
-                np.asarray([display_high], dtype=np.float64),
-            )
-        )
-        display_low_psd = np.asarray(
-            [np.interp(display_low, freq, row) for row in linear_psd],
-            dtype=np.float64,
-        )[:, None]
-        display_high_psd = np.asarray(
-            [np.interp(display_high, freq, row) for row in linear_psd],
-            dtype=np.float64,
-        )[:, None]
-        psd = np.concatenate(
-            (display_low_psd, linear_psd[:, display_mask], display_high_psd),
-            axis=1,
-        )
-        freq = display_freq
-        average_psd = np.mean(psd, axis=0)
-
+        average_psd = np.mean(display_psd, axis=0)
         unit = "uV^2/Hz"
         if bool(self.cfg.to_db):
-            psd = 10.0 * np.log10(np.maximum(psd, 1e-20))
+            display_psd = 10.0 * np.log10(np.maximum(display_psd, 1e-20))
             average_psd = 10.0 * np.log10(np.maximum(average_psd, 1e-20))
             unit = "dB"
-
         channels: Dict[str, List[float]] = {}
         band_channels: Dict[str, Dict[str, object]] = {}
-        for i, name in enumerate(self.channel_names):
-            channels[str(name)] = psd[i, :].astype(np.float32).tolist()
-            band_channels[str(name)] = {
-                "absolute": band_power[i, :].astype(np.float32).tolist(),
-                "relative_pct": band_relative_pct[i, :].astype(np.float32).tolist(),
-                "differential_entropy": band_de[i, :].astype(np.float32).tolist(),
-                "total": float(band_total[i]),
+        for channel_index, channel_name in enumerate(self.channel_names):
+            channels[str(channel_name)] = display_psd[channel_index, :].astype(np.float32).tolist()
+            band_channels[str(channel_name)] = {
+                "absolute": band_power[channel_index, :].astype(np.float32).tolist(),
+                "relative_pct": band_relative_pct[channel_index, :].astype(np.float32).tolist(),
+                "causal_variance": causal_variance[channel_index, :].astype(np.float32).tolist(),
+                "differential_entropy": band_de[channel_index, :].astype(np.float32).tolist(),
+                "total": float(band_total[channel_index]),
             }
-
-        ts = float(self._ts_last) if self._ts_last > 0 else float(time.time())
+        bands_payload = self._bands_payload()
         return {
-            "ts": ts,
-            "freq_hz": freq.astype(np.float32).tolist(),
+            "ts": float(snapshot.timestamp),
+            "warmup": {
+                "ready": True,
+                "sample_count": int(window.shape[1]),
+                "required_samples": int(self._window_points),
+                "elapsed_sec": float(window.shape[1] / self.sampling_rate_hz),
+                "required_sec": float(self.cfg.window_sec),
+                "progress": 1.0,
+            },
+            "freq_hz": display_freq.astype(np.float32).tolist(),
             "channels": channels,
             "unit": unit,
-            "display_fmin_hz": float(fmin),
-            "display_fmax_hz": float(fmax),
+            "display_fmin_hz": float(display_fmin),
+            "display_fmax_hz": float(display_fmax),
             "sample_count": int(window.shape[1]),
+            "preprocessing": {
+                "car": bool(self.cfg.car_enabled),
+                "causal_band_filter_order": int(self.cfg.band_filter_order),
+            },
             "average": {
                 "label": "全通道平均",
                 "channel_count": int(self.n_channels),
@@ -329,62 +410,160 @@ class PsdWorker:
                 "band_power": {
                     "absolute": average_band_power.astype(np.float32).tolist(),
                     "relative_pct": average_band_relative_pct.astype(np.float32).tolist(),
+                    "causal_variance": average_causal_variance.astype(np.float32).tolist(),
                     "differential_entropy": average_band_de.astype(np.float32).tolist(),
                     "total": average_band_total,
                 },
             },
+            "variance": {
+                "unit": "uV^2",
+                "channels": {
+                    str(channel_name): causal_variance[channel_index, :].astype(np.float32).tolist()
+                    for channel_index, channel_name in enumerate(self.channel_names)
+                },
+                "average": average_causal_variance.astype(np.float32).tolist(),
+            },
             "band_power": {
-                "bands": [
-                    {
-                        "key": key,
-                        "name": name,
-                        "symbol": symbol,
-                        "fmin_hz": low,
-                        "fmax_hz": high,
-                    }
-                    for key, name, symbol, low, high in EEG_BANDS
-                ],
+                "bands": bands_payload,
                 "channels": band_channels,
                 "absolute_unit": "uV^2",
                 "relative_unit": "%",
+                "causal_variance_unit": "uV^2",
                 "differential_entropy_unit": "nat",
                 "differential_entropy_log_base": "e",
-                "differential_entropy_method": "gaussian_from_band_power",
+                "differential_entropy_method": "gaussian_from_causal_band_variance",
                 "differential_entropy_reference_unit": "uV",
-                "differential_entropy_power_floor_uV2": float(DE_POWER_FLOOR_UV2),
+                "differential_entropy_power_floor_uV2": variance_floor,
                 "normalization": "sum_of_listed_bands",
-                "normalization_fmin_hz": float(EEG_BANDS[0][3]),
-                "normalization_fmax_hz": float(min(EEG_BANDS[-1][4], nyq)),
-                "normalization_complete": bool(nyq >= EEG_BANDS[-1][4]),
+                "normalization_fmin_hz": float(self.cfg.bands[0].fmin_hz),
+                "normalization_fmax_hz": float(self.cfg.bands[-1].fmax_hz),
+                "normalization_complete": bool(nyquist > self.cfg.bands[-1].fmax_hz),
             },
         }
 
     def get_update_interval_sec(self) -> float:
-        """
-        将更新频率转换为秒级间隔。
-        """
+        """将配置的 PSD 更新频率转换为秒级间隔。"""
         hz = float(self.cfg.update_hz)
         if not math.isfinite(hz) or hz <= 0:
             hz = 1.0
         return 1.0 / hz
 
-    def _get_notch_ba(self, fs: float) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    def get_variance_interval_sec(self) -> float:
+        """返回因果频带方差的配置化输出步长。"""
+        interval = float(self.cfg.variance_step_sec)
+        if not math.isfinite(interval) or interval <= 0:
+            return 0.1
+        return interval
+
+    def _build_warmup_status(
+        self,
+        sample_count: int,
+        required_samples: int,
+        required_sec: float,
+    ) -> Dict[str, object]:
+        """构造统一的窗口预热状态。"""
+        progress = min(1.0, sample_count / required_samples) if required_samples > 0 else 1.0
+        return {
+            "ready": bool(sample_count >= required_samples),
+            "sample_count": int(sample_count),
+            "required_samples": int(required_samples),
+            "elapsed_sec": float(sample_count / self.sampling_rate_hz),
+            "required_sec": float(required_sec),
+            "progress": float(progress),
+        }
+
+    def _bands_payload(self) -> List[Dict[str, object]]:
+        """生成稳定的动态频带元数据载荷。"""
+        return [
+            {
+                "key": band.key,
+                "name": band.name,
+                "symbol": band.symbol,
+                "fmin_hz": float(band.fmin_hz),
+                "fmax_hz": float(band.fmax_hz),
+            }
+            for band in self.cfg.bands
+        ]
+
+    def _integrate_band_power(self, freq: np.ndarray, psd: np.ndarray) -> np.ndarray:
+        """在配置频带边界插值后积分 Welch 线性功率谱。"""
+        band_power = np.zeros((self.n_channels, len(self.cfg.bands)), dtype=np.float64)
+        for band_index, band in enumerate(self.cfg.bands):
+            low = max(float(band.fmin_hz), float(freq[0]))
+            high = min(float(band.fmax_hz), float(freq[-1]))
+            if low >= high:
+                continue
+            interior = (freq > low) & (freq < high)
+            band_freq = np.concatenate(
+                (
+                    np.asarray([low], dtype=np.float64),
+                    freq[interior],
+                    np.asarray([high], dtype=np.float64),
+                )
+            )
+            low_values = np.asarray(
+                [np.interp(low, freq, row) for row in psd],
+                dtype=np.float64,
+            )[:, None]
+            high_values = np.asarray(
+                [np.interp(high, freq, row) for row in psd],
+                dtype=np.float64,
+            )[:, None]
+            values = np.concatenate((low_values, psd[:, interior], high_values), axis=1)
+            band_power[:, band_index] = np.trapezoid(values, band_freq, axis=1)
+        band_power = np.nan_to_num(band_power, nan=0.0, posinf=0.0, neginf=0.0)
+        return np.maximum(band_power, 0.0)
+
+    def _slice_display_spectrum(
+        self,
+        freq: np.ndarray,
+        psd: np.ndarray,
+        low: float,
+        high: float,
+    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        """插值补齐展示边界并裁剪频谱。"""
+        display_low = max(float(low), float(freq[0]))
+        display_high = min(float(high), float(freq[-1]))
+        if display_low >= display_high:
+            return None, None
+        interior = (freq > display_low) & (freq < display_high)
+        display_freq = np.concatenate(
+            (
+                np.asarray([display_low], dtype=np.float64),
+                freq[interior],
+                np.asarray([display_high], dtype=np.float64),
+            )
+        )
+        low_values = np.asarray(
+            [np.interp(display_low, freq, row) for row in psd],
+            dtype=np.float64,
+        )[:, None]
+        high_values = np.asarray(
+            [np.interp(display_high, freq, row) for row in psd],
+            dtype=np.float64,
+        )[:, None]
+        display_psd = np.concatenate((low_values, psd[:, interior], high_values), axis=1)
+        return display_freq, display_psd
+
+    def _get_notch_ba(
+        self,
+        sampling_rate_hz: float,
+    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        """按需创建并缓存频谱窗口使用的陷波器系数。"""
         if self._notch_ba is not None:
             return self._notch_ba
-        f0 = float(self.notch_freq_hz)
-        if not math.isfinite(f0):
+        frequency = float(self.notch_freq_hz)
+        if not math.isfinite(frequency) or frequency <= 0:
             return None, None
-        if f0 <= 0:
-            return None, None
-        if f0 >= (float(fs) / 2.0):
+        if frequency >= float(sampling_rate_hz) / 2.0:
             return None, None
         try:
             b, a = iirnotch(
-                w0=f0,
+                w0=frequency,
                 Q=float(self.notch_quality_factor),
-                fs=float(fs),
+                fs=float(sampling_rate_hz),
             )
-        except Exception:
+        except ValueError:
             return None, None
         self._notch_ba = (b, a)
         return self._notch_ba

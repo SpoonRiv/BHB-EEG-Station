@@ -3,7 +3,7 @@
 """
 Copyright (c) 2026 BUAA BHB. All rights reserved.
 
-文件功能: PSD WebSocket 广播枢纽（低频数据：保持“最新覆盖”，避免积压导致 UI 延迟）
+文件功能: 方差 WebSocket 广播枢纽，仅保留最新方差与预热状态供前端展示
 作者: Spoon
 """
 
@@ -18,30 +18,17 @@ from fastapi import WebSocket
 
 
 @dataclass(frozen=True)
-class PsdWsHubConfig:
-    """
-    PSD WebSocket 广播枢纽配置。
-
-    Attributes:
-        send_timeout_sec: 单个 WebSocket 发送超时（秒）。
-        queue_size: 内部队列长度（默认 1，表示仅保留最新值）。
-    """
+class VarianceWsHubConfig:
+    """描述方差 WebSocket 的发送超时与最新值队列容量。"""
 
     send_timeout_sec: float
     queue_size: int = 1
 
 
-class PsdWsHub:
-    """
-    PSD WebSocket 广播枢纽。
+class VarianceWsHub:
+    """广播方差数据，慢连接只接收最新结果，不产生历史积压。"""
 
-    设计目标：
-    - PSD 频率通常较低（~1-5Hz），UI 只需要最新状态；
-    - 队列满时覆盖旧数据，避免积压与延迟扩散；
-    - 对慢连接设置发送超时并自动剔除。
-    """
-
-    def __init__(self, cfg: PsdWsHubConfig):
+    def __init__(self, cfg: VarianceWsHubConfig) -> None:
         self._cfg = cfg
         self._clients: List[WebSocket] = []
         self._queue: Optional[asyncio.Queue] = None
@@ -52,14 +39,14 @@ class PsdWsHub:
         if ws not in self._clients:
             self._clients.append(ws)
 
-    def has_clients(self) -> bool:
-        return len(self._clients) > 0
-
     def unregister(self, ws: WebSocket) -> None:
         try:
             self._clients.remove(ws)
         except ValueError:
-            return
+            pass
+
+    def has_clients(self) -> bool:
+        return bool(self._clients)
 
     def start(self) -> None:
         if self._task and not self._task.done():
@@ -86,7 +73,7 @@ class PsdWsHub:
     def enqueue_latest(self, payload: Dict[str, object]) -> None:
         if self._stopping:
             return
-        if self._queue is None or self._task is None or (self._task.done() if self._task else False):
+        if self._queue is None or self._task is None or self._task.done():
             self.start()
         if self._queue is None:
             return
@@ -109,22 +96,22 @@ class PsdWsHub:
                     await asyncio.sleep(0.05)
                     continue
                 try:
-                    item = await asyncio.wait_for(self._queue.get(), timeout=0.3)
+                    item: Any = await asyncio.wait_for(self._queue.get(), timeout=0.3)
                 except asyncio.TimeoutError:
                     if self._stopping:
                         return
                     continue
-                if item is None:
+                if item is None or not self._clients:
                     continue
-                if not self._clients:
-                    continue
-                payload: Any = {"type": "psd_data", "data": item}
                 disconnected: List[WebSocket] = []
                 for ws in list(self._clients):
                     try:
-                        await asyncio.wait_for(ws.send_json(payload), timeout=float(self._cfg.send_timeout_sec))
-                    except Exception as e:
-                        logging.error(f"WebSocket send error: {e}")
+                        await asyncio.wait_for(
+                            ws.send_json({"type": "variance_data", "data": item}),
+                            timeout=float(self._cfg.send_timeout_sec),
+                        )
+                    except Exception as exc:
+                        logging.error("Variance WebSocket send error: %s", exc)
                         disconnected.append(ws)
                 for ws in disconnected:
                     self.unregister(ws)

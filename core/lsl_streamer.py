@@ -3,21 +3,23 @@
 """
 Copyright (c) 2026 BUAA BHB. All rights reserved.
 
-文件功能: LSL 数据流接收与缓冲打包（从 pylsl 拉取 EEG 数据并通过回调向上层提供 chunk）
+文件功能: 在独立摄取线程中接收 LSL 数据并向事件循环安全转发数据块
 作者: Spoon
 """
+
+from __future__ import annotations
 
 import asyncio
 import inspect
 import logging
+import threading
 from typing import Any, Callable, Dict, List, Optional
-from pylsl import resolve_byprop, StreamInlet
+
+from pylsl import StreamInlet, resolve_byprop
+
 
 class LSLStreamer:
-    """
-    LSL 数据流接收与转发器。
-    用于异步读取 pylsl 数据流，节流打包后供 WebSocket 广播使用。
-    """
+    """异步解析 LSL 流，并使用独立线程连续摄取和打包样本。"""
 
     def __init__(
         self,
@@ -26,74 +28,75 @@ class LSLStreamer:
         buffer_size: int = 10,
         resolve_timeout_sec: float = 1.0,
         resolve_retry_interval_sec: float = 0.5,
-    ):
-        """
-        初始化 LSLStreamer。
-
-        Args:
-            stream_name: LSL 流名（优先按 name 精确解析，避免误连到其它 EEG 流）。
-            stream_type: LSL 流类型（用于二次校验/排错提示）。
-            buffer_size: 每次回调打包的采样点数（>0）。
-            resolve_timeout_sec: 单次解析等待时长（秒），建议较小以便可取消与快速重试。
-            resolve_retry_interval_sec: 解析失败后的重试间隔（秒）。
-        """
+    ) -> None:
+        """初始化 LSL 流标识、打包参数和线程生命周期状态。"""
         self.stream_name = stream_name
         self.stream_type = stream_type
         self.buffer_size = max(1, int(buffer_size))
         self.resolve_timeout_sec = max(0.05, float(resolve_timeout_sec))
         self.resolve_retry_interval_sec = max(0.05, float(resolve_retry_interval_sec))
-        
         self.inlet: Optional[StreamInlet] = None
         self.is_streaming = False
-        self.task: Optional[asyncio.Task] = None
+        self.task: Optional[asyncio.Task[None]] = None
+        self._state = "stopped"
+        self._last_error = ""
+        self._callbacks: List[Callable[[List[List[float]]], Any]] = []
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._ingest_thread: Optional[threading.Thread] = None
+        self._ingest_stop = threading.Event()
+        self._inlet_lock = threading.Lock()
 
-        self._state: str = "stopped"  # stopped|resolving|streaming|error
-        self._last_error: str = ""
-        
-        self._buffer: List[List[float]] = []
-        self._callbacks: List[Callable[[List[List[float]]], None]] = []
+    def add_callback(self, callback: Callable[[List[List[float]]], Any]) -> None:
+        """注册在事件循环线程执行的数据块回调。"""
+        if callback not in self._callbacks:
+            self._callbacks.append(callback)
 
-    def add_callback(self, callback: Callable[[List[List[float]]], None]):
-        """
-        注册数据接收回调。当缓存满时触发。
-        """
-        self._callbacks.append(callback)
-
-    def remove_callback(self, callback: Callable[[List[List[float]]], None]):
-        """
-        移除回调。
-        """
-        if callback in self._callbacks:
+    def remove_callback(self, callback: Callable[[List[List[float]]], Any]) -> None:
+        """移除已注册的数据块回调。"""
+        try:
             self._callbacks.remove(callback)
+        except ValueError:
+            return
 
     def get_status(self) -> Dict[str, Any]:
-        """
-        获取 LSLStreamer 状态（供 /api/status 与前端自检使用）。
-
-        Returns:
-            Dict[str, Any]: {state, stream_name, stream_type, buffer_size, last_error}
-        """
+        """返回流解析、独立摄取线程和最近错误状态。"""
         return {
             "state": self._state,
             "stream_name": self.stream_name,
             "stream_type": self.stream_type,
             "buffer_size": self.buffer_size,
+            "ingest_thread_alive": bool(
+                self._ingest_thread is not None and self._ingest_thread.is_alive()
+            ),
             "last_error": self._last_error,
         }
 
-    async def _resolve_stream(self) -> bool:
-        """
-        解析 LSL 流并建立 inlet。
+    async def _run(self) -> None:
+        """持续解析目标流，并在摄取线程异常退出后自动重新连接。"""
+        while self.is_streaming:
+            resolved = await self._resolve_stream()
+            if not resolved or not self.is_streaming:
+                break
+            self._start_ingest_thread()
+            while self.is_streaming and self._ingest_thread is not None:
+                if not self._ingest_thread.is_alive():
+                    break
+                await asyncio.sleep(0.1)
+            if self.is_streaming:
+                self._close_inlet()
+                self._state = "resolving"
+                await asyncio.sleep(self.resolve_retry_interval_sec)
+        self._state = "stopped"
 
-        设计要点：
-        - 仅按 type 解析会出现“先匹配到其它 EEG 流，目标 name 尚未出现”的情况，导致误判失败并退出；
-        - resolve_byprop 默认超时极长，任务难以取消且排查困难；
-        - 因此这里按 stream_name 精确解析，并使用短超时循环重试。
-        """
+    async def _resolve_stream(self) -> bool:
+        """在线程池执行阻塞解析和打开操作，直至成功或收到停止请求。"""
         self._state = "resolving"
         self._last_error = ""
-        logging.info(f"Looking for an LSL stream name='{self.stream_name}', type='{self.stream_type}' ...")
-
+        logging.info(
+            "Looking for an LSL stream name='%s', type='%s' ...",
+            self.stream_name,
+            self.stream_type,
+        )
         while self.is_streaming:
             try:
                 streams = await asyncio.to_thread(
@@ -107,115 +110,119 @@ class LSLStreamer:
                     self._last_error = "等待 LSL 流出现"
                     await asyncio.sleep(self.resolve_retry_interval_sec)
                     continue
-
-                target_stream = streams[0]
-                try:
-                    resolved_type = str(target_stream.type() or "")
-                    if self.stream_type and resolved_type and resolved_type != self.stream_type:
-                        self._last_error = f"LSL 流类型不匹配：期望 {self.stream_type}，实际 {resolved_type}"
-                except Exception:
-                    pass
-
-                self.inlet = StreamInlet(target_stream)
-                try:
-                    await asyncio.to_thread(self.inlet.open_stream, float(self.resolve_timeout_sec))
-                except Exception as e:
-                    try:
-                        self.inlet.close_stream()
-                    except Exception:
-                        pass
-                    self.inlet = None
-                    self._state = "error"
-                    self._last_error = f"打开 LSL inlet 失败：{e}"
-                    logging.error(self._last_error)
+                stream_info = streams[0]
+                resolved_type = str(stream_info.type() or "")
+                if self.stream_type and resolved_type and resolved_type != self.stream_type:
+                    self._last_error = (
+                        f"LSL 流类型不匹配：期望 {self.stream_type}，实际 {resolved_type}"
+                    )
                     await asyncio.sleep(self.resolve_retry_interval_sec)
                     continue
+                inlet = StreamInlet(stream_info)
+                await asyncio.to_thread(
+                    inlet.open_stream,
+                    float(self.resolve_timeout_sec),
+                )
+                with self._inlet_lock:
+                    self.inlet = inlet
                 self._state = "streaming"
                 self._last_error = ""
-                logging.info(f"LSL stream resolved: name='{self.stream_name}'.")
+                logging.info("LSL stream resolved: name='%s'.", self.stream_name)
                 return True
             except asyncio.CancelledError:
                 raise
-            except Exception as e:
+            except Exception as exc:
                 self._state = "error"
-                self._last_error = f"解析 LSL 失败：{e}"
-                logging.error(self._last_error)
+                self._last_error = f"解析或打开 LSL 失败：{exc}"
+                logging.exception(self._last_error)
                 await asyncio.sleep(self.resolve_retry_interval_sec)
-
         return False
 
-    async def _stream_loop(self):
-        """
-        异步循环：不断从 inlet 拉取数据，存入 buffer，
-        达到 buffer_size 时触发回调，清理 buffer。
-        """
-        if not await self._resolve_stream():
-            self.is_streaming = False
-            self._state = "stopped"
+    def _start_ingest_thread(self) -> None:
+        """启动唯一的独立摄取线程，避免 pylsl 拉流占用 FastAPI 事件循环。"""
+        if self._ingest_thread is not None and self._ingest_thread.is_alive():
             return
+        self._ingest_stop.clear()
+        self._ingest_thread = threading.Thread(
+            target=self._ingest_loop,
+            name=f"lsl-ingest-{self.stream_name}",
+            daemon=True,
+        )
+        self._ingest_thread.start()
 
-        self._buffer.clear()
-        
-        logging.info("LSL Streamer started listening for data...")
-        
-        while self.is_streaming:
+    def _ingest_loop(self) -> None:
+        """阻塞拉取 LSL 样本、按配置打包，并线程安全地投递回调。"""
+        buffer: List[List[float]] = []
+        try:
+            while self.is_streaming and not self._ingest_stop.is_set():
+                with self._inlet_lock:
+                    inlet = self.inlet
+                if inlet is None:
+                    return
+                samples, _timestamps = inlet.pull_chunk(
+                    timeout=0.1,
+                    max_samples=self.buffer_size,
+                )
+                if not samples:
+                    continue
+                buffer.extend(samples)
+                while len(buffer) >= self.buffer_size:
+                    chunk = buffer[: self.buffer_size]
+                    del buffer[: self.buffer_size]
+                    self._dispatch_chunk(chunk)
+        except Exception as exc:
+            if self.is_streaming and not self._ingest_stop.is_set():
+                self._state = "error"
+                self._last_error = f"LSL 摄取线程异常：{exc}"
+                logging.exception(self._last_error)
+
+    def _dispatch_chunk(self, chunk: List[List[float]]) -> None:
+        """将摄取线程产生的数据块投递到创建流转发器的事件循环。"""
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            return
+        loop.call_soon_threadsafe(self._invoke_callbacks, chunk)
+
+    def _invoke_callbacks(self, chunk: List[List[float]]) -> None:
+        """在事件循环线程调用所有回调，并调度可能返回的协程。"""
+        for callback in list(self._callbacks):
             try:
-                # 使用 timeout=0 非阻塞获取一组数据 (chunk)
-                samples, timestamps = self.inlet.pull_chunk(timeout=0.0, max_samples=self.buffer_size)
-                if samples:
-                    self._buffer.extend(samples)
-                    
-                    while len(self._buffer) >= self.buffer_size:
-                        # 截取 buffer_size 大小的数据，剩余的留在 _buffer 中
-                        chunk_to_send = self._buffer[:self.buffer_size]
-                        self._buffer = self._buffer[self.buffer_size:]
-                        
-                        # 触发所有回调
-                        for callback in self._callbacks:
-                            try:
-                                result: Any = callback(chunk_to_send)
-                                if inspect.isawaitable(result):
-                                    asyncio.create_task(result)
-                            except Exception as e:
-                                logging.error(f"Callback error: {e}")
-                    
-                    # 避免在连续大量数据到达时阻塞主事件循环，造成 WebSocket 饿死
-                    await asyncio.sleep(0.001)
-                else:
-                    # 避免空转占用 100% CPU，适当休眠
-                    await asyncio.sleep(0.005)
-            except Exception as e:
-                logging.error(f"Error during LSL pull_chunk: {e}")
-                try:
-                    if self.inlet:
-                        self.inlet.close_stream()
-                except Exception:
-                    pass
-                self.inlet = None
-                self._state = "resolving"
-                await asyncio.sleep(0.1)
-                await self._resolve_stream()
+                result = callback(chunk)
+                if inspect.isawaitable(result):
+                    asyncio.create_task(result)
+            except Exception:
+                logging.exception("LSL 数据回调异常")
 
-    def start(self):
-        """
-        启动 LSL 数据拉取循环
-        """
+    def start(self) -> None:
+        """绑定当前事件循环并启动解析与独立摄取流程。"""
         if self.is_streaming:
             return
+        self._loop = asyncio.get_running_loop()
         self.is_streaming = True
         self._state = "resolving"
-        self.task = asyncio.create_task(self._stream_loop())
+        self._ingest_stop.clear()
+        self.task = asyncio.create_task(self._run())
 
-    def stop(self):
-        """
-        停止 LSL 数据拉取循环
-        """
+    def stop(self) -> None:
+        """停止解析任务与摄取线程，并关闭 LSL inlet。"""
         self.is_streaming = False
         self._state = "stopped"
-        if self.task:
+        self._ingest_stop.set()
+        if self.task is not None:
             self.task.cancel()
             self.task = None
-        if self.inlet:
-            self.inlet.close_stream()
-            self.inlet = None
+        self._close_inlet()
+        if self._ingest_thread is not None and not self._ingest_thread.is_alive():
+            self._ingest_thread = None
         logging.info("LSL Streamer stopped.")
+
+    def _close_inlet(self) -> None:
+        """并发安全地摘除并关闭当前 inlet。"""
+        with self._inlet_lock:
+            inlet = self.inlet
+            self.inlet = None
+        if inlet is not None:
+            try:
+                inlet.close_stream()
+            except Exception:
+                logging.exception("关闭 LSL inlet 失败")

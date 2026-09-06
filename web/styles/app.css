@@ -2458,6 +2458,11 @@ select option {
   overflow: hidden;
 }
 
+.spectrum-plot-card--trend {
+  grid-column: 1 / -1;
+  min-height: 220px;
+}
+
 .spectrum-plot-card {
   min-width: 0;
   min-height: 0;

@@ -37,11 +37,12 @@ from core.ble.module_naming import parse_ble_module_name
 from core.offline.offline_service import BandpassConfig, ExportTarget, OfflineService
 from core.signal.notch_filter import NotchFilter, NotchFilterConfig
 from core.signal.bandpass_filter import BandpassFilter, BandpassFilterConfig
-from core.signal.psd_worker import PsdWorker, PsdWorkerConfig
+from core.signal.psd_worker import PsdBandDefinition, PsdWorker, PsdWorkerConfig
 from core.trigger.trigger_service import TriggerService, TriggerServiceConfig
 from ws_hub_eeg import EegWsHub, EegWsHubConfig
 from ws_hub_impedance import ImpedanceWsHub, ImpedanceWsHubConfig
 from ws_hub_psd import PsdWsHub, PsdWsHubConfig
+from ws_hub_variance import VarianceWsHub, VarianceWsHubConfig
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -247,11 +248,18 @@ class AppState:
                 queue_size=1,
             )
         )
+        self.variance_ws_hub = VarianceWsHub(
+            VarianceWsHubConfig(
+                send_timeout_sec=float(self.config.streaming.ws_send_timeout_sec),
+                queue_size=1,
+            )
+        )
         self.psd_worker = self._create_psd_worker()
         self._psd_task: Optional[asyncio.Task] = None
-        self._psd_ingest_queue: Optional[queue.Queue] = None
-        self._psd_ingest_stop: Optional[threading.Event] = None
-        self._psd_ingest_thread: Optional[threading.Thread] = None
+        self._variance_task: Optional[asyncio.Task] = None
+        self._analysis_ingest_queue: Optional[queue.Queue] = None
+        self._analysis_ingest_stop: Optional[threading.Event] = None
+        self._analysis_ingest_thread: Optional[threading.Thread] = None
 
     def _create_psd_worker(self) -> Optional[PsdWorker]:
         """
@@ -271,6 +279,21 @@ class AppState:
                     fmax_hz=float(getattr(psd_cfg, "fmax_hz", 45.0)),
                     to_db=bool(getattr(psd_cfg, "to_db", True)),
                     apply_notch=bool(getattr(psd_cfg, "apply_notch", True)),
+                    car_enabled=bool(getattr(psd_cfg, "car_enabled", True)),
+                    band_filter_order=int(getattr(psd_cfg, "band_filter_order", 4)),
+                    variance_window_sec=float(getattr(psd_cfg, "variance_window_sec", 0.5)),
+                    variance_step_sec=float(getattr(psd_cfg, "variance_step_sec", 0.1)),
+                    variance_floor_uv2=float(getattr(psd_cfg, "variance_floor_uv2", 1e-12)),
+                    bands=tuple(
+                        PsdBandDefinition(
+                            key=str(band.key),
+                            name=str(band.name),
+                            symbol=str(band.symbol),
+                            fmin_hz=float(band.fmin_hz),
+                            fmax_hz=float(band.fmax_hz),
+                        )
+                        for band in psd_cfg.bands
+                    ),
                 ),
                 sampling_rate_hz=int(self.config.eeg.sampling_rate_hz),
                 eeg_channel_names=list(self.config.eeg.channel_names),
@@ -285,124 +308,177 @@ class AppState:
 
     def start_psd(self) -> None:
         """
-        启动 PSD 计算与推送。
+        启动 PSD 与方差计算、摄取和推送任务。
         """
-        if self.psd_worker is None:
-            return
-        if not bool(self.psd_worker.cfg.enabled):
+        if self.psd_worker is None or not bool(self.psd_worker.cfg.enabled):
             return
         if self._psd_task and not self._psd_task.done():
             return
-        if self._psd_ingest_queue is None:
-            self._psd_ingest_queue = queue.Queue(maxsize=2)
-        if self._psd_ingest_stop is None:
-            self._psd_ingest_stop = threading.Event()
-        if self._psd_ingest_thread is None or not self._psd_ingest_thread.is_alive():
-            self._psd_ingest_thread = threading.Thread(target=self._psd_ingest_loop, daemon=True)
-            self._psd_ingest_thread.start()
+        if self._analysis_ingest_queue is None:
+            self._analysis_ingest_queue = queue.Queue()
+        if self._analysis_ingest_stop is None:
+            self._analysis_ingest_stop = threading.Event()
+        if self._analysis_ingest_thread is None or not self._analysis_ingest_thread.is_alive():
+            self._analysis_ingest_thread = threading.Thread(
+                target=self._analysis_ingest_loop,
+                daemon=True,
+            )
+            self._analysis_ingest_thread.start()
         self.psd_ws_hub.start()
+        self.variance_ws_hub.start()
         self._psd_task = asyncio.create_task(self._psd_loop())
+        self._variance_task = asyncio.create_task(self._variance_loop())
 
     def stop_psd(self) -> None:
         """
-        停止 PSD 计算与推送，并清空缓存。
+        停止 PSD 与方差计算、摄取和推送，并清空缓存。
         """
-        if self._psd_task is not None:
-            try:
-                self._psd_task.cancel()
-            except Exception:
-                pass
-            self._psd_task = None
+        for task_name in ("_psd_task", "_variance_task"):
+            task = getattr(self, task_name)
+            if task is not None:
+                try:
+                    task.cancel()
+                except Exception:
+                    pass
+                setattr(self, task_name, None)
         self.psd_ws_hub.stop(clear_pending=True)
-        if self._psd_ingest_stop is not None:
+        self.variance_ws_hub.stop(clear_pending=True)
+        if self._analysis_ingest_stop is not None:
             try:
-                self._psd_ingest_stop.set()
+                self._analysis_ingest_stop.set()
             except Exception:
                 pass
-        if self._psd_ingest_thread is not None:
+        if self._analysis_ingest_thread is not None:
             try:
-                self._psd_ingest_thread.join(timeout=0.4)
+                self._analysis_ingest_thread.join(timeout=1.0)
             except Exception:
                 pass
-        self._psd_ingest_thread = None
-        self._psd_ingest_stop = None
-        self._psd_ingest_queue = None
+        self._analysis_ingest_thread = None
+        self._analysis_ingest_stop = None
+        self._analysis_ingest_queue = None
         if self.psd_worker is not None:
             try:
                 self.psd_worker.reset()
             except Exception:
                 pass
 
-    def _psd_ingest_loop(self) -> None:
-        if self.psd_worker is None:
-            return
-        stop = self._psd_ingest_stop
-        q = self._psd_ingest_queue
-        if stop is None or q is None:
+    def _analysis_ingest_loop(self) -> None:
+        """
+        按到达顺序摄取全部 EEG 数据块，保证连续因果滤波器不丢失中间状态。
+        """
+        worker = self.psd_worker
+        stop = self._analysis_ingest_stop
+        q = self._analysis_ingest_queue
+        if worker is None or stop is None or q is None:
             return
         had_clients = False
-        while True:
-            if stop.is_set():
-                return
-            has_clients = bool(getattr(self.psd_ws_hub, "has_clients", None) and self.psd_ws_hub.has_clients())
+        while not stop.is_set():
+            has_clients = bool(
+                (getattr(self.psd_ws_hub, "has_clients", None) and self.psd_ws_hub.has_clients())
+                or (getattr(self.variance_ws_hub, "has_clients", None) and self.variance_ws_hub.has_clients())
+            )
             if not has_clients:
                 if had_clients:
                     had_clients = False
                     try:
-                        self.psd_worker.reset()
+                        worker.reset()
                     except Exception:
                         pass
                 try:
                     q.get(timeout=0.1)
-                except Exception:
+                except queue.Empty:
                     pass
                 continue
             if not had_clients:
                 had_clients = True
                 try:
-                    self.psd_worker.reset()
+                    worker.reset()
                 except Exception:
                     pass
             try:
                 item = q.get(timeout=0.2)
-            except Exception:
+            except queue.Empty:
                 continue
             try:
                 if item:
-                    self.psd_worker.append_chunk(item)
+                    worker.append_chunk(item)
             except Exception:
                 continue
 
     async def _psd_loop(self) -> None:
         """
-        按配置频率计算 PSD 并推送最新结果。
+        按 PSD 配置频率计算并推送最新频谱结果。
         """
-        if self.psd_worker is None:
+        worker = self.psd_worker
+        if worker is None:
             return
-        interval = float(self.psd_worker.get_update_interval_sec())
+        interval = float(worker.get_update_interval_sec())
         if interval <= 0:
             interval = 0.5
         while True:
             try:
                 await asyncio.sleep(interval)
-                if not bool(getattr(self.psd_ws_hub, "has_clients", None) and self.psd_ws_hub.has_clients()):
+                if not self.psd_ws_hub.has_clients():
                     continue
-                window = self.psd_worker.snapshot_window()
-                if window is None:
+                warmup = worker.get_warmup_status()
+                if not warmup.get("ready"):
+                    self.psd_ws_hub.enqueue_latest({"warmup": warmup})
                     continue
-                payload = await asyncio.to_thread(self.psd_worker.compute_psd_payload, window)
+                snapshot = worker.snapshot_window()
+                if snapshot is None:
+                    continue
+                payload = await asyncio.to_thread(worker.compute_psd_payload, snapshot)
                 if payload:
-                    self.psd_ws_hub.enqueue_latest(payload)  # type: ignore[arg-type]
+                    self.psd_ws_hub.enqueue_latest(payload)
             except asyncio.CancelledError:
                 return
             except Exception:
                 await asyncio.sleep(0.1)
+
+    async def _variance_loop(self) -> None:
+        """
+        按因果方差步长独立生成并推送方差结果，不受 PSD 更新频率影响。
+        """
+        worker = self.psd_worker
+        if worker is None:
+            return
+        interval = float(worker.get_variance_interval_sec())
+        if interval <= 0:
+            interval = 0.1
+        while True:
+            try:
+                await asyncio.sleep(interval)
+                if not self.variance_ws_hub.has_clients():
+                    continue
+                warmup = worker.get_variance_warmup_status()
+                if not warmup.get("ready"):
+                    self.variance_ws_hub.enqueue_latest(
+                        worker.build_variance_warmup_payload()
+                    )
+                    continue
+                payload = await asyncio.to_thread(worker.snapshot_variance_payload)
+                if payload:
+                    self.variance_ws_hub.enqueue_latest(payload)
+            except asyncio.CancelledError:
+                return
+            except Exception:
+                await asyncio.sleep(0.05)
 
     def _load_local_raw(self) -> Dict[str, Any]:
         return load_yaml_file(self.local_override_path)
 
     def _save_local_raw(self, raw: Dict[str, Any]) -> None:
         write_yaml_file_atomic(self.local_override_path, raw)
+
+    def save_signal_bands(self, bands: List[Dict[str, object]]) -> None:
+        """将五频带写入本机覆盖配置，不在文件线程中操作事件循环任务。"""
+        raw = self._load_local_raw()
+        signal_raw = raw.get("signal", {}) if isinstance(raw.get("signal", {}), dict) else {}
+        psd_raw = signal_raw.get("psd", {}) if isinstance(signal_raw.get("psd", {}), dict) else {}
+        psd_raw["bands"] = bands
+        signal_raw["psd"] = psd_raw
+        raw["signal"] = signal_raw
+        self._save_local_raw(raw)
 
     def get_pending_channel_selection(self) -> Tuple[int, List[str], str]:
         raw = self._load_local_raw()
@@ -731,19 +807,16 @@ class AppState:
             self.offline.append_chunk(chunk)
         except Exception:
             pass
-        if self.psd_worker is not None and self._psd_ingest_queue is not None:
-            if bool(getattr(self.psd_ws_hub, "has_clients", None) and self.psd_ws_hub.has_clients()):
+        if self.psd_worker is not None and self._analysis_ingest_queue is not None:
+            has_analysis_clients = bool(
+                self.psd_ws_hub.has_clients()
+                or self.variance_ws_hub.has_clients()
+            )
+            if has_analysis_clients:
                 try:
-                    self._psd_ingest_queue.put_nowait(chunk)
-                except queue.Full:
-                    try:
-                        self._psd_ingest_queue.get_nowait()
-                    except Exception:
-                        pass
-                    try:
-                        self._psd_ingest_queue.put_nowait(chunk)
-                    except Exception:
-                        pass
+                    self._analysis_ingest_queue.put(chunk, timeout=0.2)
+                except (queue.Full, queue.Empty):
+                    pass
         self.eeg_ws_hub.enqueue(chunk)
 
     def on_imp_lsl_chunk(self, chunk: List[List[float]]) -> None:
@@ -1341,6 +1414,19 @@ async def get_config():
                 "fmax_hz": float(getattr(state.config.signal.psd, "fmax_hz", 45.0)),
                 "to_db": bool(getattr(state.config.signal.psd, "to_db", True)),
                 "apply_notch": bool(getattr(state.config.signal.psd, "apply_notch", True)),
+                "car_enabled": bool(getattr(state.config.signal.psd, "car_enabled", True)),
+                "band_filter_order": int(getattr(state.config.signal.psd, "band_filter_order", 4)),
+                "variance_floor_uv2": float(getattr(state.config.signal.psd, "variance_floor_uv2", 1e-12)),
+                "bands": [
+                    {
+                        "key": str(band.key),
+                        "name": str(band.name),
+                        "symbol": str(band.symbol),
+                        "fmin_hz": float(band.fmin_hz),
+                        "fmax_hz": float(band.fmax_hz),
+                    }
+                    for band in state.config.signal.psd.bands
+                ],
             },
         },
         "offline": {
@@ -1356,6 +1442,91 @@ async def get_config():
             },
         },
     }
+
+
+class SignalBandRequest(BaseModel):
+    key: str
+    name: str
+    symbol: str = ""
+    fmin_hz: float
+    fmax_hz: float
+
+
+class SignalBandsUpdateRequest(BaseModel):
+    bands: List[SignalBandRequest]
+
+
+@app.get("/api/signal/bands")
+async def get_signal_bands() -> Dict[str, object]:
+    """返回当前在线分析使用的五频带与因果预处理配置。"""
+    psd_config = state.config.signal.psd
+    return {
+        "bands": [
+            {
+                "key": str(band.key),
+                "name": str(band.name),
+                "symbol": str(band.symbol),
+                "fmin_hz": float(band.fmin_hz),
+                "fmax_hz": float(band.fmax_hz),
+            }
+            for band in psd_config.bands
+        ],
+        "car_enabled": bool(psd_config.car_enabled),
+        "band_filter_order": int(psd_config.band_filter_order),
+        "variance_floor_uv2": float(psd_config.variance_floor_uv2),
+        "sampling_rate_hz": int(state.config.eeg.sampling_rate_hz),
+    }
+
+
+@app.post("/api/signal/bands")
+async def update_signal_bands(req: SignalBandsUpdateRequest) -> Dict[str, object]:
+    """校验、保存五频带覆盖配置并立即重建在线分析器。"""
+    if len(req.bands) != 5:
+        raise HTTPException(status_code=400, detail="必须配置且仅配置五个频带")
+    nyquist = float(state.config.eeg.sampling_rate_hz) / 2.0
+    keys = set()
+    previous_high = -1.0
+    bands: List[Dict[str, object]] = []
+    for index, item in enumerate(req.bands):
+        key = str(item.key or "").strip()
+        name = str(item.name or "").strip()
+        symbol = str(item.symbol or "").strip()
+        low = float(item.fmin_hz)
+        high = float(item.fmax_hz)
+        if not key or not name:
+            raise HTTPException(status_code=400, detail=f"第 {index + 1} 个频带的 key 和名称不能为空")
+        if key in keys:
+            raise HTTPException(status_code=400, detail=f"频带 key 重复: {key}")
+        if not math.isfinite(low) or not math.isfinite(high):
+            raise HTTPException(status_code=400, detail=f"第 {index + 1} 个频带频率必须为有限数")
+        if low < 0 or high <= low or high >= nyquist:
+            raise HTTPException(
+                status_code=400,
+                detail=f"第 {index + 1} 个频带必须满足 0 ≤ 起始频率 < 结束频率 < {nyquist:g} Hz",
+            )
+        if low < previous_high:
+            raise HTTPException(status_code=400, detail="五个频带必须按频率升序排列且不能重叠")
+        keys.add(key)
+        previous_high = high
+        bands.append({
+            "key": key,
+            "name": name,
+            "symbol": symbol,
+            "fmin_hz": low,
+            "fmax_hz": high,
+        })
+    had_analysis_clients = bool(
+        state.psd_ws_hub.has_clients()
+        or state.variance_ws_hub.has_clients()
+    )
+    try:
+        await asyncio.to_thread(state.save_signal_bands, bands)
+        state.reload_config_for_channels()
+        if had_analysis_clients:
+            state.start_psd()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"保存频带配置失败: {exc}") from exc
+    return {"status": "success", **(await get_signal_bands())}
 
 
 @app.post("/api/trigger/start")
@@ -2125,7 +2296,27 @@ async def psd_ws(websocket: WebSocket):
         disconnect = exc
     finally:
         state.psd_ws_hub.unregister(websocket)
-        if not state.psd_ws_hub.has_clients():
+        if not state.psd_ws_hub.has_clients() and not state.variance_ws_hub.has_clients():
+            state.stop_psd()
+        _log_websocket_closed(websocket, disconnect)
+
+
+@app.websocket("/ws/variance")
+async def variance_ws(websocket: WebSocket):
+    """WebSocket 端点，前端连接以获取实时方差与预热状态。"""
+    await websocket.accept()
+    state.start_psd()
+    state.variance_ws_hub.register(websocket)
+    _log_websocket_opened(websocket)
+    disconnect: Optional[WebSocketDisconnect] = None
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect as exc:
+        disconnect = exc
+    finally:
+        state.variance_ws_hub.unregister(websocket)
+        if not state.psd_ws_hub.has_clients() and not state.variance_ws_hub.has_clients():
             state.stop_psd()
         _log_websocket_closed(websocket, disconnect)
 

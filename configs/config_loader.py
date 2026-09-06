@@ -204,6 +204,26 @@ class BandpassConfig:
 
 
 @dataclass(frozen=True)
+class PsdBandConfig:
+    """
+    在线频带定义。
+
+    Attributes:
+        key: 稳定的频带标识。
+        name: 前端展示名称。
+        symbol: 可选符号。
+        fmin_hz: 频带下限（Hz）。
+        fmax_hz: 频带上限（Hz）。
+    """
+
+    key: str
+    name: str
+    symbol: str
+    fmin_hz: float
+    fmax_hz: float
+
+
+@dataclass(frozen=True)
 class PsdConfig:
     """
     在线 PSD（频域分析）配置。
@@ -217,6 +237,12 @@ class PsdConfig:
         fmax_hz: 展示频段上限（Hz）。
         to_db: 是否转换为 dB（10*log10）。
         apply_notch: 频域计算前是否对窗口应用陷波（窗口内零相位）。
+        car_enabled: 是否在摄取时逐样本应用连续公共平均参考。
+        band_filter_order: 因果频带滤波器阶数。
+        variance_window_sec: 因果频带方差窗口长度（秒）。
+        variance_step_sec: 因果频带方差输出步长（秒）。
+        variance_floor_uv2: 因果方差与差分熵计算的功率下限。
+        bands: 五个动态频带定义。
     """
 
     enabled: bool
@@ -227,6 +253,12 @@ class PsdConfig:
     fmax_hz: float
     to_db: bool
     apply_notch: bool
+    car_enabled: bool
+    band_filter_order: int
+    variance_window_sec: float
+    variance_step_sec: float
+    variance_floor_uv2: float
+    bands: List[PsdBandConfig]
 
 
 @dataclass(frozen=True)
@@ -896,6 +928,19 @@ def load_config(config_path: str) -> AppConfig:
     psd_fmax_hz = float(psd_raw.get("fmax_hz", 45.0))
     psd_to_db = bool(psd_raw.get("to_db", True))
     psd_apply_notch = bool(psd_raw.get("apply_notch", True))
+    psd_car_enabled = bool(psd_raw.get("car_enabled", True))
+    psd_band_filter_order = int(psd_raw.get("band_filter_order", 4))
+    psd_variance_window_sec = float(psd_raw.get("variance_window_sec", 0.5))
+    psd_variance_step_sec = float(psd_raw.get("variance_step_sec", 0.1))
+    psd_variance_floor_uv2 = float(psd_raw.get("variance_floor_uv2", 1e-12))
+    default_bands = [
+        {"key": "delta", "name": "Delta", "symbol": "", "fmin_hz": 1.0, "fmax_hz": 4.0},
+        {"key": "theta", "name": "Theta", "symbol": "", "fmin_hz": 4.0, "fmax_hz": 8.0},
+        {"key": "alpha", "name": "Alpha", "symbol": "", "fmin_hz": 8.0, "fmax_hz": 13.0},
+        {"key": "beta", "name": "Beta", "symbol": "", "fmin_hz": 13.0, "fmax_hz": 30.0},
+        {"key": "gamma", "name": "Gamma", "symbol": "", "fmin_hz": 30.0, "fmax_hz": 45.0},
+    ]
+    psd_bands_raw = psd_raw.get("bands", default_bands)
 
     if psd_window_sec <= 0:
         psd_window_sec = 2.0
@@ -924,6 +969,50 @@ def load_config(config_path: str) -> AppConfig:
         psd_fmax_hz = max(1.0, nyq - 1.0)
     if psd_fmin_hz >= psd_fmax_hz:
         psd_fmin_hz = 0.0
+    if psd_band_filter_order < 1 or psd_band_filter_order > 12:
+        raise ValueError("signal.psd.band_filter_order 必须在 1 到 12 之间")
+    if not math.isfinite(psd_variance_window_sec) or psd_variance_window_sec <= 0:
+        raise ValueError("signal.psd.variance_window_sec 必须为正数")
+    if not math.isfinite(psd_variance_step_sec) or psd_variance_step_sec <= 0:
+        raise ValueError("signal.psd.variance_step_sec 必须为正数")
+    if psd_variance_window_sec > 30.0:
+        raise ValueError("signal.psd.variance_window_sec 不能超过 30 秒")
+    if psd_variance_step_sec > psd_variance_window_sec:
+        raise ValueError("signal.psd.variance_step_sec 不能大于 variance_window_sec")
+    variance_window_samples = int(round(psd_variance_window_sec * sampling_rate_hz))
+    variance_step_samples = int(round(psd_variance_step_sec * sampling_rate_hz))
+    if variance_window_samples < 2:
+        raise ValueError("signal.psd.variance_window_sec 对应的采样点数必须不少于 2")
+    if variance_step_samples < 1:
+        raise ValueError("signal.psd.variance_step_sec 对应的采样点数必须不少于 1")
+    if not math.isfinite(psd_variance_floor_uv2) or psd_variance_floor_uv2 <= 0:
+        raise ValueError("signal.psd.variance_floor_uv2 必须为正数")
+    if not isinstance(psd_bands_raw, list) or len(psd_bands_raw) != 5:
+        raise ValueError("signal.psd.bands 必须配置且仅配置五个频带")
+    psd_bands: List[PsdBandConfig] = []
+    band_keys = set()
+    previous_high = -1.0
+    for index, item in enumerate(psd_bands_raw):
+        if not isinstance(item, dict):
+            raise ValueError(f"signal.psd.bands[{index}] 必须为对象")
+        key = str(item.get("key", "") or "").strip()
+        name = str(item.get("name", key) or key).strip()
+        symbol = str(item.get("symbol", "") or "").strip()
+        if not key or not name:
+            raise ValueError(f"signal.psd.bands[{index}] 的 key 和 name 不能为空")
+        if key in band_keys:
+            raise ValueError(f"signal.psd.bands 的 key 重复: {key}")
+        low = float(item.get("fmin_hz"))
+        high = float(item.get("fmax_hz"))
+        if not math.isfinite(low) or not math.isfinite(high):
+            raise ValueError(f"signal.psd.bands[{index}] 的频率必须为有限数")
+        if low < 0 or high <= low or high >= nyq:
+            raise ValueError(f"signal.psd.bands[{index}] 必须满足 0 <= fmin_hz < fmax_hz < Nyquist")
+        if low < previous_high:
+            raise ValueError("signal.psd.bands 必须按频率升序排列且不能重叠")
+        band_keys.add(key)
+        previous_high = high
+        psd_bands.append(PsdBandConfig(key=key, name=name, symbol=symbol, fmin_hz=low, fmax_hz=high))
 
     signal = SignalConfig(
         notch=NotchConfig(freq_hz=notch_freq_hz, quality_factor=notch_q),
@@ -942,6 +1031,12 @@ def load_config(config_path: str) -> AppConfig:
             fmax_hz=psd_fmax_hz,
             to_db=psd_to_db,
             apply_notch=psd_apply_notch,
+            car_enabled=psd_car_enabled,
+            band_filter_order=psd_band_filter_order,
+            variance_window_sec=psd_variance_window_sec,
+            variance_step_sec=psd_variance_step_sec,
+            variance_floor_uv2=psd_variance_floor_uv2,
+            bands=psd_bands,
         ),
     )
 

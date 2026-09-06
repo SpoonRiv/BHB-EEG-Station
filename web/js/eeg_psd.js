@@ -10,6 +10,9 @@ import { createSelectableTopomap } from './impedance_topomap.js';
 
 const PSD_DISPLAY_MIN_HZ = 1;
 const PSD_DISPLAY_MAX_HZ = 45;
+const VARIANCE_TREND_WINDOW_MS = 30000;
+const VARIANCE_DISPLAY_SCALE = 10000;
+const VARIANCE_DISPLAY_UNIT = '×10⁴ μV²';
 
 const MAP_HINT_DEFAULT = '点击电极选择通道，最多 2 个进入对比视图，再次点击取消';
 const MAP_HINT_WARN = '最多对比 2 个通道，请先取消一个';
@@ -77,14 +80,19 @@ export class EegPsdView {
   }) {
     this.channelNames = Array.isArray(channelNames) ? channelNames.map(String) : [];
     this.mode = 'time';
-    this.scopeMode = 'average';
+    this.scopeMode = 'channel';
     this.bandMetricMode = 'energy';
     this.activeChannels = this.channelNames.length ? [this.channelNames[0]] : [];
-    this.ws = null;
-    this.reconnectTimer = null;
-    this.reconnectAttempt = 0;
+    this.psdWs = null;
+    this.varianceWs = null;
+    this.psdReconnectTimer = null;
+    this.varianceReconnectTimer = null;
+    this.psdReconnectAttempt = 0;
+    this.varianceReconnectAttempt = 0;
     this.disposed = false;
     this.psdPayload = null;
+    this.variancePayload = null;
+    this.varianceHistory = [];
     this.theme = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
 
     this.elControls = null;
@@ -96,6 +104,7 @@ export class EegPsdView {
     this.elSignalTitle = null;
     this.elSpectrumChart = null;
     this.elBandChart = null;
+    this.elVarianceChart = null;
     this.elBandTitle = null;
     this.elBandMetricControls = null;
     this.elSettingsPopover = null;
@@ -103,11 +112,10 @@ export class EegPsdView {
 
     this.spectrumChart = null;
     this.bandChart = null;
+    this.varianceChart = null;
     this.topomap = null;
     this.toggleBtn = null;
-    this.scopeToggle = null;
     this.settingsToggleBtn = null;
-    this.elTopomapSection = null;
     this.elMapHint = null;
     this.hintWarnTimer = null;
     this.triggerStartBtn = null;
@@ -123,7 +131,7 @@ export class EegPsdView {
     this.electrodeAliases = electrodeAliases && typeof electrodeAliases === 'object' ? electrodeAliases : null;
   }
 
-  mount({ controlsId, timeViewId, psdViewId, chartId, bandChartId, toolbarId, scopeControlsId, yAxisControlsId, onModeChange }) {
+  mount({ controlsId, timeViewId, psdViewId, chartId, bandChartId, varianceChartId, toolbarId, scopeControlsId, yAxisControlsId, onModeChange }) {
     this.disposed = false;
     this.elControls = document.getElementById(controlsId);
     this.elTimeView = document.getElementById(timeViewId);
@@ -134,6 +142,7 @@ export class EegPsdView {
     this.elSignalTitle = document.getElementById('eeg-signal-title');
     this.elSpectrumChart = document.getElementById(chartId);
     this.elBandChart = document.getElementById(bandChartId);
+    this.elVarianceChart = document.getElementById(varianceChartId);
     this.elBandTitle = document.getElementById('band-power-title');
     this.elBandMetricControls = document.getElementById('band-metric-controls');
     this.onModeChange = typeof onModeChange === 'function' ? onModeChange : null;
@@ -144,7 +153,6 @@ export class EegPsdView {
     this._buildBandMetricControls();
     this._initTopomap();
     this._initCharts();
-    this._syncScopeControls();
     this.setMode(this.mode, true);
   }
 
@@ -154,7 +162,7 @@ export class EegPsdView {
   }
 
   resize() {
-    for (const chart of [this.spectrumChart, this.bandChart]) {
+    for (const chart of [this.spectrumChart, this.bandChart, this.varianceChart]) {
       if (!chart) continue;
       try { chart.resize(); } catch (_) {}
     }
@@ -180,45 +188,62 @@ export class EegPsdView {
   }
 
   connect() {
-    if (this.disposed || this.mode !== 'psd' || this.ws) return;
-    this._clearReconnectTimer();
+    this._connectStream('psd');
+    this._connectStream('variance');
+  }
+
+  _connectStream(kind) {
+    if (this.disposed || this.mode !== 'psd') return;
+    const socketKey = kind === 'variance' ? 'varianceWs' : 'psdWs';
+    const timerKey = kind === 'variance' ? 'varianceReconnectTimer' : 'psdReconnectTimer';
+    const attemptKey = kind === 'variance' ? 'varianceReconnectAttempt' : 'psdReconnectAttempt';
+    if (this[socketKey]) return;
+    this._clearReconnectTimer(kind);
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const url = `${proto}://${window.location.host}/ws/psd`;
     let socket;
     try {
-      socket = new WebSocket(url);
+      socket = new WebSocket(`${proto}://${window.location.host}/ws/${kind}`);
     } catch (_) {
-      this._scheduleReconnect();
+      this._scheduleReconnect(kind);
       return;
     }
-    this.ws = socket;
+    this[socketKey] = socket;
     socket.onmessage = (event) => {
-      if (this.ws !== socket || this.disposed || this.mode !== 'psd') return;
+      if (this[socketKey] !== socket || this.disposed || this.mode !== 'psd') return;
       try {
         const msg = JSON.parse(event.data);
-        if (msg && msg.type === 'psd_data' && msg.data) {
-          this.reconnectAttempt = 0;
+        if (kind === 'psd' && msg && msg.type === 'psd_data' && msg.data) {
+          this[attemptKey] = 0;
           this.psdPayload = msg.data;
+          this._renderIfReady();
+        }
+        if (kind === 'variance' && msg && msg.type === 'variance_data' && msg.data) {
+          this[attemptKey] = 0;
+          this.variancePayload = msg.data;
+          this._appendVarianceHistory(msg.data);
           this._renderIfReady();
         }
       } catch (_) {}
     };
     socket.onclose = () => {
-      if (this.ws !== socket) return;
-      this.ws = null;
-      if (this.mode === 'psd' && !this.disposed) {
-        this._scheduleReconnect();
-      }
+      if (this[socketKey] !== socket) return;
+      this[socketKey] = null;
+      if (this.mode === 'psd' && !this.disposed) this._scheduleReconnect(kind);
     };
+    this[timerKey] = null;
   }
 
   close() {
-    this._clearReconnectTimer();
-    this.reconnectAttempt = 0;
-    const socket = this.ws;
-    this.ws = null;
-    if (socket) {
-      try { socket.close(); } catch (_) {}
+    this._clearReconnectTimer('psd');
+    this._clearReconnectTimer('variance');
+    this.psdReconnectAttempt = 0;
+    this.varianceReconnectAttempt = 0;
+    for (const key of ['psdWs', 'varianceWs']) {
+      const socket = this[key];
+      this[key] = null;
+      if (socket) {
+        try { socket.close(); } catch (_) {}
+      }
     }
     this._setSettingsPopoverOpen(false);
   }
@@ -226,28 +251,33 @@ export class EegPsdView {
   dispose() {
     this.disposed = true;
     this.close();
-    for (const chart of [this.spectrumChart, this.bandChart]) {
+    for (const chart of [this.spectrumChart, this.bandChart, this.varianceChart]) {
       if (!chart) continue;
       try { chart.dispose(); } catch (_) {}
     }
     this.spectrumChart = null;
     this.bandChart = null;
+    this.varianceChart = null;
     this.topomap = null;
   }
 
-  _clearReconnectTimer() {
-    if (this.reconnectTimer === null) return;
-    window.clearTimeout(this.reconnectTimer);
-    this.reconnectTimer = null;
+  _clearReconnectTimer(kind) {
+    const timerKey = kind === 'variance' ? 'varianceReconnectTimer' : 'psdReconnectTimer';
+    if (this[timerKey] === null) return;
+    window.clearTimeout(this[timerKey]);
+    this[timerKey] = null;
   }
 
-  _scheduleReconnect() {
-    if (this.disposed || this.mode !== 'psd' || this.ws || this.reconnectTimer !== null) return;
-    const delayMs = Math.min(5000, 750 * (2 ** Math.min(this.reconnectAttempt, 3)));
-    this.reconnectAttempt += 1;
-    this.reconnectTimer = window.setTimeout(() => {
-      this.reconnectTimer = null;
-      this.connect();
+  _scheduleReconnect(kind) {
+    const socketKey = kind === 'variance' ? 'varianceWs' : 'psdWs';
+    const timerKey = kind === 'variance' ? 'varianceReconnectTimer' : 'psdReconnectTimer';
+    const attemptKey = kind === 'variance' ? 'varianceReconnectAttempt' : 'psdReconnectAttempt';
+    if (this.disposed || this.mode !== 'psd' || this[socketKey] || this[timerKey] !== null) return;
+    const delayMs = Math.min(5000, 750 * (2 ** Math.min(this[attemptKey], 3)));
+    this[attemptKey] += 1;
+    this[timerKey] = window.setTimeout(() => {
+      this[timerKey] = null;
+      this._connectStream(kind);
     }, delayMs);
   }
 
@@ -336,38 +366,6 @@ export class EegPsdView {
     const body = document.createElement('div');
     body.className = 'eeg-settings-popover-body';
 
-    // === Section 1: 数据源（通道平均开关） ===
-    const sec1 = document.createElement('div');
-    sec1.className = 'eeg-settings-section';
-    const sec1Title = document.createElement('div');
-    sec1Title.className = 'eeg-settings-section-title';
-    sec1Title.textContent = '数据源';
-    sec1.appendChild(sec1Title);
-
-    const rowAvg = document.createElement('div');
-    rowAvg.className = 'eeg-settings-row';
-    const avgText = document.createElement('span');
-    avgText.className = 'eeg-settings-label';
-    avgText.textContent = '全通道平均';
-    const avgLabel = document.createElement('label');
-    avgLabel.className = 'ios-switch';
-    avgLabel.title = '开启为全通道平均，关闭为按选中通道显示';
-    const avgInput = document.createElement('input');
-    avgInput.type = 'checkbox';
-    avgInput.checked = this.scopeMode === 'average';
-    avgInput.setAttribute('role', 'switch');
-    avgInput.setAttribute('aria-label', '全通道平均');
-    avgInput.onchange = () => this._setScopeMode(avgInput.checked ? 'average' : 'channel');
-    const avgSlider = document.createElement('span');
-    avgSlider.className = 'ios-slider';
-    avgLabel.appendChild(avgInput);
-    avgLabel.appendChild(avgSlider);
-    rowAvg.appendChild(avgText);
-    rowAvg.appendChild(avgLabel);
-    sec1.appendChild(rowAvg);
-    body.appendChild(sec1);
-
-    // === Section 2: 选择通道（地形图） ===
     const sec2 = document.createElement('div');
     sec2.className = 'eeg-settings-section eeg-settings-topomap-section';
     const sec2Title = document.createElement('div');
@@ -396,9 +394,7 @@ export class EegPsdView {
 
     this.settingsToggleBtn = toggleBtn;
     this.elSettingsPopover = popover;
-    this.scopeToggle = avgInput;
     this.elMapHint = mapHint;
-    this.elTopomapSection = sec2;
   }
 
   _buildBandMetricControls() {
@@ -426,7 +422,7 @@ export class EegPsdView {
   }
 
   _setBandMetricMode(mode) {
-    const next = mode === 'de' ? 'de' : 'energy';
+    const next = ['energy', 'de'].includes(mode) ? mode : 'energy';
     if (this.bandMetricMode === next) return;
     this.bandMetricMode = next;
     this._syncBandMetricControls();
@@ -434,9 +430,12 @@ export class EegPsdView {
   }
 
   _syncBandMetricControls() {
-    const isDe = this.bandMetricMode === 'de';
+    const titles = {
+      energy: '各频段相对功率',
+      de: '各频段微分熵',
+    };
     if (this.elBandTitle) {
-      this.elBandTitle.textContent = isDe ? '各频段微分熵' : '各频段相对功率';
+      this.elBandTitle.textContent = titles[this.bandMetricMode] || titles.energy;
     }
     for (const button of this.bandMetricButtons) {
       const active = button.dataset.metric === this.bandMetricMode;
@@ -474,22 +473,8 @@ export class EegPsdView {
     if (!window.echarts || typeof window.echarts.init !== 'function') return;
     if (this.elSpectrumChart) this.spectrumChart = window.echarts.init(this.elSpectrumChart, null, { renderer: 'canvas' });
     if (this.elBandChart) this.bandChart = window.echarts.init(this.elBandChart, null, { renderer: 'canvas' });
+    if (this.elVarianceChart) this.varianceChart = window.echarts.init(this.elVarianceChart, null, { renderer: 'canvas' });
     this._renderWaitingCharts('等待频谱数据');
-  }
-
-  _setScopeMode(mode) {
-    const next = mode === 'channel' ? 'channel' : 'average';
-    this.scopeMode = next;
-    if (!this.activeChannels.length && this.channelNames.length) this.activeChannels = [this.channelNames[0]];
-    this._syncScopeControls();
-    this._renderIfReady();
-    requestAnimationFrame(() => this.resize());
-  }
-
-  _syncScopeControls() {
-    const isChannel = this.scopeMode === 'channel';
-    if (this.scopeToggle) this.scopeToggle.checked = !isChannel;
-    if (this.elTopomapSection) this.elTopomapSection.classList.toggle('is-dim', !isChannel);
   }
 
   _setActiveChannels(list) {
@@ -501,13 +486,7 @@ export class EegPsdView {
     if (!names.length) return;
     this.activeChannels = names;
     if (this.topomap) this.topomap.setSelected(names);
-    this._syncScopeControls();
-    // 选中第 2 个通道时自动关闭通道平均（_setScopeMode 内部会同步开关并重渲染）
-    if (names.length > 1 && this.scopeMode === 'average') {
-      this._setScopeMode('channel');
-      return;
-    }
-    if (this.scopeMode === 'channel') this._renderIfReady();
+    this._renderIfReady();
   }
 
   _flashMapHintWarn() {
@@ -585,10 +564,111 @@ export class EegPsdView {
     }
   }
 
+  _appendVarianceHistory(payload) {
+    if (!payload || !payload.warmup || !payload.warmup.ready) return;
+    const timestamp = Number(payload.ts);
+    const tsMs = Number.isFinite(timestamp) ? timestamp * 1000 : Date.now();
+    const average = Array.isArray(payload.average) ? payload.average.map(Number) : [];
+    const channels = {};
+    if (payload.channels && typeof payload.channels === 'object') {
+      for (const [name, values] of Object.entries(payload.channels)) {
+        if (Array.isArray(values)) channels[name] = values.map(Number);
+      }
+    }
+    this.varianceHistory.push({ tsMs, average, channels });
+    const cutoff = tsMs - VARIANCE_TREND_WINDOW_MS;
+    this.varianceHistory = this.varianceHistory.filter((entry) => entry.tsMs >= cutoff);
+  }
+
+  _varianceSources() {
+    if (this.scopeMode === 'average') return [{ name: '全通道平均', key: 'average' }];
+    return this.activeChannels.map((name) => ({ name, key: name }));
+  }
+
+  _renderVarianceChart(bands) {
+    if (!this.varianceChart) return;
+    if (!this.varianceHistory.length) {
+      this.varianceChart.setOption(this._waitingOption('等待方差趋势数据'), true, false);
+      return;
+    }
+    const colors = this._chartTheme();
+    const sources = this._varianceSources();
+    const latestTs = this.varianceHistory[this.varianceHistory.length - 1].tsMs;
+    const series = [];
+    sources.forEach((source, sourceIndex) => {
+      bands.forEach((band, bandIndex) => {
+        const data = this.varianceHistory.map((entry) => {
+          const values = source.key === 'average' ? entry.average : entry.channels[source.key];
+          const value = Array.isArray(values) ? Number(values[bandIndex]) : NaN;
+          return Number.isFinite(value)
+            ? [(entry.tsMs - latestTs) / 1000, value / VARIANCE_DISPLAY_SCALE]
+            : null;
+        }).filter(Boolean);
+        series.push({
+          name: sources.length > 1 ? `${source.name} · ${band.name}` : band.name,
+          type: 'line',
+          data,
+          showSymbol: false,
+          smooth: 0.12,
+          connectNulls: false,
+          lineStyle: {
+            width: sourceIndex === 0 ? 2 : 1.6,
+            type: sourceIndex === 0 ? 'solid' : 'dashed',
+            color: BAND_COLORS[band.key] || '#38BDF8',
+          },
+          itemStyle: { color: BAND_COLORS[band.key] || '#38BDF8' },
+        });
+      });
+    });
+    this.varianceChart.setOption({
+      backgroundColor: 'transparent',
+      grid: { top: 18, right: 18, bottom: 42, left: 58, containLabel: false },
+      legend: { show: false },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: colors.tooltipBg,
+        borderColor: colors.tooltipBorder,
+        textStyle: { color: colors.axis },
+        formatter: (params) => {
+          const items = Array.isArray(params) ? params : [params];
+          if (!items.length) return '';
+          const seconds = Number(items[0].value[0]);
+          const heading = seconds >= -0.05 ? '当前' : `${Math.abs(seconds).toFixed(1)} 秒前`;
+          const rows = items.map((item) => `${item.marker || ''}${escapeHtml(item.seriesName)}：<strong>${Number(item.value[1]).toFixed(2)} ${VARIANCE_DISPLAY_UNIT}</strong>`).join('<br>');
+          return `<div class="band-tooltip-title">${heading}</div>${rows}`;
+        },
+      },
+      xAxis: {
+        type: 'value',
+        min: -30,
+        max: 0,
+        axisLine: { lineStyle: { color: colors.split } },
+        axisTick: { show: false },
+        axisLabel: { color: colors.axis, formatter: (value) => (Number(value) === 0 ? '现在' : `${Math.abs(Number(value))}s`) },
+        splitLine: { lineStyle: { color: colors.split, type: 'dashed' } },
+      },
+      yAxis: {
+        type: 'value',
+        min: 0,
+        scale: true,
+        name: `方差（${VARIANCE_DISPLAY_UNIT}）`,
+        nameLocation: 'middle',
+        nameGap: 44,
+        nameTextStyle: { color: colors.axis, fontWeight: 750 },
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: { color: colors.axis },
+        splitLine: { lineStyle: { color: colors.split, type: 'dashed' } },
+      },
+      series,
+      animation: false,
+    }, true, false);
+  }
+
   _bandsFromPayload() {
     const raw = this.psdPayload && this.psdPayload.band_power
       ? this.psdPayload.band_power.bands
-      : null;
+      : (this.variancePayload ? this.variancePayload.bands : null);
     if (!Array.isArray(raw) || !raw.length) return FALLBACK_BANDS;
     return raw.map((band, index) => ({
       key: String(band && band.key ? band.key : `band-${index}`),
@@ -638,16 +718,21 @@ export class EegPsdView {
     if (values.length < bandCount) return null;
     const sum = values.reduce((total, value) => total + value, 0);
     if (sum > 0) values = values.map((value) => (value * 100) / sum);
-    const differentialEntropy = Array.isArray(row.differential_entropy)
-      ? row.differential_entropy.slice(0, bandCount).map((value) => {
+    const normalizeMetric = (raw) => (Array.isArray(raw)
+      ? raw.slice(0, bandCount).map((value) => {
         if (value === null || value === undefined) return null;
         const number = Number(value);
         return Number.isFinite(number) ? number : null;
       })
-      : [];
+      : []);
+    const causalVariance = normalizeMetric(row.causal_variance);
+    const differentialEntropy = normalizeMetric(row.differential_entropy);
     return {
       values,
       absolute: absolute.length >= bandCount ? absolute : new Array(bandCount).fill(null),
+      causalVariance: causalVariance.length >= bandCount
+        ? causalVariance
+        : new Array(bandCount).fill(null),
       differentialEntropy: differentialEntropy.length >= bandCount
         ? differentialEntropy
         : new Array(bandCount).fill(null),
@@ -676,17 +761,23 @@ export class EegPsdView {
     }
     for (let i = 0; i < bandCount; i++) absolute[i] /= rows.length;
     const total = absolute.reduce((sum, value) => sum + value, 0);
-    const differentialEntropy = new Array(bandCount).fill(null);
-    for (let i = 0; i < bandCount; i++) {
-      const values = rows
-        .map((row) => Array.isArray(row.differential_entropy) ? row.differential_entropy[i] : null)
-        .filter((value) => value !== null && value !== undefined && Number.isFinite(Number(value)))
-        .map(Number);
-      if (values.length) {
-        differentialEntropy[i] = values.reduce((sum, value) => sum + value, 0) / values.length;
+    const averageMetric = (field) => {
+      const result = new Array(bandCount).fill(null);
+      for (let i = 0; i < bandCount; i++) {
+        const values = rows
+          .map((row) => Array.isArray(row[field]) ? row[field][i] : null)
+          .filter((value) => value !== null && value !== undefined && Number.isFinite(Number(value)))
+          .map(Number);
+        if (values.length) result[i] = values.reduce((sum, value) => sum + value, 0) / values.length;
       }
-    }
-    return this._normalizeBandRow({ absolute, differential_entropy: differentialEntropy, total }, bandCount);
+      return result;
+    };
+    return this._normalizeBandRow({
+      absolute,
+      causal_variance: averageMetric('causal_variance'),
+      differential_entropy: averageMetric('differential_entropy'),
+      total,
+    }, bandCount);
   }
 
   _sourceBandData(bandCount) {
@@ -780,6 +871,7 @@ export class EegPsdView {
     const option = this._waitingOption(message);
     if (this.spectrumChart) this.spectrumChart.setOption(option, true, false);
     if (this.bandChart) this.bandChart.setOption(option, true, false);
+    if (this.varianceChart) this.varianceChart.setOption(this._waitingOption('等待方差趋势数据'), true, false);
   }
 
   _renderIfReady() {
@@ -798,6 +890,7 @@ export class EegPsdView {
     this._renderBandLegend(bands);
     this._renderSpectrumChart(bands, sources);
     this._renderBandChart(bands, bandRows);
+    this._renderVarianceChart(bands);
   }
 
   _renderSpectrumChart(bands, sources) {
@@ -899,7 +992,13 @@ export class EegPsdView {
     if (!this.bandChart) return;
     const colors = this._chartTheme();
     const isDe = this.bandMetricMode === 'de';
-    const metricOf = (entry) => (isDe ? entry.bandPower.differentialEntropy : entry.bandPower.values);
+    const isVariance = this.bandMetricMode === 'variance';
+    const metricUnit = isDe ? 'nat' : (isVariance ? VARIANCE_DISPLAY_UNIT : '%');
+    const metricOf = (entry) => {
+      if (isDe) return entry.bandPower.differentialEntropy;
+      if (isVariance) return entry.bandPower.causalVariance;
+      return entry.bandPower.values;
+    };
     const usable = rows.every((entry) => {
       const metricValues = metricOf(entry);
       return Array.isArray(metricValues)
@@ -909,16 +1008,17 @@ export class EegPsdView {
         ));
     });
     if (!usable) {
-      this.bandChart.setOption(
-        this._waitingOption(isDe ? '当前数据无法计算微分熵' : '当前数据范围暂无可用数据'),
-        true,
-        false,
-      );
+      const message = isDe
+        ? '当前数据无法计算微分熵'
+        : (isVariance ? '当前数据无法计算因果方差' : '当前数据范围暂无可用数据');
+      this.bandChart.setOption(this._waitingOption(message), true, false);
       return;
     }
 
     // 合并所有数据源（单通道或双通道）的极值计算 y 轴范围
-    const allValues = rows.flatMap((entry) => metricOf(entry).map(Number));
+    const allValues = rows.flatMap((entry) => metricOf(entry).map((value) => (
+      isVariance ? Number(value) / VARIANCE_DISPLAY_SCALE : Number(value)
+    )));
     let yMin = 0;
     let yMax = 100;
     if (isDe) {
@@ -928,6 +1028,9 @@ export class EegPsdView {
       yMin = minValue < 0 ? Math.floor((minValue - padding) * 2) / 2 : 0;
       yMax = maxValue > 0 ? Math.ceil((maxValue + padding) * 2) / 2 : 0;
       if (yMax <= yMin) yMax = yMin + 1;
+    } else if (isVariance) {
+      const maxValue = Math.max(0, ...allValues);
+      yMax = maxValue > 0 ? maxValue * 1.25 : 1;
     } else {
       const maxValue = Math.max(0, ...allValues);
       yMax = Math.min(100, Math.max(50, Math.ceil((maxValue * 1.25) / 10) * 10));
@@ -936,9 +1039,11 @@ export class EegPsdView {
     const pair = rows.length > 1;
     const pairColors = pair ? this._channelPairColors() : [];
     const categories = bands.map((band) => `${band.name}`);
-    const labelFormatter = (item) => (isDe
-      ? Number(item.value).toFixed(2)
-      : `${Number(item.value).toFixed(1)}%`);
+    const labelFormatter = (item) => {
+      if (isDe) return Number(item.value).toFixed(2);
+      if (isVariance) return Number(item.value).toFixed(2);
+      return `${Number(item.value).toFixed(1)}%`;
+    };
 
     const buildBarData = (entry, seriesColor) => bands.map((band, index) => {
       const value = Number(Number(metricOf(entry)[index]).toFixed(3));
@@ -1003,8 +1108,10 @@ export class EegPsdView {
               ? ''
               : ` · 功率 ${formatPower(absolute)} μV²`;
             const metric = isDe
-              ? `${Number(item.value).toFixed(3)} nat`
-              : `${Number(item.value).toFixed(1)}%`;
+              ? `${Number(item.value).toFixed(3)} ${metricUnit}`
+              : (isVariance
+                ? `${Number(item.value).toFixed(2)} ${metricUnit}`
+                : `${Number(item.value).toFixed(1)}${metricUnit}`);
             return `<div>${item.marker || ''}${escapeHtml(item.seriesName)}：<strong>${metric}</strong>${power}</div>`;
           }).join('');
           return `<div class="band-tooltip-title">${escapeHtml(band.name)}</div><div>${formatHz(band.fmin_hz)}–${formatHz(band.fmax_hz)} Hz</div>${detail}`;
@@ -1020,8 +1127,10 @@ export class EegPsdView {
           const absolute = rows[0].bandPower.absolute[item.dataIndex];
           const power = absolute === null ? '' : `<div>功率 ${formatPower(absolute)} μV²</div>`;
           const metric = isDe
-            ? `<strong>DE ${Number(item.value).toFixed(3)} nat</strong>`
-            : `<strong>${Number(item.value).toFixed(1)}%</strong>`;
+            ? `<strong>DE ${Number(item.value).toFixed(3)} ${metricUnit}</strong>`
+            : (isVariance
+              ? `<strong>Var ${Number(item.value).toFixed(2)} ${metricUnit}</strong>`
+              : `<strong>${Number(item.value).toFixed(1)}${metricUnit}</strong>`);
           return `<div class="band-tooltip-title">${escapeHtml(rows[0].name)} · ${escapeHtml(band.name)}</div><div>${formatHz(band.fmin_hz)}–${formatHz(band.fmax_hz)} Hz</div>${power}${metric}`;
         },
       };
@@ -1063,13 +1172,18 @@ export class EegPsdView {
         type: 'value',
         min: yMin,
         max: yMax,
-        name: isDe ? '微分熵（nat）' : '相对功率（%）',
+        name: isDe
+          ? '微分熵（nat）'
+          : (isVariance ? `方差（${VARIANCE_DISPLAY_UNIT}）` : '相对功率（%）'),
         nameLocation: 'middle',
         nameGap: 38,
         nameTextStyle: { color: colors.axis, fontWeight: 750 },
         axisLine: { show: false },
         axisTick: { show: false },
-        axisLabel: { color: colors.axis, formatter: isDe ? '{value}' : '{value}%' },
+        axisLabel: {
+          color: colors.axis,
+          formatter: isDe || isVariance ? '{value}' : '{value}%',
+        },
         splitLine: { lineStyle: { color: colors.split, type: 'dashed' } },
       },
       series,

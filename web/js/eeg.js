@@ -1194,6 +1194,7 @@ export async function enterEegPage() {
     psdViewId: 'eeg-psd-view',
     chartId: 'psd-chart',
     bandChartId: 'band-power-chart',
+    varianceChartId: 'variance-trend-chart',
     toolbarId: 'psd-toolbar',
     scopeControlsId: 'eeg-frequency-controls',
     yAxisControlsId: 'eeg-settings-btn-wrap',

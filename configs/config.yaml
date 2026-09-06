@@ -1,5 +1,5 @@
 app:
-  ui_version: "3.2.0"
+  ui_version: "3.3.0"
 
 ui:
   waveform:
@@ -266,6 +266,17 @@ signal:
     fmax_hz: 45.0
     to_db: true
     apply_notch: true
+    car_enabled: true
+    band_filter_order: 4
+    variance_window_sec: 0.5
+    variance_step_sec: 0.1
+    variance_floor_uv2: 1.0e-12
+    bands:
+      - {key: delta, name: Delta, symbol: "", fmin_hz: 1.0, fmax_hz: 4.0}
+      - {key: theta, name: Theta, symbol: "", fmin_hz: 4.0, fmax_hz: 8.0}
+      - {key: alpha, name: Alpha, symbol: "", fmin_hz: 8.0, fmax_hz: 13.0}
+      - {key: beta, name: Beta, symbol: "", fmin_hz: 13.0, fmax_hz: 30.0}
+      - {key: gamma, name: Gamma, symbol: "", fmin_hz: 30.0, fmax_hz: 45.0}
 
 offline:
   root_dir: "offlinedata"
